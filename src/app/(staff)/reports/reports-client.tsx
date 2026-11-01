@@ -51,7 +51,7 @@ export function ReportsClient() {
   return (
     <div className="page">
       <h1>รายงานแท็ก</h1>
-      <p className="muted">จำนวนแชทที่ถูกติดแท็กในแต่ละช่วงเวลา ตามเวลาไทย ไม่นับแท็กที่ถูกเอาออกภายหลัง ลูกค้าเดิมที่กลับมาเรื่องใหม่นับด้วย</p>
+      <p className="muted">จำนวนแชทที่ถูกติดแท็กในแต่ละช่วงเวลา ตามเวลาไทย ไม่นับแท็กที่เจ้าหน้าที่เอาออกเอง ลูกค้าเดิมที่กลับมาเรื่องใหม่นับด้วย</p>
 
       <div className="report-filters">
         <div className="tabs wide" role="group" aria-label="หน่วยเวลา">
