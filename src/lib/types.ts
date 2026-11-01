@@ -65,5 +65,6 @@ export interface Message {
   body_th: string | null;
   language: string;
   starred: boolean;
+  read_by_customer_at: string | null;
   created_at: string;
 }

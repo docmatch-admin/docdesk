@@ -43,6 +43,16 @@ export async function lineReply(replyToken: string, text: string): Promise<boole
   }
 }
 
+/** แจ้ง LINE ว่าอ่านแล้ว: ลูกค้าเห็น "อ่านแล้ว" ถึงข้อความของ token นี้และข้อความก่อนหน้าทั้งหมด */
+export async function lineMarkAsRead(markAsReadToken: string) {
+  const res = await fetch(`${API}/chat/markAsRead`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
+    body: JSON.stringify({ markAsReadToken }),
+  });
+  if (!res.ok) throw new Error(`LINE markAsRead failed ${res.status}: ${await res.text()}`);
+}
+
 /** ใช้ replyToken ก่อนถ้ามี ถ้าไม่สำเร็จค่อย push */
 export async function lineSend(userId: string, text: string, replyToken?: string) {
   if (replyToken && (await lineReply(replyToken, text))) return;

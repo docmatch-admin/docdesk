@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
-import { getMetaProfile, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
+import { getMetaProfile, parseMetaReads, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
+import { applyCustomerRead, findConversationId } from "@/lib/read-receipts";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -24,7 +25,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad signature" }, { status: 401 });
   }
 
-  const incoming = parseMetaWebhook(JSON.parse(raw));
+  const body = JSON.parse(raw);
+  const incoming = parseMetaWebhook(body);
   for (const m of incoming) {
     // ดึงโปรไฟล์เฉพาะลูกค้าใหม่ (ประหยัดการเรียก API)
     const { data: known } = await supabaseAdmin().from("contacts")
@@ -43,6 +45,17 @@ export async function POST(req: Request) {
 
     if (!stored.duplicate && m.isText) {
       after(() => processIncoming(stored.conversationId).catch((e) => console.error("processIncoming", e)));
+    }
+  }
+
+  // ลูกค้าอ่านข้อความแล้ว
+  for (const r of parseMetaReads(body)) {
+    try {
+      const db = supabaseAdmin();
+      const conversationId = await findConversationId(db, r.kind, r.senderId);
+      if (conversationId) await applyCustomerRead(db, conversationId, new Date(r.watermark).toISOString(), new Date(r.readAt));
+    } catch (e) {
+      console.error("meta read failed", e);
     }
   }
 

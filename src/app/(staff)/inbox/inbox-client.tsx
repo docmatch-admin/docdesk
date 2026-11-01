@@ -57,6 +57,11 @@ export function InboxClient() {
     setSuggestion(data ? { id: data.id, options: data.options as SuggestionOption[], needs_human: data.needs_human } : null);
   }, [sb]);
 
+  // error ห้ามทำให้หน้าแชทพัง ฝั่ง server log ไว้แล้ว
+  const markRead = useCallback((convId: string) => {
+    fetch(`/api/conversations/${convId}/read`, { method: "POST" }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     loadConvs();
     sb.from("settings").select("value").eq("key", "ai_mode").maybeSingle()
@@ -68,6 +73,13 @@ export function InboxClient() {
         const m = p.new as Message;
         if (m.conversation_id === selectedRef.current) {
           setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+          if (m.direction === "in" && document.hasFocus()) markRead(m.conversation_id);
+        }
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, (p) => {
+        const m = p.new as Message;
+        if (m.conversation_id === selectedRef.current) {
+          setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, ...m } : x)));
         }
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (p) => {
@@ -79,8 +91,11 @@ export function InboxClient() {
       })
       .subscribe();
     const t = setInterval(() => setTick((x) => x + 1), 15_000);
-    return () => { sb.removeChannel(ch); clearInterval(t); };
-  }, [sb, loadConvs]);
+    // ข้อความเข้าตอนหน้าต่างไม่โฟกัส: แจ้งอ่านแล้วเมื่อเจ้าหน้าที่กลับมา (server กันเรียก API ซ้ำให้)
+    const onFocus = () => { if (selectedRef.current) markRead(selectedRef.current); };
+    window.addEventListener("focus", onFocus);
+    return () => { sb.removeChannel(ch); clearInterval(t); window.removeEventListener("focus", onFocus); };
+  }, [sb, loadConvs, markRead]);
 
   // ---------- เลือกแชท ----------
   useEffect(() => {
@@ -90,7 +105,8 @@ export function InboxClient() {
       .then(({ data }) => setMessages((data ?? []) as Message[]));
     loadSuggestion(selectedId);
     sb.from("conversations").update({ unread_count: 0 }).eq("id", selectedId).then(() => {});
-  }, [selectedId, sb, loadSuggestion]);
+    markRead(selectedId);
+  }, [selectedId, sb, loadSuggestion, markRead]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -257,6 +273,7 @@ export function InboxClient() {
                   <div className="meta">
                     {m.sender_type === "ai" && <span className="chip mode-auto">🤖 AI</span>}
                     {timeTh(m.created_at)}
+                    {m.direction === "out" && <span>{m.read_by_customer_at ? "✓✓ อ่านแล้ว" : "✓ ส่งแล้ว"}</span>}
                     {m.direction === "out" && (
                       <button className={`star ${m.starred ? "on" : ""}`} title="บันทึกเป็นคำตอบมาตรฐาน"
                         onClick={() => !m.starred && star(m)}>{m.starred ? "★" : "☆"}</button>

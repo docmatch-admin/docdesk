@@ -75,12 +75,12 @@ export async function GET(req: Request) {
   const { data: contact } = await db.from("contacts").select("id")
     .eq("channel_id", channel.id).eq("external_id", session).maybeSingle();
   if (!contact) return NextResponse.json({ messages: [] }, { headers: cors });
-  const { data: conv } = await db.from("conversations").select("id").eq("contact_id", contact.id).maybeSingle();
+  const { data: conv } = await db.from("conversations").select("id, customer_marked_read_at").eq("contact_id", contact.id).maybeSingle();
   if (!conv) return NextResponse.json({ messages: [] }, { headers: cors });
 
   let q = db.from("messages").select("id, direction, body, created_at")
     .eq("conversation_id", conv.id).order("created_at").limit(100);
   if (after_) q = q.gt("created_at", after_);
   const { data } = await q;
-  return NextResponse.json({ messages: data ?? [] }, { headers: cors });
+  return NextResponse.json({ messages: data ?? [], clinic_read_at: conv.customer_marked_read_at }, { headers: cors });
 }

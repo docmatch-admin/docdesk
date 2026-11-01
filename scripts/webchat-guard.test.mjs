@@ -58,22 +58,38 @@ test("hash IP ไม่เก็บ IP จริง และขึ้นกั�
 function el() {
   const node = {
     style: {}, children: [], className: "", textContent: "", value: "", scrollHeight: 0, _q: {},
-    appendChild(c) { node.children.push(c); return c; },
+    parentNode: null,
+    get nextSibling() {
+      const sibs = node.parentNode?.children ?? [];
+      return sibs[sibs.indexOf(node) + 1] ?? null;
+    },
+    appendChild(c) { return node.insertBefore(c, null); },
+    insertBefore(c, ref) {
+      if (c.parentNode) c.parentNode.removeChild(c);
+      c.parentNode = node;
+      node.children.splice(ref ? node.children.indexOf(ref) : node.children.length, 0, c);
+      return c;
+    },
+    removeChild(c) { node.children.splice(node.children.indexOf(c), 1); c.parentNode = null; return c; },
     querySelector(sel) { return (node._q[sel] ??= el()); },
     addEventListener() {},
     focus() {},
   };
   return node;
 }
-function loadWidget(status, lang = "th") {
+function loadWidget(status, lang = "th", server = { messages: [], clinic_read_at: null }) {
   const head = el(), body = el();
   const posts = [];
+  const seen = [];
   const created = [];
+  const docListeners = {};
   const sandbox = {
     document: {
       currentScript: { src: "https://docdesk.example/widget.js" },
       documentElement: { lang },
       head, body,
+      hidden: false,
+      addEventListener(type, fn) { docListeners[type] = fn; },
       createElement() { const n = el(); created.push(n); return n; },
     },
     location: { href: "https://happiwellclinic.com/" },
@@ -84,8 +100,9 @@ function loadWidget(status, lang = "th") {
     setTimeout: () => 0,
     clearTimeout() {},
     fetch: async (url, init) => {
+      if (String(url).endsWith("/api/webchat/seen")) { seen.push(JSON.parse(init.body)); return { status: 200 }; }
       if (init?.method === "POST") { posts.push(JSON.parse(init.body)); return { status }; }
-      return { status: 200, json: async () => ({ messages: [] }) };
+      return { status: 200, json: async () => server };
     },
   };
   sandbox.window = sandbox;
@@ -99,7 +116,15 @@ function loadWidget(status, lang = "th") {
     form.onsubmit({ preventDefault() {} });
     await new Promise((r) => setImmediate(r));
   };
-  return { list, input, send, posts };
+  const tick = () => new Promise((r) => setImmediate(r));
+  const openPanel = async () => { body.children[0].onclick(); await tick(); };
+  const closePanel = async () => { body.children[0].onclick(); await tick(); };
+  const setHidden = async (v) => {
+    sandbox.document.hidden = v;
+    docListeners.visibilitychange();
+    await tick();
+  };
+  return { list, input, send, posts, seen, server, tick, openPanel, closePanel, setHidden };
 }
 const texts = (list) => list.children.map((c) => c.textContent);
 
@@ -122,4 +147,66 @@ test("widget ได้ 200: ไม่แสดงข้อความเตื�
   await w.send("สวัสดีค่ะ");
   assert.ok(!texts(w.list).includes("ส่งเร็วเกินไป กรุณารอสักครู่"));
   assert.equal(w.input.value, "");
+});
+
+// ---- สถานะ "อ่านแล้ว" ----
+const T1 = "2026-11-01T10:00:00.123456+00:00";
+const T2 = "2026-11-01T10:00:05.000000+00:00";
+const T3 = "2026-11-01T10:00:10.000000+00:00";
+const msg = (id, direction, created_at) => ({ id, direction, body: id, created_at });
+
+test("widget: แสดงอ่านแล้วใต้ข้อความล่าสุดของลูกค้า เมื่อคลินิกอ่านหลังข้อความนั้น", async () => {
+  const w = loadWidget(200, "th", { messages: [msg("q1", "in", T1), msg("a1", "out", T2)], clinic_read_at: T1 });
+  await w.tick();
+  assert.deepEqual(texts(w.list).slice(1), ["q1", "อ่านแล้ว", "a1"]);
+});
+
+test("widget: คลินิกยังไม่อ่าน ไม่แสดงอ่านแล้ว", async () => {
+  const w = loadWidget(200, "th", { messages: [msg("q1", "in", T1)], clinic_read_at: null });
+  await w.tick();
+  assert.ok(!texts(w.list).includes("อ่านแล้ว"));
+});
+
+test("widget: ลูกค้าส่งข้อความใหม่ ป้ายอ่านแล้วหายจนกว่าคลินิกจะอ่านอีกครั้ง", async () => {
+  const w = loadWidget(200, "th", { messages: [msg("q1", "in", T1)], clinic_read_at: T1 });
+  await w.tick();
+  assert.ok(texts(w.list).includes("อ่านแล้ว"));
+
+  w.server.messages = [msg("q2", "in", T2)];
+  await w.send("q2");
+  assert.ok(!texts(w.list).includes("อ่านแล้ว"));
+
+  w.server.clinic_read_at = T3;
+  await w.send("ping");
+  assert.deepEqual(texts(w.list).slice(1), ["q1", "q2", "อ่านแล้ว"]);
+});
+
+test("widget: แจ้งเห็นข้อความเมื่อเปิดหน้าต่างเท่านั้น และไม่แจ้งซ้ำ", async () => {
+  const w = loadWidget(200, "th", { messages: [msg("a1", "out", T1)], clinic_read_at: null });
+  await w.tick();
+  assert.equal(w.seen.length, 0);
+
+  await w.openPanel();
+  assert.deepEqual(w.seen.map((s) => s.upTo), [T1]);
+
+  await w.closePanel();
+  await w.openPanel();
+  assert.equal(w.seen.length, 1);
+});
+
+test("widget: แท็บถูกซ่อนยังไม่นับว่าเห็น แจ้งเมื่อกลับมาที่แท็บ", async () => {
+  const w = loadWidget(200, "th", { messages: [msg("a1", "out", T1)], clinic_read_at: null });
+  await w.tick();
+  await w.setHidden(true);
+  await w.openPanel();
+  assert.equal(w.seen.length, 0);
+  await w.setHidden(false);
+  assert.deepEqual(w.seen.map((s) => s.upTo), [T1]);
+});
+
+test("widget: ข้อความทักทายในเครื่องไม่ถูกแจ้งว่าเห็น", async () => {
+  const w = loadWidget(200);
+  await w.tick();
+  await w.openPanel();
+  assert.equal(w.seen.length, 0);
 });

@@ -104,6 +104,16 @@ export async function metaSend(
   }
 }
 
+/** แจ้ง Facebook/Instagram ว่าเพจอ่านแล้ว */
+export async function metaMarkSeen(_kind: "facebook" | "instagram", recipientId: string) {
+  const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient: { id: recipientId }, sender_action: "mark_seen" }),
+  });
+  if (!res.ok) throw new Error(`Meta mark_seen failed ${res.status}: ${await res.text()}`);
+}
+
 // ---------------------------------------------------------------------------
 // แปลง webhook payload → ข้อความเข้า
 // ---------------------------------------------------------------------------
@@ -122,6 +132,8 @@ interface MetaWebhookBody {
     messaging?: {
       sender?: { id: string };
       recipient?: { id: string };
+      timestamp?: number;
+      read?: { watermark?: number };
       message?: {
         mid: string;
         text?: string;
@@ -156,6 +168,30 @@ export function parseMetaWebhook(body: MetaWebhookBody): MetaIncoming[] {
           text: `[ลูกค้าส่ง${ATTACHMENT_TH[t] ?? t} — เปิดดูใน ${kind === "facebook" ? "Meta Business Suite" : "Instagram"}]`,
         });
       }
+    }
+  }
+  return out;
+}
+
+export interface MetaRead {
+  kind: "facebook" | "instagram";
+  senderId: string;
+  watermark: number;  // ms: ข้อความที่ส่งไม่เกินเวลานี้ถือว่าอ่านแล้ว
+  readAt: number;     // ms
+}
+
+/** Messenger ส่ง read.watermark ส่วนเอกสาร Instagram (messaging_seen) ไม่ระบุว่ามี จึงใช้เวลาของ event แทน */
+export function parseMetaReads(body: MetaWebhookBody): MetaRead[] {
+  const kind = body.object === "page" ? "facebook" : body.object === "instagram" ? "instagram" : null;
+  if (!kind) return [];
+  const out: MetaRead[] = [];
+  for (const entry of body.entry ?? []) {
+    for (const ev of entry.messaging ?? []) {
+      const senderId = ev.sender?.id;
+      if (!ev.read || !senderId || senderId === entry.id) continue;
+      const watermark = ev.read.watermark ?? ev.timestamp;
+      if (!watermark) continue;
+      out.push({ kind, senderId, watermark, readAt: ev.timestamp ?? watermark });
     }
   }
   return out;

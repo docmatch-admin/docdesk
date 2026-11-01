@@ -9,7 +9,7 @@ interface LineEvent {
   type: string;
   replyToken?: string;
   source?: { type: string; userId?: string };
-  message?: { id: string; type: string; text?: string };
+  message?: { id: string; type: string; text?: string; markAsReadToken?: string };
 }
 
 export async function POST(req: Request) {
@@ -38,6 +38,7 @@ export async function POST(req: Request) {
       avatarUrl: profile.pictureUrl,
       externalMessageId: ev.message.id,
       replyToken: ev.replyToken,
+      markAsReadToken: ev.message.markAsReadToken,
     });
 
     if (!stored.duplicate && ev.message.type === "text") {

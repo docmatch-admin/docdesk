@@ -27,7 +27,7 @@
    ```
    (ผู้ใช้ที่ไม่มีแถวใน `staff` ล็อกอินได้แต่จะไม่เห็นข้อมูลใดๆ)
 5. **Deploy** บน Vercel แล้วตั้ง env เหมือน `.env.local`
-6. **LINE**: LINE Developers → Messaging API → Webhook URL = `https://<app>/api/webhooks/line` → เปิด Use webhook, ปิด Auto-reply/Greeting ของ LINE OA Manager
+6. **LINE**: LINE Developers → Messaging API → Webhook URL = `https://<app>/api/webhooks/line` → เปิด Use webhook, ปิด Auto-reply/Greeting และ**เปิด Chat** ใน Response settings ของ LINE OA Manager (ถ้าปิด Chat ลูกค้าจะเห็น "อ่านแล้ว" ทันทีทุกข้อความ แม้ยังไม่มีใครเปิดอ่าน)
 7. **เว็บไซต์**: ใส่ในทุกหน้าของ happiwellclinic.com
    ```html
    <script src="https://<app>/widget.js" defer></script>
@@ -39,6 +39,7 @@
 - LINE: ข้อความแรกที่ตอบภายใน 50 วินาทีหลังลูกค้าทักใช้ replyToken (ฟรี ทั้ง AI และเจ้าหน้าที่) นอกนั้นหรือถ้า reply ไม่สำเร็จใช้ push ซึ่งนับโควต้าข้อความของ LINE OA
 - PDPA: แชทมีข้อมูลสุขภาพ เก็บใน Supabase ของคลินิกเอง ควรเพิ่มข้อความแจ้งการเก็บข้อมูลในข้อความทักทาย/นโยบายความเป็นส่วนตัวของเว็บ
 - Web chat endpoint มีตัวป้องกัน (`src/lib/webchat-guard.ts`, migration `006`): 5 ข้อความ/นาที และ 30 ข้อความ/ชั่วโมงต่อ session, 3 session ใหม่/ชั่วโมงต่อ IP, AI 300 ข้อความ/วัน (เกินแล้วเก็บข้อความให้คนตอบ), รับเฉพาะ Origin ของเว็บคลินิกและ localhost · เพิ่มโดเมนใหม่ต้องแก้ `ALLOWED_ORIGINS`
+- สถานะอ่านแล้ว (`src/lib/read-receipts.ts`, migration `007`): ลูกค้าเห็นว่าอ่านแล้วเมื่อเจ้าหน้าที่เปิดแชท หรือ AI ส่งคำตอบเองสำเร็จ ไม่ใช่ตอนแค่สร้างคำแนะนำ · หน้า inbox แสดง "✓✓ อ่านแล้ว" เฉพาะ Facebook, Instagram และเว็บ เพราะ LINE ไม่ส่งข้อมูลการอ่านของลูกค้ามาให้
 
 ## เฟส 2: Facebook Messenger + Instagram
 โค้ดพร้อมแล้ว (`/api/webhooks/meta`) เหลือตั้งค่าฝั่ง Meta:
@@ -47,7 +48,7 @@
 3. เชื่อม Facebook Page ของคลินิก และ Instagram Professional account ที่ผูกกับเพจนั้น
    - ใน Instagram app: ตั้งค่า → ความเป็นส่วนตัว → ข้อความ → เปิด **อนุญาตการเข้าถึงข้อความ** (Connected tools)
 4. ออก Page access token แบบไม่หมดอายุ: Business Settings → **System users** → สร้าง → Assign assets (Page) → Generate token สิทธิ์ `pages_messaging`, `pages_manage_metadata`, `instagram_basic`, `instagram_manage_messages`
-5. Webhooks: Callback URL `https://<app>/api/webhooks/meta` · Verify token = `META_VERIFY_TOKEN` · subscribe field `messages` ทั้งของ Page และ Instagram
+5. Webhooks: Callback URL `https://<app>/api/webhooks/meta` · Verify token = `META_VERIFY_TOKEN` · subscribe field `messages` ทั้งของ Page และ Instagram · เพิ่ม `message_reads` ของ Page และ `messaging_seen` ของ Instagram เพื่อแสดง "✓✓ อ่านแล้ว" (Instagram ไม่ได้ใช้ชื่อ `message_reads`)
 6. ใส่ env: `META_APP_SECRET` (App settings → Basic), `META_VERIFY_TOKEN` (ตั้งเอง), `META_PAGE_ACCESS_TOKEN`
 7. **App Review + Business verification** เพื่อขอสิทธิ์ `pages_messaging` และ `instagram_manage_messages` (ก่อนอนุมัติ ทดสอบได้เฉพาะบัญชีที่มี role ในแอป) ขอ **Human Agent** เพิ่มถ้าต้องการตอบหลัง 24 ชม.
 

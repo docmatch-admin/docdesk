@@ -10,8 +10,8 @@
   var API = new URL(script ? script.src : location.href).origin + "/api/webchat";
   var en = (document.documentElement.lang || "").toLowerCase().indexOf("en") === 0;
   var T = en
-    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment." }
-    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่" };
+    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment.", read: "Read" }
+    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่", read: "อ่านแล้ว" };
 
   var KEY = "docdesk_session";
   function uuid() {
@@ -34,6 +34,7 @@
 .dd-m{max-width:80%;padding:9px 13px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word}\
 .dd-in{align-self:flex-end;background:#4A63E0;color:#fff;border-bottom-right-radius:4px}\
 .dd-out{align-self:flex-start;background:#fff;border:1px solid #e3e7f0;border-bottom-left-radius:4px}\
+.dd-read{align-self:flex-end;margin-top:-4px;font-size:11px;color:#7a8295}\
 #dd-form{display:flex;gap:8px;padding:10px;border-top:1px solid #e3e7f0}\
 #dd-form textarea{flex:1;resize:none;border:1px solid #cfd5e3;border-radius:10px;padding:9px 11px;font:inherit;height:44px}\
 #dd-form button{background:#22C7A0;color:#fff;border:0;border-radius:10px;padding:0 16px;font:600 16px system-ui;cursor:pointer}";
@@ -58,6 +59,10 @@
   var input = form.querySelector("textarea");
   var dot = btn.querySelector(".dot");
   var open = false, last = null, seen = {}, unread = 0, timer = null;
+  var lastIn = null, lastOutAt = null, clinicReadAt = null, seenUpTo = null;
+  var readEl = document.createElement("div");
+  readEl.className = "dd-read";
+  readEl.textContent = T.read;
 
   function add(m) {
     if (seen[m.id]) return;
@@ -67,13 +72,40 @@
     d.textContent = m.body;
     list.appendChild(d);
     list.scrollTop = list.scrollHeight;
-    if (m.created_at) last = m.created_at;
+    if (m.created_at) {
+      last = m.created_at;
+      if (m.direction === "in") lastIn = { el: d, at: m.created_at };
+      else lastOutAt = m.created_at;
+    }
     if (!open && m.direction === "out") { unread++; dot.textContent = unread; dot.style.display = "inline-flex"; }
   }
 
+  // "อ่านแล้ว" ใต้ข้อความล่าสุดของลูกค้า เมื่อคลินิกเปิดอ่านหลังข้อความนั้น
+  function renderRead() {
+    if (lastIn && clinicReadAt && new Date(clinicReadAt) >= new Date(lastIn.at)) {
+      if (lastIn.el.nextSibling !== readEl) list.insertBefore(readEl, lastIn.el.nextSibling);
+    } else if (readEl.parentNode) {
+      list.removeChild(readEl);
+    }
+  }
+
+  // แจ้งคลินิกเมื่อลูกค้าเห็นข้อความจริง: หน้าต่างแชทเปิดอยู่และแท็บไม่ได้ถูกซ่อน
+  function reportSeen() {
+    if (!open || document.hidden || !lastOutAt || lastOutAt === seenUpTo) return;
+    seenUpTo = lastOutAt;
+    fetch(API + "/seen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session: session, upTo: lastOutAt }) })
+      .catch(function () { seenUpTo = null; });
+  }
+  document.addEventListener("visibilitychange", reportSeen);
+
   function poll() {
     var url = API + "?session=" + session + (last ? "&after=" + encodeURIComponent(last) : "");
-    fetch(url).then(function (r) { return r.json(); }).then(function (j) { (j.messages || []).forEach(add); })
+    fetch(url).then(function (r) { return r.json(); }).then(function (j) {
+      (j.messages || []).forEach(add);
+      if (j.clinic_read_at) clinicReadAt = j.clinic_read_at;
+      renderRead();
+      reportSeen();
+    })
       .catch(function () {})
       .finally(function () { timer = setTimeout(poll, open ? 3000 : 15000); });
   }

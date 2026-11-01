@@ -1,8 +1,11 @@
 import { embed } from "./ai";
 import { sendToChannel } from "./channels";
+import { lineMarkAsRead } from "./channels/line";
+import { metaMarkSeen } from "./channels/meta";
 import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { scrubPII } from "./pii";
+import { markConversationReadWith } from "./read-receipts";
 import { AUTO_SEND_MIN_CONFIDENCE, generateSuggestions, pendingCustomerText } from "./suggest";
 import { supabaseAdmin } from "./supabase/admin";
 import { fromThai, toThai } from "./translate";
@@ -21,6 +24,7 @@ export interface IncomingInput {
   avatarUrl?: string;
   externalMessageId?: string;
   replyToken?: string;
+  markAsReadToken?: string;
   skipAi?: boolean;             // เกินเพดาน AI: เก็บข้อความโดยไม่แปล
 }
 
@@ -66,6 +70,7 @@ export async function storeIncoming(input: IncomingInput) {
     body_th: th,
     language,
     external_id: input.externalMessageId ?? null,
+    line_mark_as_read_token: input.markAsReadToken ?? null,
   }).select("id").single();
   if (mErr || !msg) throw mErr ?? new Error("message insert failed");
 
@@ -141,7 +146,14 @@ export async function tryAutoSend(
     await supabaseAdmin().from("conversations").update({ needs_human: true, ai_due_at: null }).eq("id", conversationId);
     return false;
   }
+  // แจ้งว่าอ่านแล้วหลังส่งสำเร็จเท่านั้น ลูกค้าจะได้ไม่เห็นว่าอ่านแล้วแต่ไม่มีคำตอบ
+  await markConversationRead(conversationId);
   return true;
+}
+
+/** แจ้งแพลตฟอร์มว่าคลินิกอ่านแล้ว ห้ามเรียกตอนแค่สร้างคำแนะนำ */
+export function markConversationRead(conversationId: string) {
+  return markConversationReadWith(supabaseAdmin(), conversationId, { line: lineMarkAsRead, meta: metaMarkSeen });
 }
 
 // ---------------------------------------------------------------------------
@@ -172,14 +184,17 @@ export async function sendReply(input: ReplyInput) {
   const language = input.skipTranslate ? "th" : contact.language || "th";
   const body = language === "th" ? input.textTh : await fromThai(input.textTh, language);
 
+  const isMeta = channel.type === "facebook" || channel.type === "instagram";
   let lastInboundAt: Date | null = null;
-  if (channel.type === "facebook" || channel.type === "instagram") {
+  if (isMeta) {
     const { data: lastIn } = await db.from("messages").select("created_at")
       .eq("conversation_id", input.conversationId).eq("direction", "in")
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
     lastInboundAt = lastIn ? new Date(lastIn.created_at as string) : null;
   }
   const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
+  // watermark ของ Meta คือเวลาที่ Meta ได้รับข้อความ ถ้าใช้เวลาหลังส่งเสร็จ ข้อความล่าสุดจะดูเหมือนส่งหลัง watermark และไม่ขึ้นว่าอ่านแล้ว
+  const sentAt = new Date().toISOString();
   await sendToChannel(channel.type, contact.external_id, body, {
     replyToken, lastInboundAt, senderType: input.senderType,
   });
@@ -192,6 +207,7 @@ export async function sendReply(input: ReplyInput) {
     body,
     body_th: language === "th" ? null : input.textTh,
     language,
+    ...(isMeta ? { created_at: sentAt } : {}),
   }).select("id").single();
 
   await db.from("conversations").update({
