@@ -10,8 +10,8 @@
   var API = new URL(script ? script.src : location.href).origin + "/api/webchat";
   var en = (document.documentElement.lang || "").toLowerCase().indexOf("en") === 0;
   var T = en
-    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us" }
-    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา" };
+    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment." }
+    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่" };
 
   var KEY = "docdesk_session";
   function uuid() {
@@ -95,8 +95,15 @@
     if (!text) return;
     input.value = "";
     fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session: session, text: text }) })
-      .then(function (r) { return r.json(); })
-      .then(function () { clearTimeout(timer); poll(); });
+      .then(function (r) {
+        if (r.status === 429) {
+          // คืนข้อความให้ลูกค้าส่งใหม่ได้โดยไม่ต้องพิมพ์ซ้ำ
+          if (!input.value) input.value = text;
+          add({ id: "busy-" + Date.now(), direction: "out", body: T.busy });
+          return;
+        }
+        clearTimeout(timer); poll();
+      });
   }
   form.onsubmit = send;
   input.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) send(e); });

@@ -21,6 +21,7 @@ export interface IncomingInput {
   avatarUrl?: string;
   externalMessageId?: string;
   replyToken?: string;
+  skipAi?: boolean;             // เกินเพดาน AI: เก็บข้อความโดยไม่แปล
 }
 
 /** บันทึกข้อความเข้า แล้วคืน conversationId (เร็ว ใช้ก่อนตอบ webhook) */
@@ -53,7 +54,9 @@ export async function storeIncoming(input: IncomingInput) {
     .select("id, unread_count").single();
   if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
 
-  const { language, th } = await toThai(input.text);
+  const { language, th } = input.skipAi
+    ? { language: contact.language as string, th: null }
+    : await toThai(input.text);
 
   const { data: msg, error: mErr } = await db.from("messages").insert({
     conversation_id: conv.id,
