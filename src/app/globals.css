@@ -268,3 +268,15 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
   .chat-head { flex-wrap: wrap; }
   .head-actions { flex-wrap: wrap; }
 }
+
+/* ---------- หัวห้องแชทบนมือถือ ---------- */
+.tag-picker .btn { white-space: nowrap; }
+.suggest-head { flex-wrap: wrap; }
+.suggest-head > span:first-child { white-space: nowrap; }
+@media (max-width: 899px) {
+  .chat-head { align-items: flex-start; }
+  .chat-head-main { flex: 1 1 calc(100% - 60px); }
+  .head-actions { flex: 1 1 100%; justify-content: space-between; }
+  .mode-select { white-space: nowrap; }
+  .mode-select select { width: auto; max-width: 150px; }
+}
