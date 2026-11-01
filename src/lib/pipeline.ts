@@ -6,6 +6,7 @@ import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { scrubPII } from "./pii";
 import { markConversationReadWith } from "./read-receipts";
+import { hasUrgentSignal } from "./suggest-rules";
 import { AUTO_SEND_MIN_CONFIDENCE, generateSuggestions, pendingCustomerText } from "./suggest";
 import { supabaseAdmin } from "./supabase/admin";
 import { fromThai, toThai } from "./translate";
@@ -90,8 +91,11 @@ export async function storeIncoming(input: IncomingInput) {
   return { conversationId: conv.id as string, messageId: msg.id as string, duplicate: false };
 }
 
-/** หลังบันทึก: สร้างคำแนะนำ แล้วตัดสินใจตามโหมด AI (เรียกใน after()) */
-export async function processIncoming(conversationId: string, replyToken?: string) {
+/** auto/fallback: รอให้ลูกค้าพิมพ์จบก่อน ข้อความใหม่จะเริ่มนับใหม่ และร่างครั้งเดียวจากทั้งชุด */
+export const aiTiming = { debounceMs: 8_000 };
+
+/** หลังบันทึก: ตัดสินใจตามโหมด AI (เรียกใน after()) */
+export async function processIncoming(conversationId: string, messageId: string, replyToken?: string) {
   const db = supabaseAdmin();
   const { data: conv } = await db
     .from("conversations").select("id, ai_mode, channels(ai_mode)").eq("id", conversationId).single();
@@ -99,9 +103,24 @@ export async function processIncoming(conversationId: string, replyToken?: strin
 
   const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as { ai_mode: AiMode | null };
   const mode = await resolveAiMode(conv as { ai_mode: AiMode | null }, channel ?? { ai_mode: null });
-  const suggestion = await generateSuggestions(conversationId);
 
-  if (mode === "off" || mode === "assist") return;
+  // ไม่ร่างตอนข้อความเข้า สร้างตอนเจ้าหน้าที่เปิดแชท แต่เรื่องด่วนยังต้องขึ้นป้ายในรายการแชท
+  if (mode === "off" || mode === "assist") {
+    const { data: m } = await db.from("messages").select("body, body_th").eq("id", messageId).maybeSingle();
+    if (m && hasUrgentSignal(m.body_th || m.body)) {
+      await db.from("conversations").update({ needs_human: true }).eq("id", conversationId);
+    }
+    return;
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, aiTiming.debounceMs));
+  const { data: latest } = await db.from("messages").select("id")
+    .eq("conversation_id", conversationId).eq("direction", "in")
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (latest?.id !== messageId) return; // มีข้อความใหม่กว่า ให้รอบของข้อความนั้นทำแทน
+
+  const suggestion = await generateSuggestions(conversationId);
+  if (suggestion.skipped) return;
 
   if (mode === "fallback") {
     const hours = await getSetting<BusinessHours>("business_hours", { tz: "Asia/Bangkok", days: {} });
@@ -317,6 +336,7 @@ export async function runFallback() {
     if (!last || last.direction === "out") continue; // มีคนตอบไปแล้ว
 
     const s = await generateSuggestions(c.id);
+    if (s.skipped) continue;
     if (await tryAutoSend(c.id, s.options, s.needs_human, s.id)) sent++;
   }
   return { checked: due?.length ?? 0, sent };

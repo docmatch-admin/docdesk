@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     });
 
     if (!stored.duplicate && ev.message.type === "text") {
-      after(() => processIncoming(stored.conversationId, ev.replyToken).catch((e) => console.error("processIncoming", e)));
+      after(() => processIncoming(stored.conversationId, stored.messageId, ev.replyToken).catch((e) => console.error("processIncoming", e)));
     }
   }
 

@@ -1,8 +1,11 @@
 import { chatJSON, embed } from "./ai";
-import { getSetting } from "./mode";
+import { bangkokDate } from "./llm-usage";
+import { getSetting, resolveAiMode } from "./mode";
 import { applyNumberGuard, buildNumberSources } from "./number-guard";
+import { pickStarredAnswer, shouldSkipSuggestion } from "./suggest-rules";
 import { supabaseAdmin } from "./supabase/admin";
-import type { SuggestionOption, SuggestionResult, SuggestionSource } from "./types";
+import type { AiMode, ChannelType, SuggestionOption, SuggestionResult, SuggestionSource } from "./types";
+import { WEBCHAT_LIMITS } from "./webchat-guard";
 
 const KNOWLEDGE_MIN_SIM = 0.3;
 const EXAMPLE_MIN_SIM = 0.45;
@@ -33,7 +36,38 @@ export function pendingCustomerText(msgs: MsgRow[]): { text: string; lastId: str
   };
 }
 
-export async function generateSuggestions(conversationId: string): Promise<SuggestionResult> {
+/** โหมด auto/fallback ระบบร่างเองหลังรอ 8 วินาที เผื่อเวลาร่างไว้ด้วย กันเจ้าหน้าที่เปิดแชทแล้วเรียก LLM ซ้ำ */
+const SERVER_DRAFT_WINDOW_MS = 20_000;
+
+/**
+ * เจ้าหน้าที่เปิดแชท: สร้างคำแนะนำถ้ายังไม่มีของข้อความล่าสุด
+ * เกินเพดาน AI ของเว็บแล้วไม่สร้างให้เอง เจ้าหน้าที่ยังกด "แนะนำใหม่" ได้
+ */
+export async function ensureSuggestions(conversationId: string, now = Date.now()): Promise<SuggestionResult> {
+  const db = supabaseAdmin();
+  const empty = { id: null, options: [], needs_human: false };
+  const { data: conv } = await db.from("conversations")
+    .select("ai_mode, channels(type, ai_mode)").eq("id", conversationId).single();
+  if (!conv) return empty;
+  const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as unknown as { type: ChannelType; ai_mode: AiMode | null };
+
+  if (channel.type === "web") {
+    const { data: usage } = await db.from("ai_daily_usage").select("count").eq("channel", "web").eq("day", bangkokDate(new Date(now))).maybeSingle();
+    if ((usage?.count ?? 0) >= WEBCHAT_LIMITS.aiPerDay) return { ...empty, skipped: "cap" };
+  }
+
+  const mode = await resolveAiMode(conv as { ai_mode: AiMode | null }, channel);
+  if (mode === "auto" || mode === "fallback") {
+    const { data: lastIn } = await db.from("messages").select("created_at")
+      .eq("conversation_id", conversationId).eq("direction", "in")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (lastIn && now - Date.parse(lastIn.created_at as string) < SERVER_DRAFT_WINDOW_MS) return { ...empty, skipped: "in_progress" };
+  }
+  return generateSuggestions(conversationId);
+}
+
+/** force = เจ้าหน้าที่กด "แนะนำใหม่": ข้ามกฎประหยัดทั้งหมดและเรียก LLM เสมอ */
+export async function generateSuggestions(conversationId: string, { force = false } = {}): Promise<SuggestionResult> {
   const db = supabaseAdmin();
 
   const { data: rows } = await db
@@ -45,6 +79,21 @@ export async function generateSuggestions(conversationId: string): Promise<Sugge
   const msgs = ((rows ?? []) as MsgRow[]).reverse();
   const { text: question, lastId } = pendingCustomerText(msgs);
   if (!question.trim()) return { id: null, options: [], needs_human: false };
+
+  if (!force) {
+    if (msgs.at(-1)?.direction !== "in") return { id: null, options: [], needs_human: false, skipped: "answered" };
+
+    const lastOut = [...msgs].reverse().find((m) => m.direction === "out");
+    if (shouldSkipSuggestion(question, lastOut ? lastOut.body_th || lastOut.body : null)) {
+      return { id: null, options: [], needs_human: false, skipped: "no_reply_needed" };
+    }
+
+    // สร้างครั้งเดียวต่อชุดข้อความที่ยังไม่ตอบ
+    const { data: existing } = await db.from("suggestions").select("id, options, needs_human")
+      .eq("conversation_id", conversationId).eq("trigger_message_id", lastId as string)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    if (existing) return { id: existing.id, options: existing.options as SuggestionOption[], needs_human: existing.needs_human };
+  }
 
   // ---- ค้น 2 แหล่งด้วย vector search ----
   const qEmbedding = await embed(question);
@@ -59,6 +108,16 @@ export async function generateSuggestions(conversationId: string): Promise<Sugge
     if (!knowledge.some((k) => k.id === p.id)) knowledge.push({ ...p, similarity: 1 });
   }
   const examples = ((eRaw ?? []) as ExampleHit[]).filter((e) => e.similarity >= EXAMPLE_MIN_SIM);
+
+  const starred = force ? null : pickStarredAnswer({ question, examples, knowledge, msgs });
+  if (starred) {
+    const { data: saved } = await db
+      .from("suggestions")
+      .insert({ conversation_id: conversationId, trigger_message_id: lastId, options: [starred], needs_human: false })
+      .select("id")
+      .single();
+    return { id: saved?.id ?? null, options: [starred], needs_human: false };
+  }
 
   const profile = await getSetting<{ name: string; tone: string }>("clinic_profile", {
     name: "HappiWell Medical Clinic", tone: "สุภาพ เป็นกันเอง",

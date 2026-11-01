@@ -37,6 +37,7 @@ export function InboxClient() {
   const listRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selectedId;
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
   const customerLang = selected?.contacts?.language ?? "th";
@@ -62,6 +63,21 @@ export function InboxClient() {
     fetch(`/api/conversations/${convId}/read`, { method: "POST" }).catch(() => {});
   }, []);
 
+  // สร้างคำแนะนำเมื่อเจ้าหน้าที่ดูแชทอยู่ server จะไม่เรียก LLM ซ้ำถ้ามีของข้อความล่าสุดแล้ว
+  const ensureSuggestion = useCallback(async (convId: string, quiet = false) => {
+    if (!quiet) setSuggesting(true);
+    try {
+      const res = await fetch(`/api/conversations/${convId}/suggest?ensure=1`, { method: "POST" });
+      if (!res.ok || selectedRef.current !== convId) return;
+      const s = (await res.json()) as SuggestionResult;
+      if (s.options?.length) setSuggestion((prev) => (prev?.id === s.id ? prev : s));
+    } catch {
+      // ยังกด "แนะนำใหม่" เองได้
+    } finally {
+      if (!quiet) setSuggesting(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadConvs();
     sb.from("settings").select("value").eq("key", "ai_mode").maybeSingle()
@@ -73,7 +89,14 @@ export function InboxClient() {
         const m = p.new as Message;
         if (m.conversation_id === selectedRef.current) {
           setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
-          if (m.direction === "in" && document.hasFocus()) markRead(m.conversation_id);
+          if (m.direction === "in") {
+            if (document.hasFocus()) markRead(m.conversation_id);
+            // รอให้ลูกค้าพิมพ์จบ แล้วค่อยสร้างครั้งเดียวจากทั้งชุด
+            if (draftTimer.current) clearTimeout(draftTimer.current);
+            draftTimer.current = setTimeout(() => {
+              if (document.hasFocus() && selectedRef.current === m.conversation_id) ensureSuggestion(m.conversation_id);
+            }, 8000);
+          }
         }
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, (p) => {
@@ -92,10 +115,14 @@ export function InboxClient() {
       .subscribe();
     const t = setInterval(() => setTick((x) => x + 1), 15_000);
     // ข้อความเข้าตอนหน้าต่างไม่โฟกัส: แจ้งอ่านแล้วเมื่อเจ้าหน้าที่กลับมา (server กันเรียก API ซ้ำให้)
-    const onFocus = () => { if (selectedRef.current) markRead(selectedRef.current); };
+    const onFocus = () => {
+      if (!selectedRef.current) return;
+      markRead(selectedRef.current);
+      ensureSuggestion(selectedRef.current, true);
+    };
     window.addEventListener("focus", onFocus);
     return () => { sb.removeChannel(ch); clearInterval(t); window.removeEventListener("focus", onFocus); };
-  }, [sb, loadConvs, markRead]);
+  }, [sb, loadConvs, markRead, ensureSuggestion]);
 
   // ---------- เลือกแชท ----------
   useEffect(() => {
@@ -103,10 +130,11 @@ export function InboxClient() {
     setText(""); setChosen(null); setSuggestion(null); setRawMode(false);
     sb.from("messages").select("*").eq("conversation_id", selectedId).order("created_at").limit(300)
       .then(({ data }) => setMessages((data ?? []) as Message[]));
-    loadSuggestion(selectedId);
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    loadSuggestion(selectedId).then(() => ensureSuggestion(selectedId));
     sb.from("conversations").update({ unread_count: 0 }).eq("id", selectedId).then(() => {});
     markRead(selectedId);
-  }, [selectedId, sb, loadSuggestion, markRead]);
+  }, [selectedId, sb, loadSuggestion, markRead, ensureSuggestion]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });

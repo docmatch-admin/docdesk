@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     });
 
     if (!stored.duplicate && m.isText) {
-      after(() => processIncoming(stored.conversationId).catch((e) => console.error("processIncoming", e)));
+      after(() => processIncoming(stored.conversationId, stored.messageId).catch((e) => console.error("processIncoming", e)));
     }
   }
 

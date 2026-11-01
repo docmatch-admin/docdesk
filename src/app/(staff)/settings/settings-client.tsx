@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib/llm-usage";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
 
@@ -18,8 +19,11 @@ export function SettingsClient() {
   const [profile, setProfile] = useState({ name: "", tone: "" });
   const [channels, setChannels] = useState<Channel[]>([]);
   const [saved, setSaved] = useState("");
+  const [usage, setUsage] = useState<LlmUsageRow[]>([]);
 
   useEffect(() => {
+    sb.from("llm_usage_daily").select("*").gte("day", `${bangkokDate().slice(0, 7)}-01`)
+      .then(({ data }) => setUsage((data ?? []) as LlmUsageRow[]));
     sb.from("settings").select("key, value").then(({ data }) => {
       for (const r of data ?? []) {
         if (r.key === "ai_mode") setMode(r.value as AiMode);
@@ -48,6 +52,8 @@ export function SettingsClient() {
   }
 
   const setDay = (d: number, v: [string, string] | null) => setHours({ ...hours, days: { ...hours.days, [d]: v } });
+  const stats = summarizeUsage(usage);
+  const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div className="page narrow">
@@ -117,6 +123,16 @@ export function SettingsClient() {
         <h3>บุคลิกการตอบของ AI</h3>
         <label>ชื่อคลินิก<input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></label>
         <label>โทน/สำนวน<textarea rows={3} value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} /></label>
+      </section>
+
+      <section className="card">
+        <h3>การใช้ AI</h3>
+        <div className="row between ch-row"><span>เรียก LLM วันนี้</span><b>{stats.todayCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.todayCostThb)} บาท</b></div>
+        <div className="row between ch-row"><span>เรียก LLM เดือนนี้</span><b>{stats.monthCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.monthCostThb)} บาท</b></div>
+        <p className="muted small">
+          ค่าใช้จ่ายโดยประมาณ รวม embedding คิดที่ 1 USD = {USD_TO_THB} บาท ยอดจริงดูที่หน้า billing ของ OpenAI
+          {stats.unpricedModels.length > 0 && <> · ไม่รวมโมเดลที่ไม่รู้ราคา: {stats.unpricedModels.join(", ")}</>}
+        </p>
       </section>
 
       <div className="row sticky-save">

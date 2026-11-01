@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import { recordLlmUsage } from "./llm-usage";
+import { supabaseAdmin } from "./supabase/admin";
 
 let client: OpenAI | null = null;
 export function openai() {
@@ -11,6 +13,7 @@ export const EMBED_MODEL = process.env.OPENAI_EMBED_MODEL || "text-embedding-3-s
 
 export async function embed(text: string): Promise<number[]> {
   const res = await openai().embeddings.create({ model: EMBED_MODEL, input: text.slice(0, 8000) });
+  await recordLlmUsage(supabaseAdmin(), "embedding", EMBED_MODEL, res.usage?.prompt_tokens ?? 0, 0);
   return res.data[0].embedding;
 }
 
@@ -25,6 +28,7 @@ export async function chatJSON<T>(system: string, user: string, temperature = 0.
       { role: "user", content: user },
     ],
   });
+  await recordLlmUsage(supabaseAdmin(), "chat", CHAT_MODEL, res.usage?.prompt_tokens ?? 0, res.usage?.completion_tokens ?? 0);
   const raw = res.choices[0]?.message?.content ?? "{}";
   return JSON.parse(raw) as T;
 }

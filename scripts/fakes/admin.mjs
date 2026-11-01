@@ -1,0 +1,72 @@
+// แทน src/lib/supabase/admin.ts ในเทสต์: ฐานข้อมูลในหน่วยความจำ
+let seq = 0;
+let clock = Date.parse("2026-11-01T03:00:00Z");
+export const state = { tables: {}, matchExamples: [], matchKnowledge: [] };
+
+export function nextTime() { clock += 1000; return new Date(clock).toISOString(); }
+export function resetDb(tables) {
+  state.tables = { suggestions: [], messages: [], settings: [], knowledge_items: [], ai_daily_usage: [], ...tables };
+  state.matchExamples = [];
+  state.matchKnowledge = [];
+}
+
+function withRelations(name, row) {
+  if (name !== "conversations") return row;
+  return {
+    ...row,
+    channels: state.tables.channels?.find((c) => c.id === row.channel_id),
+    contacts: state.tables.contacts?.find((c) => c.id === row.contact_id),
+  };
+}
+
+function query(name) {
+  const filters = [];
+  let op = "select", payload = null, conflict = null, sort = null, max = Infinity;
+  const rows = () => {
+    const table = (state.tables[name] ??= []);
+    let out = table.filter((r) => filters.every((f) => f(r)));
+    if (sort) out = [...out].sort((a, b) => (Date.parse(a[sort.key]) - Date.parse(b[sort.key])) * sort.dir);
+    return out.slice(0, max);
+  };
+  const run = () => {
+    const table = (state.tables[name] ??= []);
+    if (op === "insert" || op === "upsert") {
+      const keys = conflict?.split(",");
+      const found = keys && table.find((r) => keys.every((k) => r[k] === payload[k]));
+      if (found) { Object.assign(found, payload); return [found]; }
+      const row = { id: `${name}-${++seq}`, created_at: nextTime(), ...payload };
+      table.push(row);
+      return [row];
+    }
+    const hit = rows();
+    if (op === "update") hit.forEach((r) => Object.assign(r, payload));
+    return hit.map((r) => withRelations(name, r));
+  };
+  const b = {
+    select() { return b; },
+    insert(p) { op = "insert"; payload = p; return b; },
+    upsert(p, o) { op = "upsert"; payload = p; conflict = o?.onConflict; return b; },
+    update(p) { op = "update"; payload = p; return b; },
+    eq(k, v) { filters.push((r) => r[k] === v); return b; },
+    is(k, v) { filters.push((r) => (r[k] ?? null) === v); return b; },
+    in(k, v) { filters.push((r) => v.includes(r[k])); return b; },
+    lte(k, v) { filters.push((r) => r[k] != null && Date.parse(r[k]) <= Date.parse(v)); return b; },
+    lt(k, v) { filters.push((r) => Date.parse(r[k]) < Date.parse(v)); return b; },
+    order(key, o) { sort = { key, dir: o?.ascending === false ? -1 : 1 }; return b; },
+    limit(n) { max = n; return b; },
+    async single() { return { data: run()[0] ?? null, error: null }; },
+    async maybeSingle() { return { data: run()[0] ?? null, error: null }; },
+    then(resolve) { return resolve({ data: run(), error: null }); },
+  };
+  return b;
+}
+
+const client = {
+  from: query,
+  async rpc(fn) {
+    if (fn === "match_examples") return { data: state.matchExamples };
+    if (fn === "match_knowledge") return { data: state.matchKnowledge };
+    return { data: null };
+  },
+};
+export const supabaseAdmin = () => client;

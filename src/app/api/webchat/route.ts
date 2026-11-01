@@ -49,7 +49,7 @@ export async function POST(req: Request) {
   });
   if (!stored.duplicate) {
     if (admission.ai_allowed) {
-      after(() => processIncoming(stored.conversationId).catch((e) => console.error("processIncoming", e)));
+      after(() => processIncoming(stored.conversationId, stored.messageId).catch((e) => console.error("processIncoming", e)));
     } else {
       // เกินเพดาน AI รายวัน: เก็บข้อความไว้ให้เจ้าหน้าที่ตอบเอง
       await db.from("conversations").update({ needs_human: true, ai_due_at: null }).eq("id", stored.conversationId);

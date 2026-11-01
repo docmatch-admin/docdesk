@@ -38,6 +38,8 @@ export interface SuggestionResult {
   options: SuggestionOption[];
   needs_human: boolean;
   reason?: string;
+  /** ไม่ได้ร่างคำตอบเพราะอะไร: ตอบแล้ว / แค่ขอบคุณหรือรับทราบ / เกินเพดาน / ระบบกำลังร่างอยู่ */
+  skipped?: "answered" | "no_reply_needed" | "cap" | "in_progress";
 }
 
 export interface Conversation {
