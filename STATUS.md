@@ -3,30 +3,32 @@
 อัปเดต 1 พ.ย. 2569 (แทน `NIGHT_REPORT.md` เดิม)
 
 ## ภาพรวม
-Production ใช้งานได้ที่ https://docdesk-tau.vercel.app มีตัวป้องกัน web chat แล้ว แต่ยังไม่ได้ใส่ `<script>` บนเว็บจริง และยังไม่เคยทดสอบการตอบกลับถึงลูกค้าจริงทาง LINE
+Production ใช้งานได้ที่ https://docdesk-tau.vercel.app มีตัวป้องกัน web chat และระบบ "อ่านแล้ว" แล้ว LINE รับและส่งข้อความจริงแล้ว ส่วน `<script>` บนเว็บจริงยังต้องตรวจว่าใส่แล้วหรือยัง เพราะฐานข้อมูลยังไม่มีแชทจากเว็บ
 
 | ส่วน | สถานะ |
 |---|---|
-| Supabase | `ncsgcplnuoiebadqdywx` (ชื่อ `DocDesk's Project`, region ซิดนีย์) migration `001`, `002`, `004`, `005`, `006` ขึ้นแล้ว |
+| Supabase | `ncsgcplnuoiebadqdywx` (ชื่อ `DocDesk's Project`, region ซิดนีย์) migration `001`, `002`, `004`, `005`, `006`, `007` ขึ้นแล้ว |
 | Vercel | project `docdesk` ใน team `doc-match` |
 | เจ้าหน้าที่ | ปิด sign-up แล้ว, `docmatch49@gmail.com` เป็น admin ชื่อ `Admin` และล็อกอินแล้ว |
 | โหมด AI | `assist` |
 | Cron โหมดคนตอบก่อน | ทำงานทุกนาที ได้ 200 |
-| LINE ขาเข้า | รับข้อความจริงแล้ว 1 ข้อความ |
-| LINE ขาออก | **ยังไม่มีข้อความตอบกลับจริง** |
-| เว็บไซต์ | **ยังไม่ได้ใส่ `<script>`** |
+| LINE ขาเข้า | รับข้อความจริงแล้ว 6 ข้อความ จาก 2 รายชื่อ |
+| LINE ขาออก | มีข้อความขาออกจริง 7 ข้อความ ยังไม่ได้แยกว่าส่งด้วย reply หรือ push |
+| เว็บไซต์ | **ยังไม่มีแชทจากเว็บในฐานข้อมูล** |
 | Facebook / Instagram | โค้ดพร้อม รอสร้าง Meta App |
 
 ## ผลทดสอบล่าสุด
 | รายการ | ผล |
 |---|---|
-| `npm test` | 54/54 |
+| `npm test` | 78/78 |
 | typecheck, build | ผ่าน |
 | ตัวป้องกัน web chat บนเครื่อง | 40/40 |
 | ตัวป้องกัน web chat บน production | 39/39 |
 | `/send`, `requireStaff`, export บน production (ก่อนเพิ่มตัวป้องกัน) | 22/22 |
 
-ข้อมูลทดสอบถูกลบแล้ว เหลือข้อมูลจริงจาก LINE 1 รายชื่อ
+| "อ่านแล้ว" บน production (API เว็บ, การเก็บ token ของ LINE) | 14/14 |
+
+ข้อมูลทดสอบถูกลบแล้ว เหลือข้อมูลจริงจาก LINE 2 รายชื่อ
 
 ## ตัวป้องกัน `/api/webchat`
 | กติกา | ค่า | เมื่อเกิน |
@@ -44,8 +46,19 @@ Production ใช้งานได้ที่ https://docdesk-tau.vercel.app �
 - **GET polling ไม่มี rate limit:** เส้นทางนี้ไม่เรียก OpenAI แต่ยังใช้ฐานข้อมูล
 - **ช่องทางอื่นไม่อยู่ในเพดาน:** LINE, Meta และปุ่มของเจ้าหน้าที่ไม่ถูกจำกัดด้วยตัวนับนี้
 
+## สถานะ "อ่านแล้ว"
+| ช่องทาง | ลูกค้าเห็นว่าคลินิกอ่าน | เจ้าหน้าที่เห็นว่าลูกค้าอ่าน | ยืนยันแล้ว |
+|---|---|---|---|
+| LINE | ผ่าน `markAsRead` ต้องเปิด Chat ใน OA Manager | แสดงแค่ "✓ ส่งแล้ว" | เก็บ token บน production แล้ว รอทดสอบจากมือถือ |
+| เว็บ | ป้าย "อ่านแล้ว" ใน widget | เมื่อเปิดหน้าต่างแชทและแท็บไม่ถูกซ่อน | API บน production และ widget กับ DOM จำลอง |
+| Facebook, Instagram | `mark_seen` ภายใน 24 ชม. | `message_reads`, `messaging_seen` | unit test เท่านั้น รอ Meta App |
+
+- **Instagram:** เอกสารไม่ระบุว่า `messaging_seen` มี watermark จึงใช้เวลาของ event แทน ต้องตรวจกับ payload จริงตอนสร้าง Meta App
+- **ข้อความ LINE ก่อน migration `007`:** ไม่มี token จึงแจ้งอ่านแล้วไม่ได้ จนกว่าลูกค้าจะส่งข้อความใหม่
+
 ## รายการที่ค้าง
 ### ต้องทำก่อนเปิดใช้จริง
+0. เปิด **Chat** ใน LINE OA Manager → Response settings แล้วทักไลน์คลินิกจากมือถือ เปิดแชทใน DocDesk และดูว่ามือถือขึ้น "อ่านแล้ว" (ถ้าปิด Chat ลูกค้าจะเห็น "อ่านแล้ว" ทันทีทุกข้อความ)
 1. ใส่ `<script>` ในทุกหน้าของ happiwellclinic.com แล้วลองแชทจากหน้าเว็บจริง (ทดสอบ widget กับ DOM จำลองแล้ว แต่ยังไม่เคยรันบนเว็บจริง)
    ```html
    <script src="https://docdesk-tau.vercel.app/widget.js" defer></script>
