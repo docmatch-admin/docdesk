@@ -7,7 +7,7 @@ Production ใช้งานได้ที่ https://docdesk-tau.vercel.app �
 
 | ส่วน | สถานะ |
 |---|---|
-| Supabase | `ncsgcplnuoiebadqdywx` (ชื่อ `DocDesk's Project`, region ซิดนีย์) migration `001`, `002`, `004`, `005`, `006`, `007` ขึ้นแล้ว |
+| Supabase | `ncsgcplnuoiebadqdywx` (ชื่อ `DocDesk's Project`, region ซิดนีย์) migration `001`, `002`, `004`–`008` ขึ้นแล้ว |
 | Vercel | project `docdesk` ใน team `doc-match` |
 | เจ้าหน้าที่ | ปิด sign-up แล้ว, `docmatch49@gmail.com` เป็น admin ชื่อ `Admin` และล็อกอินแล้ว |
 | โหมด AI | `assist` |
@@ -20,12 +20,13 @@ Production ใช้งานได้ที่ https://docdesk-tau.vercel.app �
 ## ผลทดสอบล่าสุด
 | รายการ | ผล |
 |---|---|
-| `npm test` | 78/78 |
+| `npm test` | 128/128 |
 | typecheck, build | ผ่าน |
 | ตัวป้องกัน web chat บนเครื่อง | 40/40 |
 | ตัวป้องกัน web chat บน production | 39/39 |
 | `/send`, `requireStaff`, export บน production (ก่อนเพิ่มตัวป้องกัน) | 22/22 |
 | "อ่านแล้ว" บน production (API เว็บ, การเก็บ token ของ LINE) | 14/14 |
+| ลดการเรียก AI บน production (ผ่าน webhook LINE) | 15/15 |
 
 ข้อมูลทดสอบถูกลบแล้ว เหลือข้อมูลจริงจาก LINE 2 รายชื่อ
 
@@ -54,6 +55,12 @@ Production ใช้งานได้ที่ https://docdesk-tau.vercel.app �
 
 - **Instagram:** เอกสารไม่ระบุว่า `messaging_seen` มี watermark จึงใช้เวลาของ event แทน ต้องตรวจกับ payload จริงตอนสร้าง Meta App
 - **ข้อความ LINE ก่อน migration `007`:** ไม่มี token จึงแจ้งอ่านแล้วไม่ได้ จนกว่าลูกค้าจะส่งข้อความใหม่
+
+## การลดการเรียก AI
+- **ยังเรียก OpenAI อยู่:** แปลภาษาทุกข้อความที่ไม่ใช่ไทย (รวม "thanks") และ embedding ของคำถามที่ต้องค้นคำตอบ รวมถึงคำถามที่ใช้คำตอบดาว
+- **ป้าย "ต้องให้คนตอบ" ในโหมดปิด/ผู้ช่วย:** ก่อนเปิดแชทใช้กฎคำสำคัญแทน AI จึงอาจพลาดเรื่องด่วนที่ใช้คำอื่น จนกว่าจะเปิดแชท
+- **สถิติเริ่มนับตั้งแต่ deploy วันที่ 1 พ.ย. 2569:** การเรียกก่อนหน้านี้ไม่ถูกนับ ค่าใช้จ่ายคิดที่ 33 บาทต่อ USD
+- **ยังไม่ได้ทดสอบบน production:** การเปิดแชทแล้วสร้างคำแนะนำ และหน้าสถิติ เพราะต้องล็อกอิน
 
 ## รายการที่ค้าง
 ### ต้องทำก่อนเปิดใช้จริง
