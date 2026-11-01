@@ -3,16 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
+import { nextOpenChat } from "@/lib/case-flow";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
+import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import {
   AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL,
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
 } from "@/lib/types";
 
-type Filter = "all" | "human" | "unread";
+type Filter = "open" | "human" | "unread" | "closed";
 
 const SOURCE_LABEL: Record<SuggestionOption["source"], string> = {
   knowledge: "📚 ฐานข้อมูล",
@@ -33,7 +35,8 @@ const IMAGE_LOADING_MAX_MS = 2 * 60 * 1000;
 export function InboxClient() {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [convs, setConvs] = useState<Conversation[]>([]);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>("open");
+  const [closing, setClosing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
@@ -70,10 +73,14 @@ export function InboxClient() {
   const loadConvs = useCallback(async () => {
     const columns = "*, contacts(display_name, avatar_url, language), channels(type, name, ai_mode)";
     // กรองที่ฐานข้อมูล ไม่อย่างนั้นจะเห็นแค่ใน 200 แชทล่าสุด
-    let query = sb.from("conversations").select(columns);
-    if (tagFilterRef.current.length) query = query.contains("tags", tagFilterRef.current);
-    const { data } = await query.order("last_message_at", { ascending: false }).limit(200);
-    const rows = (data ?? []) as Conversation[];
+    // แยกดึงตามสถานะ แชทที่ปิดแล้วจำนวนมากจะได้ไม่เบียดแชทที่เปิดอยู่ออกจาก 200 แถวแรก
+    const byStatus = (status: "open" | "closed") => {
+      let query = sb.from("conversations").select(columns).eq("status", status);
+      if (tagFilterRef.current.length) query = query.contains("tags", tagFilterRef.current);
+      return query.order("last_message_at", { ascending: false }).limit(200);
+    };
+    const [{ data: open_ }, { data: closed }] = await Promise.all([byStatus("open"), byStatus("closed")]);
+    const rows = [...(open_ ?? []), ...(closed ?? [])] as Conversation[];
     setConvs(rows);
     const open = selectedRef.current;
     if (open && !rows.some((c) => c.id === open)) {
@@ -174,6 +181,7 @@ export function InboxClient() {
   // ---------- เลือกแชท ----------
   useEffect(() => {
     if (!selectedId) return;
+    setClosing(false);
     setText(""); setChosen(null); setSuggestion(null); setRawMode(false); setAttachment(null); setCaption("");
     sb.from("messages").select("*").eq("conversation_id", selectedId).order("created_at").limit(300)
       .then(({ data }) => setMessages((data ?? []) as Message[]));
@@ -187,6 +195,7 @@ export function InboxClient() {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages]);
 
+  const cancelClosing = useCallback(() => setClosing(false), []);
   const flash = (s: string) => { setToast(s); setTimeout(() => setToast(""), 2500); };
 
   // ---------- actions ----------
@@ -281,10 +290,36 @@ export function InboxClient() {
     loadConvs();
   }
 
-  async function toggleStatus() {
+  async function reopenCase() {
     if (!selected) return;
-    await sb.from("conversations").update({ status: selected.status === "open" ? "closed" : "open", needs_human: false }).eq("id", selected.id);
+    await sb.from("conversations").update({ status: "open" }).eq("id", selected.id);
   }
+
+  async function closeCase(tag?: string) {
+    if (!selected) return;
+    const id = selected.id;
+    setClosing(false);
+    if (tag && !selected.tags.includes(tag)) await changeTag(tag, "add");
+    // ล้าง ai_due_at ด้วย ไม่อย่างนั้น cron จะให้ AI ตอบแทนในแชทที่ปิดแล้ว
+    const { error } = await sb.from("conversations").update({ status: "closed", needs_human: false, ai_due_at: null }).eq("id", id);
+    if (error) return flash("ปิดเคสไม่สำเร็จ");
+    setSelectedId(nextOpenChat(shown, id) ?? nextOpenChat(convs, id));
+    loadConvs();
+  }
+
+  // ใช้ e.code เพราะ e.key เปลี่ยนตามแป้นพิมพ์ไทย/อังกฤษ
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.code !== "KeyE") return;
+      e.preventDefault();
+      if (selected?.status !== "open") return;
+      // กดครั้งแรกเปิดป๊อปอัป กดซ้ำ = ข้ามแล้วปิดเคส
+      if (closing) closeCase();
+      else setClosing(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   async function star(m: Message) {
     const res = await fetch(`/api/messages/${m.id}/star`, { method: "POST" });
@@ -301,12 +336,18 @@ export function InboxClient() {
 
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
+  const isOpen = (c: Conversation) => c.status === "open";
   const shown = convs.filter((c) =>
-    filter === "all" ? true : filter === "human" ? c.needs_human : c.unread_count > 0);
+    filter === "closed" ? !isOpen(c)
+    : !isOpen(c) ? false
+    : filter === "human" ? c.needs_human
+    : filter === "unread" ? c.unread_count > 0
+    : true);
   const counts = {
-    human: convs.filter((c) => c.needs_human).length,
-    unread: convs.filter((c) => c.unread_count > 0).length,
+    human: convs.filter((c) => isOpen(c) && c.needs_human).length,
+    unread: convs.filter((c) => isOpen(c) && c.unread_count > 0).length,
   };
+  const statusTags = tags.filter((t) => t.group === "status" && t.active);
 
   const dueMin = selected?.ai_due_at ? Math.max(0, Math.ceil((new Date(selected.ai_due_at).getTime() - Date.now()) / 60000)) : null;
   // กติกา 24 ชม. ของ Facebook/Instagram
@@ -324,13 +365,14 @@ export function InboxClient() {
       {/* ---------- รายการแชท ---------- */}
       <aside className="conv-list">
         <div className="tabs">
-          <button className={filter === "all" ? "on" : ""} onClick={() => setFilter("all")}>ทั้งหมด</button>
+          <button className={filter === "open" ? "on" : ""} onClick={() => setFilter("open")}>เปิดอยู่</button>
           <button className={filter === "human" ? "on" : ""} onClick={() => setFilter("human")}>
             รอคนตอบ {counts.human > 0 && <b className="badge red">{counts.human}</b>}
           </button>
           <button className={filter === "unread" ? "on" : ""} onClick={() => setFilter("unread")}>
             ยังไม่อ่าน {counts.unread > 0 && <b className="badge">{counts.unread}</b>}
           </button>
+          <button className={filter === "closed" ? "on" : ""} onClick={() => setFilter("closed")}>ปิดแล้ว</button>
         </div>
         <details className="tag-filter">
           <summary>กรองตามแท็ก{tagFilter.length > 0 && <b className="badge">{tagFilter.length}</b>}</summary>
@@ -407,7 +449,17 @@ export function InboxClient() {
                     {(Object.keys(AI_MODE_LABEL) as AiMode[]).map((m) => <option key={m} value={m}>{AI_MODE_LABEL[m]}</option>)}
                   </select>
                 </label>
-                <button className="btn ghost small" onClick={toggleStatus}>{selected.status === "open" ? "ปิดเคส" : "เปิดเคส"}</button>
+                {selected.status === "open" ? (
+                  <div className="close-anchor">
+                    <button className="btn ghost small" title="Ctrl+Shift+E" aria-expanded={closing} onClick={() => setClosing(!closing)}>ปิดเคส</button>
+                    {closing && (
+                      <CloseCasePopup tags={statusTags} current={selected.tags} hasDraft={!!text.trim() || !!attachment || !!caption.trim()}
+                        onChoose={closeCase} onCancel={cancelClosing} />
+                    )}
+                  </div>
+                ) : (
+                  <button className="btn ghost small" onClick={reopenCase}>เปิดเคส</button>
+                )}
               </div>
             </header>
 

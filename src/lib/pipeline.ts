@@ -1,5 +1,6 @@
 import { embed } from "./ai";
 import { sendImageToChannel, sendToChannel } from "./channels";
+import { CLEARED_ON_REOPEN_TAG } from "./case-flow";
 import { lineMarkAsRead } from "./channels/line";
 import { metaMarkSeen, metaMessagingType } from "./channels/meta";
 import { claimReplyToken } from "./channels/reply-token";
@@ -62,8 +63,9 @@ export async function storeIncoming(input: IncomingInput) {
   const { data: conv, error: cvErr } = await db
     .from("conversations")
     .upsert({ contact_id: contact.id, channel_id: channel.id }, { onConflict: "contact_id" })
-    .select("id, unread_count").single();
+    .select("id, unread_count, status").single();
   if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
+  const wasClosed = conv.status === "closed";
 
   const imageOnly = !!input.isImage && !input.text.trim();
   const { language, th } = input.skipAi || imageOnly
@@ -102,6 +104,12 @@ export async function storeIncoming(input: IncomingInput) {
         : {}),
     }).eq("id", conv.id),
   ]);
+
+  // ลูกค้าทักกลับมาหลังปิดเคส: การนัดเดิมอาจจบไปแล้ว ถ้าแชทยังเปิดอยู่ไม่แตะ เพราะเจ้าหน้าที่อาจเพิ่งติดเอง
+  if (wasClosed) {
+    await setConversationTag(conv.id as string, CLEARED_ON_REOPEN_TAG, "remove", "rule")
+      .catch((e) => console.error("clear tag on reopen failed", e));
+  }
 
   if (isCustomerText(input.text)) {
     // เกินเพดาน AI ไม่ได้ตรวจภาษาของข้อความนี้ language เป็นค่าเดิมของรายชื่อ จึงไม่นำมานับ
