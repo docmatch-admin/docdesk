@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
-import { nextOpenChat } from "@/lib/case-flow";
+import { isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
@@ -14,7 +14,7 @@ import {
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
 } from "@/lib/types";
 
-type Filter = "open" | "human" | "unread" | "closed";
+type Filter = "waiting" | "open" | "closed";
 
 const SOURCE_LABEL: Record<SuggestionOption["source"], string> = {
   knowledge: "📚 ฐานข้อมูล",
@@ -35,7 +35,9 @@ const IMAGE_LOADING_MAX_MS = 2 * 60 * 1000;
 export function InboxClient() {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [convs, setConvs] = useState<Conversation[]>([]);
-  const [filter, setFilter] = useState<Filter>("open");
+  const [filter, setFilter] = useState<Filter>("waiting");
+  const [lists, setLists] = useState<Record<Filter, Conversation[]>>({ waiting: [], open: [], closed: [] });
+  const [counts, setCounts] = useState({ waiting: 0, open: 0 });
   const [closing, setClosing] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -73,14 +75,21 @@ export function InboxClient() {
   const loadConvs = useCallback(async () => {
     const columns = "*, contacts(display_name, avatar_url, language), channels(type, name, ai_mode)";
     // กรองที่ฐานข้อมูล ไม่อย่างนั้นจะเห็นแค่ใน 200 แชทล่าสุด
-    // แยกดึงตามสถานะ แชทที่ปิดแล้วจำนวนมากจะได้ไม่เบียดแชทที่เปิดอยู่ออกจาก 200 แถวแรก
-    const byStatus = (status: "open" | "closed") => {
-      let query = sb.from("conversations").select(columns).eq("status", status);
-      if (tagFilterRef.current.length) query = query.contains("tags", tagFilterRef.current);
-      return query.order("last_message_at", { ascending: false }).limit(200);
+    // แยกดึงแต่ละแท็บ แชทจำนวนมากในแท็บหนึ่งจะได้ไม่เบียดอีกแท็บออกจาก 200 แถวแรก และนับจำนวนจริงเกิน 200 ได้
+    const base = (status: "open" | "closed") => {
+      const query = sb.from("conversations").select(columns, { count: "exact" }).eq("status", status);
+      return tagFilterRef.current.length ? query.contains("tags", tagFilterRef.current) : query;
     };
-    const [{ data: open_ }, { data: closed }] = await Promise.all([byStatus("open"), byStatus("closed")]);
-    const rows = [...(open_ ?? []), ...(closed ?? [])] as Conversation[];
+    const [waiting, open_, closed] = await Promise.all([
+      base("open").eq("last_direction", "in")
+        .order("needs_human", { ascending: false }).order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
+      base("open").order("last_message_at", { ascending: false }).limit(200),
+      base("closed").order("closed_at", { ascending: false, nullsFirst: false }).limit(200),
+    ]);
+    const asRows = (r: { data: unknown }) => (r.data ?? []) as Conversation[];
+    setLists({ waiting: asRows(waiting), open: asRows(open_), closed: asRows(closed) });
+    setCounts({ waiting: waiting.count ?? 0, open: open_.count ?? 0 });
+    const rows = [...new Map([...asRows(waiting), ...asRows(open_), ...asRows(closed)].map((c) => [c.id, c])).values()];
     setConvs(rows);
     const open = selectedRef.current;
     if (open && !rows.some((c) => c.id === open)) {
@@ -300,10 +309,10 @@ export function InboxClient() {
     const id = selected.id;
     setClosing(false);
     if (tag && !selected.tags.includes(tag)) await changeTag(tag, "add");
-    // ล้าง ai_due_at ด้วย ไม่อย่างนั้น cron จะให้ AI ตอบแทนในแชทที่ปิดแล้ว
+    // ล้าง ai_due_at ด้วย ไม่อย่างนั้น cron จะให้ AI ตอบแทนในแชทที่เสร็จแล้ว
     const { error } = await sb.from("conversations").update({ status: "closed", needs_human: false, ai_due_at: null }).eq("id", id);
-    if (error) return flash("ปิดเคสไม่สำเร็จ");
-    setSelectedId(nextOpenChat(shown, id) ?? nextOpenChat(convs, id));
+    if (error) return flash("บันทึกไม่สำเร็จ");
+    setSelectedId(nextOpenChat(lists.waiting, id));
     loadConvs();
   }
 
@@ -313,7 +322,7 @@ export function InboxClient() {
       if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.code !== "KeyE") return;
       e.preventDefault();
       if (selected?.status !== "open") return;
-      // กดครั้งแรกเปิดป๊อปอัป กดซ้ำ = ข้ามแล้วปิดเคส
+      // กดครั้งแรกเปิดป๊อปอัป กดซ้ำ = ข้าม
       if (closing) closeCase();
       else setClosing(true);
     };
@@ -336,17 +345,8 @@ export function InboxClient() {
 
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
-  const isOpen = (c: Conversation) => c.status === "open";
-  const shown = convs.filter((c) =>
-    filter === "closed" ? !isOpen(c)
-    : !isOpen(c) ? false
-    : filter === "human" ? c.needs_human
-    : filter === "unread" ? c.unread_count > 0
-    : true);
-  const counts = {
-    human: convs.filter((c) => isOpen(c) && c.needs_human).length,
-    unread: convs.filter((c) => isOpen(c) && c.unread_count > 0).length,
-  };
+  const shown = lists[filter];
+  const waitingUrgent = lists.waiting.some((c) => c.needs_human);
   const statusTags = tags.filter((t) => t.group === "status" && t.active);
 
   const dueMin = selected?.ai_due_at ? Math.max(0, Math.ceil((new Date(selected.ai_due_at).getTime() - Date.now()) / 60000)) : null;
@@ -365,14 +365,13 @@ export function InboxClient() {
       {/* ---------- รายการแชท ---------- */}
       <aside className="conv-list">
         <div className="tabs">
-          <button className={filter === "open" ? "on" : ""} onClick={() => setFilter("open")}>เปิดอยู่</button>
-          <button className={filter === "human" ? "on" : ""} onClick={() => setFilter("human")}>
-            รอคนตอบ {counts.human > 0 && <b className="badge red">{counts.human}</b>}
+          <button className={filter === "waiting" ? "on" : ""} onClick={() => setFilter("waiting")}>
+            รอตอบ {counts.waiting > 0 && <b className={`badge ${waitingUrgent ? "red" : ""}`}>{counts.waiting}</b>}
           </button>
-          <button className={filter === "unread" ? "on" : ""} onClick={() => setFilter("unread")}>
-            ยังไม่อ่าน {counts.unread > 0 && <b className="badge">{counts.unread}</b>}
+          <button className={filter === "open" ? "on" : ""} onClick={() => setFilter("open")}>
+            ทั้งหมด {counts.open > 0 && <b className="badge muted-badge">{counts.open}</b>}
           </button>
-          <button className={filter === "closed" ? "on" : ""} onClick={() => setFilter("closed")}>ปิดแล้ว</button>
+          <button className={filter === "closed" ? "on" : ""} onClick={() => setFilter("closed")}>เสร็จแล้ว</button>
         </div>
         <details className="tag-filter">
           <summary>กรองตามแท็ก{tagFilter.length > 0 && <b className="badge">{tagFilter.length}</b>}</summary>
@@ -387,7 +386,14 @@ export function InboxClient() {
           </div>
           {tagFilter.length > 1 && <div className="muted small">แสดงแชทที่มีครบทุกแท็กที่เลือก</div>}
         </details>
-        {shown.length === 0 && <div className="empty">{tagFilter.length ? "ไม่มีแชทที่ตรงกับแท็กที่เลือก" : "ยังไม่มีแชท"}</div>}
+        {shown.length === 0 && (
+          <div className="empty">
+            {tagFilter.length ? "ไม่มีแชทที่ตรงกับแท็กที่เลือก"
+              : filter === "waiting" ? "ไม่มีแชทที่รอตอบ"
+              : filter === "closed" ? "ยังไม่มีแชทที่เสร็จแล้ว"
+              : "ยังไม่มีแชท"}
+          </div>
+        )}
         {shown.map((c) => (
           <button key={c.id} className={`conv ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""}`}
             onClick={() => setSelectedId(c.id)}>
@@ -403,6 +409,7 @@ export function InboxClient() {
                 {c.contacts && c.contacts.language !== "th" && <span className="chip">🌐 {LANGUAGE_NAME[c.contacts.language] ?? c.contacts.language}</span>}
                 <span className={`chip mode-${effectiveMode(c)}`}>AI: {AI_MODE_LABEL[effectiveMode(c)]}</span>
                 {c.needs_human && <span className="chip red">ต้องให้คนตอบ</span>}
+                {isWaitingForReply(c) && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
                 {c.tags.map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
               </div>
             </div>
@@ -451,14 +458,14 @@ export function InboxClient() {
                 </label>
                 {selected.status === "open" ? (
                   <div className="close-anchor">
-                    <button className="btn ghost small" title="Ctrl+Shift+E" aria-expanded={closing} onClick={() => setClosing(!closing)}>ปิดเคส</button>
+                    <button className="btn done small" title="Ctrl+Shift+E" aria-expanded={closing} onClick={() => setClosing(!closing)}>✓ เสร็จแล้ว</button>
                     {closing && (
                       <CloseCasePopup tags={statusTags} current={selected.tags} hasDraft={!!text.trim() || !!attachment || !!caption.trim()}
                         onChoose={closeCase} onCancel={cancelClosing} />
                     )}
                   </div>
                 ) : (
-                  <button className="btn ghost small" onClick={reopenCase}>เปิดเคส</button>
+                  <button className="btn ghost small" onClick={reopenCase}>เปิดใหม่</button>
                 )}
               </div>
             </header>
@@ -624,6 +631,11 @@ function ChatImage({ message: m }: { message: Message }) {
       {previewUrl ? <img src={previewUrl} alt="รูปภาพในแชท" /> : <span className="media-note">กำลังโหลดรูป…</span>}
     </button>
   );
+}
+
+function WaitChip({ since }: { since: string | null }) {
+  const badge = waitBadge(since);
+  return badge ? <span className={`chip wait-${badge.level}`}>{badge.text}</span> : null;
 }
 
 function Avatar({ name, url }:{ name?: string | null; url?: string | null }) {

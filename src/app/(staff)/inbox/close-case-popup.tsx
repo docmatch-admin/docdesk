@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import type { Tag } from "@/lib/tags";
 import { TagChip } from "../tag-chip";
 
-/** กดชิปหรือข้าม = ปิดเคสทันที ไม่มีขั้นตอนยืนยันซ้ำ */
+/** กดชิปหรือข้าม = เสร็จแล้วทันที ไม่มีขั้นตอนยืนยันซ้ำ */
 export function CloseCasePopup({ tags, current, hasDraft, onChoose, onCancel }: {
   tags: Tag[];
   current: string[];
@@ -32,8 +32,8 @@ export function CloseCasePopup({ tags, current, hasDraft, onChoose, onCancel }: 
   }, [tags, onChoose, onCancel]);
 
   return (
-    <div className="close-pop" ref={root} role="dialog" aria-label="ปิดเคส">
-      <div className="small"><b>ปิดเคส</b> <span className="muted">เลือกสถานะ หรือข้าม</span></div>
+    <div className="close-pop" ref={root} role="dialog" aria-label="เสร็จแล้ว">
+      <div className="small"><b>เสร็จแล้ว</b> <span className="muted">เลือกสถานะ หรือข้าม</span></div>
       <div className="close-pop-tags">
         {tags.map((t, i) => (
           <button key={t.id} className={`close-pop-tag ${current.includes(t.name) ? "on" : ""}`} onClick={() => onChoose(t.name)}>
@@ -45,7 +45,7 @@ export function CloseCasePopup({ tags, current, hasDraft, onChoose, onCancel }: 
       {hasDraft && <div className="close-pop-warn small">ข้อความหรือรูปที่เตรียมส่งไว้จะหายไป</div>}
       <div className="row between">
         <span className="muted small">Esc ยกเลิก</span>
-        <button autoFocus className="btn ghost small" onClick={() => onChoose()}>ข้าม แล้วปิดเคส</button>
+        <button autoFocus className="btn ghost small" onClick={() => onChoose()}>ข้าม</button>
       </div>
     </div>
   );

@@ -310,7 +310,7 @@ async function withUpload() {
   return "uploads/staff-1";
 }
 
-test("เจ้าหน้าที่ส่งรูปทาง LINE: URL มีลายเซ็นจริง ใช้ replyToken และล้างป้ายรอคนตอบ", async () => {
+test("เจ้าหน้าที่ส่งรูปทาง LINE: URL มีลายเซ็นจริง ใช้ replyToken และล้างป้ายต้องให้คนตอบ", async () => {
   staffChat("line");
   const uploadPath = await withUpload();
   const sent = mockFetch();

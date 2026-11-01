@@ -236,3 +236,11 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .close-pop-tag:hover, .close-pop-tag:focus-visible { background: var(--bg); outline: none; }
 .close-pop-tag.on { background: var(--blue-soft); }
 .close-pop-warn { background: #fff4e0; color: #8a5200; padding: 4px 8px; border-radius: 6px; }
+
+/* ---------- รอตอบ ---------- */
+.btn.done { background: #128a6c; color: #fff; }
+.btn.done:hover { background: #0f7359; }
+.badge.muted-badge { background: var(--line); color: var(--ink); }
+.chip.wait-normal { color: var(--muted); }
+.chip.wait-warn { background: #fff4e0; color: #8a5200; border-color: transparent; }
+.chip.wait-late { background: var(--red-soft); color: #b3263a; border-color: transparent; font-weight: 600; }

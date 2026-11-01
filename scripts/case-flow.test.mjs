@@ -6,7 +6,7 @@ import { fake } from "./fakes/hooks.mjs";
 const { calls, reset } = await import(fake("ai"));
 const { nextTime, resetDb, state } = await import(fake("admin"));
 const { storeIncoming } = await import("../src/lib/pipeline.ts");
-const { CLEARED_ON_REOPEN_TAG, nextOpenChat } = await import("../src/lib/case-flow.ts");
+const { CLEARED_ON_REOPEN_TAG, isWaitingForReply, nextOpenChat, titleWithCount, waitBadge } = await import("../src/lib/case-flow.ts");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const chats = (...spec) => spec.map(([id, status]) => ({ id, status }));
@@ -34,6 +34,47 @@ test("แชทถัดไป: แชทปัจจุบันยังเป
 
 test("แชทถัดไป: แชทปัจจุบันไม่อยู่ในรายการ เลือกตัวแรกที่เปิด", () => {
   assert.equal(nextOpenChat(chats(["a", "closed"], ["b", "open"]), "z"), "b");
+});
+
+// ---- รอตอบ ----
+test("รอตอบ: เปิดอยู่และข้อความล่าสุดเป็นของลูกค้าเท่านั้น", () => {
+  assert.equal(isWaitingForReply({ status: "open", last_direction: "in" }), true);
+  assert.equal(isWaitingForReply({ status: "open", last_direction: "out" }), false);
+  assert.equal(isWaitingForReply({ status: "closed", last_direction: "in" }), false);
+  assert.equal(isWaitingForReply({ status: "open", last_direction: null }), false);
+});
+
+const NOW = Date.parse("2026-11-01T10:00:00Z");
+const minutesAgo = (m) => new Date(NOW - m * 60_000).toISOString();
+
+for (const [minutes, text, level] of [
+  [0, "รอไม่ถึงนาที", "normal"],
+  [1, "รอ 1 นาที", "normal"],
+  [10, "รอ 10 นาที", "normal"],
+  [11, "รอ 11 นาที", "warn"],
+  [12, "รอ 12 นาที", "warn"],
+  [30, "รอ 30 นาที", "warn"],
+  [31, "รอ 31 นาที", "late"],
+  [125, "รอ 2 ชม. 5 นาที", "late"],
+  [3 * 24 * 60, "รอ 3 วัน", "late"],
+]) {
+  test(`เวลารอ ${minutes} นาที: ${text} (${level})`, () => {
+    assert.deepEqual(waitBadge(minutesAgo(minutes), NOW), { text, level });
+  });
+}
+
+test("เวลารอ: ไม่มีเวลาไม่แสดง และนาฬิกาเพี้ยนไม่ติดลบ", () => {
+  assert.equal(waitBadge(null, NOW), null);
+  assert.equal(waitBadge(minutesAgo(-5), NOW).text, "รอไม่ถึงนาที");
+});
+
+test("ป้ายบนแท็บเบราว์เซอร์", () => {
+  assert.equal(titleWithCount("DocDesk", 3), "(3) DocDesk");
+  assert.equal(titleWithCount("(3) DocDesk", 5), "(5) DocDesk");
+  assert.equal(titleWithCount("(3) DocDesk", 0), "DocDesk");
+  assert.equal(titleWithCount("DocDesk", 0), "DocDesk");
+  assert.equal(titleWithCount("DocDesk", 150), "(99+) DocDesk");
+  assert.equal(titleWithCount("(99+) DocDesk", 2), "(2) DocDesk");
 });
 
 // ---- ลูกค้าทักกลับมา ----

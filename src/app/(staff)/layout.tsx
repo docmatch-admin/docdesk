@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { SignOut } from "./sign-out";
+import { WaitingAlert } from "./waiting-alert";
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const sb = await supabaseServer();
@@ -18,6 +19,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         <Link href="/reports">📊 รายงาน</Link>
         <Link href="/settings">⚙️ ตั้งค่า AI</Link>
         <div className="nav-foot">
+          <WaitingAlert />
           <div className="muted small">{staff?.display_name ?? user.email}</div>
           <SignOut />
         </div>

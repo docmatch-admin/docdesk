@@ -55,6 +55,10 @@ export interface Conversation {
   ai_due_at: string | null;
   last_message_at: string;
   last_message_preview: string | null;
+  last_direction: "in" | "out" | null;
+  last_inbound_at: string | null;
+  waiting_since: string | null;
+  closed_at: string | null;
   contacts?: { display_name: string | null; avatar_url: string | null; language: string };
   channels?: { type: ChannelType; name: string; ai_mode: AiMode | null };
 }
