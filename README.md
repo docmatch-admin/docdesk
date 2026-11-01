@@ -40,8 +40,24 @@
 - PDPA: แชทมีข้อมูลสุขภาพ เก็บใน Supabase ของคลินิกเอง ควรเพิ่มข้อความแจ้งการเก็บข้อมูลในข้อความทักทาย/นโยบายความเป็นส่วนตัวของเว็บ
 - Web chat endpoint เปิดสาธารณะ ควรเพิ่ม rate limit ก่อนใช้งานจริงจังเมื่อมีคนใช้เยอะ
 
+## เฟส 2: Facebook Messenger + Instagram
+โค้ดพร้อมแล้ว (`/api/webhooks/meta`) เหลือตั้งค่าฝั่ง Meta:
+1. รัน `supabase/migrations/004_meta_channels.sql`
+2. developers.facebook.com → **Create App** (ประเภท Business) → เพิ่ม use case Messenger และ Instagram
+3. เชื่อม Facebook Page ของคลินิก และ Instagram Professional account ที่ผูกกับเพจนั้น
+   - ใน Instagram app: ตั้งค่า → ความเป็นส่วนตัว → ข้อความ → เปิด **อนุญาตการเข้าถึงข้อความ** (Connected tools)
+4. ออก Page access token แบบไม่หมดอายุ: Business Settings → **System users** → สร้าง → Assign assets (Page) → Generate token สิทธิ์ `pages_messaging`, `pages_manage_metadata`, `instagram_basic`, `instagram_manage_messages`
+5. Webhooks: Callback URL `https://<app>/api/webhooks/meta` · Verify token = `META_VERIFY_TOKEN` · subscribe field `messages` ทั้งของ Page และ Instagram
+6. ใส่ env: `META_APP_SECRET` (App settings → Basic), `META_VERIFY_TOKEN` (ตั้งเอง), `META_PAGE_ACCESS_TOKEN`
+7. **App Review + Business verification** เพื่อขอสิทธิ์ `pages_messaging` และ `instagram_manage_messages` (ก่อนอนุมัติ ทดสอบได้เฉพาะบัญชีที่มี role ในแอป) ขอ **Human Agent** เพิ่มถ้าต้องการตอบหลัง 24 ชม.
+
+กติกาเวลา: ภายใน 24 ชม. หลังลูกค้าทักล่าสุด ส่งได้ปกติ · 24 ชม.–7 วัน เฉพาะเจ้าหน้าที่ (ต้องมีสิทธิ์ Human Agent) · เกิน 7 วันส่งไม่ได้ — หน้าแชทแสดงแถบเตือนให้อัตโนมัติ
+
+## ส่งออกข้อมูลสำหรับเทรน
+หน้า “ฐานข้อมูล & คำตอบ” → แท็บคำตอบที่เรียนรู้ → **ส่งออกข้อมูลสำหรับเทรน** ได้ไฟล์ JSONL รูปแบบ chat fine-tuning (เฉพาะคำตอบที่ติดดาวหรือถูกเลือกใช้ ≥ 2 ครั้ง ตัดข้อมูลส่วนตัวซ้ำอีกรอบ) · `?all=1` เอาทั้งหมด
+
 ## เฟสถัดไป
-2. Facebook Messenger + Instagram (Meta Graph API + App Review) · 3. Dashboard สถิติ · 4. WhatsApp + บรอดแคสต์ · รูปภาพ/สติกเกอร์
+3. Dashboard สถิติ · 4. WhatsApp + บรอดแคสต์ · รูปภาพ/สติกเกอร์
 
 ## โครงสร้าง
 ```

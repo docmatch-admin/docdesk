@@ -101,7 +101,15 @@ export function KnowledgeClient() {
         </div>
       ) : (
         <div>
-          <label className="raw"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> แสดงที่ซ่อนแล้ว</label>
+          <div className="row between">
+            <label className="raw"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> แสดงที่ซ่อนแล้ว</label>
+            <div className="row">
+              <span className="muted small">
+                พร้อมใช้เทรน: {examples.filter((x) => x.active && (x.starred || x.use_count >= 2)).length} คู่ (ติดดาว หรือถูกใช้ ≥ 2 ครั้ง)
+              </span>
+              <a className="btn ghost small" href="/api/examples/export?min_use=2" download>⬇ ส่งออกข้อมูลสำหรับเทรน (.jsonl)</a>
+            </div>
+          </div>
           {ex.length === 0 && <div className="empty">ยังไม่มีคำตอบที่เรียนรู้ — ระบบจะเก็บอัตโนมัติทุกครั้งที่เจ้าหน้าที่ตอบ</div>}
           {ex.map((x) => (
             <ExampleRow key={x.id} x={x} onChange={load} />

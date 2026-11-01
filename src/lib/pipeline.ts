@@ -119,14 +119,21 @@ export async function tryAutoSend(
     await supabaseAdmin().from("conversations").update({ needs_human: true, ai_due_at: null }).eq("id", conversationId);
     return false;
   }
-  await sendReply({
-    conversationId,
-    textTh: best.text,
-    senderType: "ai",
-    suggestionId,
-    chosenIndex: options.indexOf(best),
-    replyToken,
-  });
+  try {
+    await sendReply({
+      conversationId,
+      textTh: best.text,
+      senderType: "ai",
+      suggestionId,
+      chosenIndex: options.indexOf(best),
+      replyToken,
+    });
+  } catch (e) {
+    // ส่งไม่สำเร็จ (เช่น เกินกรอบเวลาของ Meta) → ส่งต่อให้คนดูแล
+    console.error("AI auto-send failed", e);
+    await supabaseAdmin().from("conversations").update({ needs_human: true, ai_due_at: null }).eq("id", conversationId);
+    return false;
+  }
   return true;
 }
 
@@ -158,7 +165,16 @@ export async function sendReply(input: ReplyInput) {
   const language = input.skipTranslate ? "th" : contact.language || "th";
   const body = language === "th" ? input.textTh : await fromThai(input.textTh, language);
 
-  await sendToChannel(channel.type, contact.external_id, body, { replyToken: input.replyToken });
+  let lastInboundAt: Date | null = null;
+  if (channel.type === "facebook" || channel.type === "instagram") {
+    const { data: lastIn } = await db.from("messages").select("created_at")
+      .eq("conversation_id", input.conversationId).eq("direction", "in")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    lastInboundAt = lastIn ? new Date(lastIn.created_at as string) : null;
+  }
+  await sendToChannel(channel.type, contact.external_id, body, {
+    replyToken: input.replyToken, lastInboundAt, senderType: input.senderType,
+  });
 
   const { data: msg } = await db.from("messages").insert({
     conversation_id: input.conversationId,

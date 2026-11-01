@@ -161,6 +161,13 @@ export function InboxClient() {
   };
 
   const dueMin = selected?.ai_due_at ? Math.max(0, Math.ceil((new Date(selected.ai_due_at).getTime() - Date.now()) / 60000)) : null;
+  // กติกา 24 ชม. ของ Facebook/Instagram
+  const isMeta = selected?.channels?.type === "facebook" || selected?.channels?.type === "instagram";
+  const lastInbound = [...messages].reverse().find((m) => m.direction === "in");
+  const inboundAgeH = lastInbound ? (Date.now() - new Date(lastInbound.created_at).getTime()) / 3_600_000 : null;
+  const metaWindow = !isMeta || inboundAgeH == null ? null
+    : inboundAgeH <= 24 ? null
+    : inboundAgeH <= 24 * 7 ? "human" : "closed";
   const edited = chosen != null && suggestion?.options[chosen] && suggestion.options[chosen].text !== text;
 
   return (
@@ -227,6 +234,13 @@ export function InboxClient() {
 
             {dueMin != null && (
               <div className="banner">⏱ ถ้าไม่มีใครตอบ AI จะตอบแทนในอีก ~{dueMin} นาที</div>
+            )}
+
+            {metaWindow === "human" && (
+              <div className="banner">⏳ ลูกค้าทักมาเกิน 24 ชม. แล้ว — เจ้าหน้าที่ยังตอบได้ถึง 7 วัน (AI ตอบแทนไม่ได้)</div>
+            )}
+            {metaWindow === "closed" && (
+              <div className="banner red">⛔ เกิน 7 วันหลังลูกค้าทักล่าสุด {selected.channels?.type === "facebook" ? "Facebook" : "Instagram"} ไม่อนุญาตให้ส่ง ต้องรอลูกค้าทักมาก่อน</div>
             )}
 
             <div className="messages" ref={listRef}>
@@ -296,7 +310,7 @@ export function InboxClient() {
                     </label>
                   )}
                 </div>
-                <button className="btn primary" onClick={send} disabled={sending || !text.trim()}>
+                <button className="btn primary" onClick={send} disabled={sending || !text.trim() || metaWindow === "closed"}>
                   {sending ? "กำลังส่ง…" : customerLang !== "th" && !rawMode ? `แปล & ส่ง` : "ส่ง"}
                 </button>
               </div>
