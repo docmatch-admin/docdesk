@@ -33,6 +33,28 @@ function bucket(name) {
   };
 }
 
+/** เลียนแบบ trigger ใน migration 014, 015 ของจริงทดสอบแยกบน production */
+function refreshQueue(conversationId) {
+  const conv = state.tables.conversations?.find((c) => c.id === conversationId);
+  if (!conv) return;
+  const msgs = state.tables.messages.filter((m) => m.conversation_id === conversationId)
+    .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const latest = (dir) => [...msgs].reverse().find((m) => m.direction === dir)?.created_at ?? null;
+  conv.last_direction = msgs.at(-1)?.direction ?? null;
+  conv.last_inbound_at = latest("in");
+  const floor = Math.max(Date.parse(latest("out") ?? 0) || 0, Date.parse(conv.closed_at ?? 0) || 0);
+  conv.waiting_since = msgs.find((m) => m.direction === "in" && Date.parse(m.created_at) > floor)?.created_at ?? null;
+}
+
+function trackStatus(conv, before) {
+  if (conv.status === "closed" && before !== "closed") conv.closed_at = state.clock();
+  if (conv.status === "open" && before === "closed") {
+    conv.reopened_at = state.clock();
+    conv.waiting_since = conv.last_direction === "in" ? conv.last_inbound_at : null;
+  }
+}
+state.clock = nextTime;
+
 function withRelations(name, row) {
   if (name !== "conversations") return row;
   return {
@@ -59,11 +81,21 @@ function query(name) {
       if (found) { Object.assign(found, payload); return [found]; }
       const row = { id: `${name}-${++seq}`, created_at: nextTime(), ...payload };
       table.push(row);
+      if (name === "messages") refreshQueue(row.conversation_id);
       return [row];
     }
     const hit = rows();
-    if (op === "update") hit.forEach((r) => Object.assign(r, payload));
-    if (op === "delete") state.tables[name] = table.filter((r) => !hit.includes(r));
+    if (op === "update") {
+      hit.forEach((r) => {
+        const before = r.status;
+        Object.assign(r, payload);
+        if (name === "conversations") trackStatus(r, before);
+      });
+    }
+    if (op === "delete") {
+      state.tables[name] = table.filter((r) => !hit.includes(r));
+      if (name === "messages") hit.forEach((r) => refreshQueue(r.conversation_id));
+    }
     return hit.map((r) => withRelations(name, r));
   };
   const b = {
@@ -72,7 +104,25 @@ function query(name) {
     upsert(p, o) { op = "upsert"; payload = p; conflict = o?.onConflict; return b; },
     update(p) { op = "update"; payload = p; return b; },
     delete() { op = "delete"; return b; },
-    not(k, _op, v) { filters.push((r) => (r[k] ?? null) !== v); return b; },
+    not(k, op, v) {
+      if (op === "ov") {
+        const list = v.replace(/[{}]/g, "").split(",");
+        filters.push((r) => !(r[k] ?? []).some((x) => list.includes(x)));
+      } else {
+        filters.push((r) => (r[k] ?? null) !== v);
+      }
+      return b;
+    },
+    // รองรับเฉพาะรูปแบบ "col.is.null,col.lt.value" ที่โค้ดใช้
+    or(expr) {
+      const parts = expr.split(",").map((p) => {
+        const [col, op, ...rest] = p.split(".");
+        return { col, op, value: rest.join(".") };
+      });
+      filters.push((r) => parts.some(({ col, op, value }) =>
+        op === "is" ? (r[col] ?? null) === null : r[col] != null && Date.parse(r[col]) < Date.parse(value)));
+      return b;
+    },
     eq(k, v) { filters.push((r) => r[k] === v); return b; },
     neq(k, v) { filters.push((r) => r[k] !== v); return b; },
     is(k, v) { filters.push((r) => (r[k] ?? null) === v); return b; },

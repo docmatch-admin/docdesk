@@ -155,7 +155,7 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 @media (max-width: 900px) {
   .nav { display: none; }
   .conv-list { width: 100%; }
-  .inbox:has(.conv.active) .conv-list { display: none; }
+
   .kb-grid { grid-template-columns: 1fr; }
   .msg { max-width: 88%; }
 }
@@ -244,3 +244,27 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .chip.wait-normal { color: var(--muted); }
 .chip.wait-warn { background: #fff4e0; color: #8a5200; border-color: transparent; }
 .chip.wait-late { background: var(--red-soft); color: #b3263a; border-color: transparent; font-weight: 600; }
+
+/* ---------- แท็บ inbox ---------- */
+.inbox-search { padding: 8px 10px; background: #fff; }
+.inbox-tabs { display: flex; position: sticky; top: 0; z-index: 2; background: #fff; border-bottom: 1px solid var(--line); }
+.inbox-tabs button { flex: 1; min-width: 0; height: 48px; font-size: 16px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; padding: 0 2px; }
+.inbox-tabs button:hover { background: var(--bg); }
+.inbox-tabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--blue); }
+.inbox-tabs .badge { font-size: 12px; font-weight: 600; }
+.inbox-tabs .badge.muted-badge { background: #6b7286; color: #fff; }
+.all-done { display: flex; align-items: center; justify-content: center; min-height: 60vh; font-size: 20px; font-weight: 600; color: var(--ink); }
+.chat-back { display: none; flex-shrink: 0; font-size: 18px; }
+.chat-head-main { flex: 1; min-width: 0; }
+
+@media (max-width: 899px) {
+  .conv-list { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
+  .inbox-tabs { position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 30; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+  .inbox-tabs button { border-bottom: 0; border-top: 3px solid transparent; }
+  .inbox-tabs button.on { border-top-color: var(--blue); }
+  .inbox:not(.has-chat) .chat { display: none; }
+  .inbox.has-chat .conv-list { display: none; }
+  .chat-back { display: inline-block; }
+  .chat-head { flex-wrap: wrap; }
+  .head-actions { flex-wrap: wrap; }
+}

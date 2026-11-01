@@ -12,6 +12,26 @@ export function isWaitingForReply(c: { status: string; last_direction: string | 
   return c.status === "open" && c.last_direction === "in";
 }
 
+/** แท็บที่แชทนี้ปรากฏ */
+export type InboxTab = "open" | "waiting" | "closed";
+export function tabsOf(c: { status: string; last_direction: string | null }): InboxTab[] {
+  if (c.status !== "open") return ["closed"];
+  return isWaitingForReply(c) ? ["open", "waiting"] : ["open"];
+}
+
+/** กดเสร็จแล้วหรือย้ายอัตโนมัติ: ล้าง ai_due_at ด้วย ไม่อย่างนั้น cron จะให้ AI ตอบแทนในแชทที่เสร็จแล้ว */
+export const CLOSE_PATCH = { status: "closed", needs_human: false, ai_due_at: null } as const;
+
+/** แชทที่มีแท็กเหล่านี้ยังมีงานค้าง ไม่ย้ายไปเสร็จแล้วเอง */
+export const AUTO_CLOSE_EXEMPT_TAGS = ["ตามต่อ", "รอนัด"];
+export const DEFAULT_AUTO_CLOSE_HOURS = 24;
+
+/** 0 = ปิด ค่าเสียใช้ค่าเริ่มต้น ไม่ให้ค่าติดลบทำให้ทุกแชทถูกปิด */
+export function normalizeAutoCloseHours(value: unknown): number {
+  const hours = Number(value);
+  return value !== null && Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_AUTO_CLOSE_HOURS;
+}
+
 const WAIT_WARN_MINUTES = 10;
 const WAIT_LATE_MINUTES = 30;
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { purgeExpiredMedia, purgeStaleUploads } from "@/lib/media-store";
-import { runFallback } from "@/lib/pipeline";
+import { autoCloseQuietChats, runFallback } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -18,7 +18,13 @@ async function handle(req: Request) {
   } catch (e) {
     console.error("media purge failed", e);
   }
-  return NextResponse.json({ ...result, mediaPurged });
+  let autoClosed = 0;
+  try {
+    autoClosed = await autoCloseQuietChats();
+  } catch (e) {
+    console.error("auto close failed", e);
+  }
+  return NextResponse.json({ ...result, mediaPurged, autoClosed });
 }
 
 export const GET = handle;

@@ -1,6 +1,6 @@
 import { embed } from "./ai";
 import { sendImageToChannel, sendToChannel } from "./channels";
-import { CLEARED_ON_REOPEN_TAG } from "./case-flow";
+import { AUTO_CLOSE_EXEMPT_TAGS, CLEARED_ON_REOPEN_TAG, CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "./case-flow";
 import { lineMarkAsRead } from "./channels/line";
 import { metaMarkSeen, metaMessagingType } from "./channels/meta";
 import { claimReplyToken } from "./channels/reply-token";
@@ -491,6 +491,26 @@ export async function starMessage(messageId: string, staffId: string) {
     question: q, answer: a, starred: true, source_message_id: messageId, created_by: staffId,
     embedding: JSON.stringify(await embed(q)),
   });
+}
+
+/**
+ * เราตอบล่าสุดและลูกค้าเงียบเกินกำหนด: ย้ายไปเสร็จแล้ว เรียกทุกนาทีจาก cron
+ * อัปเดตคำสั่งเดียวพร้อมเงื่อนไข ลูกค้าที่เพิ่งทักเข้ามาจะได้ไม่ถูกปิด
+ * ยกเว้น needs_human ด้วย เพราะเป็นเรื่องที่ยังต้องให้คนดู
+ */
+export async function autoCloseQuietChats(now = Date.now()) {
+  const db = supabaseAdmin();
+  const hours = normalizeAutoCloseHours(await getSetting<unknown>("auto_close_hours", DEFAULT_AUTO_CLOSE_HOURS));
+  if (hours === 0) return 0;
+  const cutoff = new Date(now - hours * 3_600_000).toISOString();
+  const { data, error } = await db.from("conversations").update(CLOSE_PATCH)
+    .eq("status", "open").eq("last_direction", "out").eq("needs_human", false)
+    .lt("last_message_at", cutoff)
+    .or(`reopened_at.is.null,reopened_at.lt.${cutoff}`)
+    .not("tags", "ov", `{${AUTO_CLOSE_EXEMPT_TAGS.join(",")}}`)
+    .select("id");
+  if (error) throw error;
+  return data?.length ?? 0;
 }
 
 // ---------------------------------------------------------------------------

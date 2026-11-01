@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AUTO_CLOSE_EXEMPT_TAGS, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "@/lib/case-flow";
 import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib/llm-usage";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { TagSettings } from "./tag-settings";
@@ -22,6 +23,7 @@ export function SettingsClient() {
   const [saved, setSaved] = useState("");
   const [usage, setUsage] = useState<LlmUsageRow[]>([]);
   const [retentionDays, setRetentionDays] = useState(90);
+  const [autoCloseHours, setAutoCloseHours] = useState(DEFAULT_AUTO_CLOSE_HOURS);
 
   useEffect(() => {
     sb.from("llm_usage_daily").select("*").gte("day", `${bangkokDate().slice(0, 7)}-01`)
@@ -33,6 +35,7 @@ export function SettingsClient() {
         if (r.key === "business_hours") setHours(r.value as Hours);
         if (r.key === "clinic_profile") setProfile(r.value as { name: string; tone: string });
         if (r.key === "media_retention_days") setRetentionDays(Number(r.value));
+        if (r.key === "auto_close_hours") setAutoCloseHours(normalizeAutoCloseHours(r.value));
       }
     });
     sb.from("channels").select("id, type, name, ai_mode, enabled").order("created_at")
@@ -47,6 +50,7 @@ export function SettingsClient() {
       { key: "business_hours", value: hours, updated_at: now },
       { key: "clinic_profile", value: profile, updated_at: now },
       { key: "media_retention_days", value: Math.max(1, Math.floor(retentionDays) || 90), updated_at: now },
+      { key: "auto_close_hours", value: normalizeAutoCloseHours(autoCloseHours), updated_at: now },
     ]);
     for (const c of channels) {
       await sb.from("channels").update({ ai_mode: c.ai_mode, enabled: c.enabled }).eq("id", c.id);
@@ -127,6 +131,15 @@ export function SettingsClient() {
         <h3>บุคลิกการตอบของ AI</h3>
         <label>ชื่อคลินิก<input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></label>
         <label>โทน/สำนวน<textarea rows={3} value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} /></label>
+      </section>
+
+      <section className="card">
+        <h3>ย้ายไปเสร็จแล้วอัตโนมัติ</h3>
+        <label className="inline">
+          เมื่อเราตอบล่าสุดและลูกค้าเงียบเกิน
+          <input type="number" min={0} max={8760} value={autoCloseHours} onChange={(e) => setAutoCloseHours(Number(e.target.value))} /> ชั่วโมง
+        </label>
+        <p className="muted small">ใส่ 0 เพื่อปิด ไม่ย้ายแชทที่มีแท็ก {AUTO_CLOSE_EXEMPT_TAGS.join(" หรือ ")} หรือป้าย “ต้องให้คนตอบ” ลูกค้าทักกลับมาแชทจะเปิดเอง</p>
       </section>
 
       <section className="card">
