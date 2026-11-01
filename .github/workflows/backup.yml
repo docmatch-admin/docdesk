@@ -1,0 +1,57 @@
+# สำรองฐานข้อมูลทุกวันตี 3 เวลาไทย เข้ารหัสด้วย age แล้วเก็บ 30 ไฟล์ล่าสุดใน branch "backups"
+# ตั้งค่าและวิธีกู้คืนอยู่ใน README หัวข้อ "สำรองข้อมูล"
+name: Backup database
+
+on:
+  schedule:
+    - cron: "0 20 * * *" # 20:00 UTC = 03:00 เวลาไทย
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pg_dump 17 and age
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common age
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Dump and encrypt
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_AGE_PUBLIC_KEY: ${{ secrets.BACKUP_AGE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_DB_URL" || { echo "ยังไม่ได้ตั้ง SUPABASE_DB_URL"; exit 1; }
+          test -n "$BACKUP_AGE_PUBLIC_KEY" || { echo "ยังไม่ได้ตั้ง BACKUP_AGE_PUBLIC_KEY"; exit 1; }
+          name="docdesk-$(TZ=Asia/Bangkok date +%F).sql.gz.age"
+          # ไม่เขียนไฟล์ที่ยังไม่เข้ารหัสลงดิสก์
+          /usr/lib/postgresql/17/bin/pg_dump "$SUPABASE_DB_URL" --schema=public --no-owner --no-privileges \
+            | tee >(grep -c "PostgreSQL database dump complete" > dump-complete.txt) \
+            | gzip -9 \
+            | age -r "$BACKUP_AGE_PUBLIC_KEY" -o "$name"
+          sleep 1
+          test "$(cat dump-complete.txt)" = "1" || { echo "dump ไม่ครบ"; exit 1; }
+          size=$(stat -c %s "$name")
+          # GitHub รับไฟล์ได้ไม่เกิน 100MB
+          test "$size" -lt 95000000 || { echo "ไฟล์ใหญ่เกิน: $size"; exit 1; }
+          echo "BACKUP_FILE=$name" >> "$GITHUB_ENV"
+          echo "ขนาด $size bytes"
+
+      - name: Keep the latest 30 files in the backups branch
+        env:
+          REPO: ${{ github.repository }}
+          TOKEN: ${{ github.token }}
+        run: bash scripts/backup/rotate.sh "$BACKUP_FILE" "https://x-access-token:${TOKEN}@github.com/${REPO}.git"

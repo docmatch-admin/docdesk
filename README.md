@@ -60,6 +60,34 @@
 ## ส่งออกข้อมูลสำหรับเทรน
 หน้า “ฐานข้อมูล & คำตอบ” → แท็บคำตอบที่เรียนรู้ → **ส่งออกข้อมูลสำหรับเทรน** ได้ไฟล์ JSONL รูปแบบ chat fine-tuning (เฉพาะคำตอบที่ติดดาวหรือถูกเลือกใช้ ≥ 2 ครั้ง ตัดข้อมูลส่วนตัวซ้ำอีกรอบ) · `?all=1` เอาทั้งหมด
 
+## สำรองข้อมูล
+`.github/workflows/backup.yml` รันทุกวันตี 3 เวลาไทย ทำ `pg_dump` เฉพาะ schema `public` เข้ารหัสด้วย [age](https://github.com/FiloSottile/age) แล้วเก็บ 30 ไฟล์ล่าสุดใน branch `backups` ไม่รวมไฟล์รูปใน Storage และบัญชีเจ้าหน้าที่ใน schema `auth`
+
+### ตั้งค่าครั้งแรก
+1. สร้าง repo แบบ **private** บน GitHub แล้ว push โค้ด
+2. สร้างกุญแจบนเครื่องตัวเอง: `age-keygen -o docdesk-backup-key.txt` เก็บไฟล์นี้ไว้นอก repo เช่น ในตัวจัดการรหัสผ่าน **ถ้ากุญแจหายจะกู้ข้อมูลไม่ได้เลย**
+3. GitHub → Settings → Secrets and variables → Actions เพิ่ม
+   - `BACKUP_AGE_PUBLIC_KEY` = บรรทัด `public key: age1...` ในไฟล์กุญแจ (ใส่แค่กุญแจสาธารณะ GitHub จึงถอดรหัสไฟล์สำรองเองไม่ได้)
+   - `SUPABASE_DB_URL` = Supabase → Connect → **Session pooler** (พอร์ต 5432) ต้องใช้ pooler เพราะเครื่องของ GitHub Actions ต่อ IPv6 ไม่ได้
+4. กด Actions → Backup database → Run workflow แล้วดูว่า branch `backups` มีไฟล์
+
+### กู้คืน
+```bash
+git fetch origin backups && git show origin/backups:docdesk-2026-11-02.sql.gz.age > backup.age
+age -d -i docdesk-backup-key.txt backup.age | gunzip > backup.sql
+
+# ทดลองกู้ลงเครื่องตัวเองก่อนเสมอ (ต้องมี Docker)
+npx supabase start
+DB=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+psql "$DB" -c 'drop schema public cascade; create schema public; grant all on schema public to postgres, anon, authenticated, service_role;'
+psql "$DB" -c 'create extension if not exists vector with schema public;'
+psql "$DB" -f backup.sql
+psql "$DB" -c 'select count(*) from messages; select count(*) from conversations;'
+```
+- **error ที่คาดไว้:** `staff_id_fkey` เพราะไฟล์สำรองไม่มี `auth.users` ต้องสร้างบัญชีเจ้าหน้าที่ใหม่ใน Authentication แล้วแก้ `staff.id` ให้ตรง
+- **กู้ขึ้น production:** สร้าง project ใหม่ กู้ลงที่นั่น ตรวจข้อมูล แล้วเปลี่ยน env ใน Vercel อย่ากู้ทับ project ที่ใช้งานอยู่
+- **หลังกู้:** ต้องตั้ง cron ใหม่ด้วย `supabase/manual/` และ bucket รูปจะว่าง ข้อความยังอยู่แต่รูปเปิดไม่ได้
+
 ## เฟสถัดไป
 3. Dashboard สถิติ · 4. WhatsApp + บรอดแคสต์ · รูปภาพ/สติกเกอร์
 
