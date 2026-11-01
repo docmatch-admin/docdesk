@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib/llm-usage";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { TagSettings } from "./tag-settings";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
 
 interface Channel { id: string; type: ChannelType; name: string; ai_mode: AiMode | null; enabled: boolean }
@@ -146,6 +147,8 @@ export function SettingsClient() {
           {stats.unpricedModels.length > 0 && <> · ไม่รวมโมเดลที่ไม่รู้ราคา: {stats.unpricedModels.join(", ")}</>}
         </p>
       </section>
+
+      <TagSettings />
 
       <div className="row sticky-save">
         <button className="btn primary" onClick={saveAll}>บันทึกการตั้งค่า</button>

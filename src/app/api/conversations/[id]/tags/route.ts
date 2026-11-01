@@ -1,0 +1,27 @@
+import { NextResponse } from "next/server";
+import { requireStaff } from "@/lib/auth";
+import { setConversationTag } from "@/lib/pipeline";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+
+export const runtime = "nodejs";
+
+/** เจ้าหน้าที่ติดหรือเอาแท็กออก ผ่าน server เพื่อให้มี tag_events สำหรับรายงานเสมอ */
+export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { error } = await requireStaff();
+  if (error) return error;
+  const { id } = await params;
+  const { tag, action } = (await req.json().catch(() => ({}))) as { tag?: string; action?: string };
+  if (!tag?.trim() || (action !== "add" && action !== "remove")) {
+    return NextResponse.json({ error: "ข้อมูลไม่ถูกต้อง" }, { status: 400 });
+  }
+  if (action === "add") {
+    const { data: known } = await supabaseAdmin().from("tags").select("id").eq("name", tag).maybeSingle();
+    if (!known) return NextResponse.json({ error: "ไม่พบแท็กนี้" }, { status: 400 });
+  }
+  try {
+    return NextResponse.json({ tags: await setConversationTag(id, tag, action, "staff") });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: "บันทึกแท็กไม่สำเร็จ" }, { status: 500 });
+  }
+}

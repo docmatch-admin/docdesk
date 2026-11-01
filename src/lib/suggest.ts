@@ -4,6 +4,7 @@ import { getSetting, resolveAiMode } from "./mode";
 import { applyNumberGuard, buildNumberSources } from "./number-guard";
 import { pickStarredAnswer, shouldSkipSuggestion } from "./suggest-rules";
 import { supabaseAdmin } from "./supabase/admin";
+import { sanitizeSuggestedTags } from "./tags";
 import type { AiMode, ChannelType, SuggestionOption, SuggestionResult, SuggestionSource } from "./types";
 import { WEBCHAT_LIMITS } from "./webchat-guard";
 
@@ -90,10 +91,17 @@ export async function generateSuggestions(conversationId: string, { force = fals
     }
 
     // สร้างครั้งเดียวต่อชุดข้อความที่ยังไม่ตอบ
-    const { data: existing } = await db.from("suggestions").select("id, options, needs_human")
+    const { data: existing } = await db.from("suggestions").select("id, options, needs_human, suggested_tags")
       .eq("conversation_id", conversationId).eq("trigger_message_id", lastId as string)
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    if (existing) return { id: existing.id, options: existing.options as SuggestionOption[], needs_human: existing.needs_human };
+    if (existing) {
+      return {
+        id: existing.id,
+        options: existing.options as SuggestionOption[],
+        needs_human: existing.needs_human,
+        suggested_tags: (existing.suggested_tags ?? []) as string[],
+      };
+    }
   }
 
   // ---- ค้น 2 แหล่งด้วย vector search ----
@@ -123,6 +131,8 @@ export async function generateSuggestions(conversationId: string, { force = fals
   const profile = await getSetting<{ name: string; tone: string }>("clinic_profile", {
     name: "HappiWell Medical Clinic", tone: "สุภาพ เป็นกันเอง",
   });
+  const { data: tagRows } = await db.from("tags").select("name").eq("active", true).order("sort");
+  const tagNames = (tagRows ?? []).map((t) => t.name as string);
 
   // ---- แหล่งที่ 3: ประวัติของลูกค้าคนนี้ ----
   const history = msgs
@@ -155,9 +165,10 @@ export async function generateSuggestions(conversationId: string, { force = fals
 - source: "knowledge" ถ้าอิงฐานข้อมูลเป็นหลัก, "example" ถ้าอิงคำตอบเดิม, "history" ถ้าอิงประวัติลูกค้า
 - ref_ids: id ที่อ้างอิง (ไม่ต้องใส่ K: หรือ E:)
 - confidence 0–1: มั่นใจแค่ไหนว่าส่งได้เลยโดยไม่ต้องแก้
+- suggested_tags: แท็กของแชทนี้ไม่เกิน 3 แท็ก เลือกจากรายการแท็กที่ให้เท่านั้น ห้ามสร้างชื่อใหม่ ถ้าไม่มีที่ตรงให้เป็น []
 
 ตอบเป็น JSON:
-{"needs_human": boolean, "reason": "เหตุผลสั้นๆ ถ้า needs_human",
+{"needs_human": boolean, "reason": "เหตุผลสั้นๆ ถ้า needs_human", "suggested_tags": ["..."],
  "options": [{"text": "...", "source": "knowledge|example|history", "ref_ids": ["..."], "confidence": 0.0, "note": "ถ้ามี"}]}`;
 
   const user = `## ฐานข้อมูลคลินิก
@@ -169,10 +180,14 @@ ${eBlock}
 ## ประวัติแชทล่าสุดของลูกค้าคนนี้
 ${history}
 
+## รายการแท็กที่เลือกได้
+${tagNames.join(", ") || "(ไม่มี)"}
+
 ## ข้อความลูกค้าที่ต้องตอบตอนนี้
 ${question}`;
 
-  const out = await chatJSON<{ needs_human?: boolean; reason?: string; options?: Partial<SuggestionOption>[] }>(system, user, 0.4);
+  const out = await chatJSON<{ needs_human?: boolean; reason?: string; suggested_tags?: unknown; options?: Partial<SuggestionOption>[] }>(system, user, 0.4);
+  const suggested_tags = sanitizeSuggestedTags(out.suggested_tags, tagNames);
 
   const validSources: SuggestionSource[] = ["knowledge", "example", "history"];
   const knownIds = new Set([...knowledge.map((k) => k.id), ...examples.map((e) => e.id)]);
@@ -192,7 +207,7 @@ ${question}`;
   const needs_human = !!out.needs_human;
   const { data: saved } = await db
     .from("suggestions")
-    .insert({ conversation_id: conversationId, trigger_message_id: lastId, options, needs_human })
+    .insert({ conversation_id: conversationId, trigger_message_id: lastId, options, needs_human, suggested_tags })
     .select("id")
     .single();
 
@@ -200,5 +215,5 @@ ${question}`;
     await db.from("conversations").update({ needs_human: true }).eq("id", conversationId);
   }
 
-  return { id: saved?.id ?? null, options, needs_human, reason: out.reason };
+  return { id: saved?.id ?? null, options, needs_human, reason: out.reason, suggested_tags };
 }

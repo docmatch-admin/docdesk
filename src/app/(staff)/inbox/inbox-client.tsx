@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
+import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
+import { TagChip } from "../tag-chip";
+import { TagPicker } from "./tag-picker";
 import {
   AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL,
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
@@ -52,23 +55,44 @@ export function InboxClient() {
   const [quickMedia, setQuickMedia] = useState<QuickMedia[]>([]);
   const [dragging, setDragging] = useState(false);
 
-  const selected = convs.find((c) => c.id === selectedId) ?? null;
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const tagFilterRef = useRef<string[]>([]);
+  tagFilterRef.current = tagFilter;
+  // แชทที่เปิดอยู่แต่ไม่ตรงตัวกรอง (เช่น เพิ่งเอาแท็กที่กรองอยู่ออก) ต้องไม่ปิดห้องแชทกะทันหัน
+  const [openConv, setOpenConv] = useState<Conversation | null>(null);
+
+  const selected = convs.find((c) => c.id === selectedId) ?? (openConv?.id === selectedId ? openConv : null);
+  const tagColor = useMemo(() => new Map(tags.map((t) => [t.name, t.color])), [tags]);
   const customerLang = selected?.contacts?.language ?? "th";
 
   // ---------- โหลดรายการแชท ----------
   const loadConvs = useCallback(async () => {
-    const { data } = await sb
-      .from("conversations")
-      .select("*, contacts(display_name, avatar_url, language), channels(type, name, ai_mode)")
-      .order("last_message_at", { ascending: false })
-      .limit(200);
-    setConvs((data ?? []) as Conversation[]);
+    const columns = "*, contacts(display_name, avatar_url, language), channels(type, name, ai_mode)";
+    // กรองที่ฐานข้อมูล ไม่อย่างนั้นจะเห็นแค่ใน 200 แชทล่าสุด
+    let query = sb.from("conversations").select(columns);
+    if (tagFilterRef.current.length) query = query.contains("tags", tagFilterRef.current);
+    const { data } = await query.order("last_message_at", { ascending: false }).limit(200);
+    const rows = (data ?? []) as Conversation[];
+    setConvs(rows);
+    const open = selectedRef.current;
+    if (open && !rows.some((c) => c.id === open)) {
+      const { data: one } = await sb.from("conversations").select(columns).eq("id", open).maybeSingle();
+      setOpenConv((one as Conversation | null) ?? null);
+    }
   }, [sb]);
 
+  const loadTags = useCallback(async () => {
+    const { data } = await sb.from("tags").select("id, name, color, group, sort, active").order("sort").order("name");
+    setTags((data ?? []) as Tag[]);
+  }, [sb]);
+
+  useEffect(() => { loadConvs(); }, [tagFilter, loadConvs]);
+
   const loadSuggestion = useCallback(async (convId: string) => {
-    const { data } = await sb.from("suggestions").select("id, options, needs_human")
+    const { data } = await sb.from("suggestions").select("id, options, needs_human, suggested_tags")
       .eq("conversation_id", convId).order("created_at", { ascending: false }).limit(1).maybeSingle();
-    setSuggestion(data ? { id: data.id, options: data.options as SuggestionOption[], needs_human: data.needs_human } : null);
+    setSuggestion(data ? { id: data.id, options: data.options as SuggestionOption[], needs_human: data.needs_human, suggested_tags: data.suggested_tags as string[] } : null);
   }, [sb]);
 
   // error ห้ามทำให้หน้าแชทพัง ฝั่ง server log ไว้แล้ว
@@ -92,7 +116,7 @@ export function InboxClient() {
   }, []);
 
   useEffect(() => {
-    loadConvs();
+    loadTags();
     sb.from("quick_media").select("id, title, preview_path").order("created_at", { ascending: false }).then(async ({ data }) => {
       const rows = (data ?? []) as QuickMedia[];
       if (!rows.length) return;
@@ -129,9 +153,9 @@ export function InboxClient() {
         setMessages((prev) => prev.filter((x) => x.id !== (p.old as { id: string }).id));
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (p) => {
-        const s = p.new as { id: string; conversation_id: string; options: SuggestionOption[]; needs_human: boolean };
+        const s = p.new as { id: string; conversation_id: string; options: SuggestionOption[]; needs_human: boolean; suggested_tags: string[] };
         if (s.conversation_id === selectedRef.current) {
-          setSuggestion({ id: s.id, options: s.options, needs_human: s.needs_human });
+          setSuggestion({ id: s.id, options: s.options, needs_human: s.needs_human, suggested_tags: s.suggested_tags });
           setChosen(null);
         }
       })
@@ -145,7 +169,7 @@ export function InboxClient() {
     };
     window.addEventListener("focus", onFocus);
     return () => { sb.removeChannel(ch); clearInterval(t); window.removeEventListener("focus", onFocus); };
-  }, [sb, loadConvs, markRead, ensureSuggestion]);
+  }, [sb, loadConvs, loadTags, markRead, ensureSuggestion]);
 
   // ---------- เลือกแชท ----------
   useEffect(() => {
@@ -192,6 +216,30 @@ export function InboxClient() {
     setSending(false);
     if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "ส่งไม่สำเร็จ");
     setText(""); setChosen(null); setSuggestion(null);
+  }
+
+  async function changeTag(tag: string, action: "add" | "remove") {
+    if (!selectedId) return;
+    const res = await fetch(`/api/conversations/${selectedId}/tags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag, action }),
+    });
+    if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "บันทึกแท็กไม่สำเร็จ");
+    loadConvs();
+  }
+
+  async function createTag(name: string) {
+    // แท็กใหม่จากห้องแชทเข้ากลุ่ม topic ไปก่อน ปรับสีและลำดับได้ในหน้าตั้งค่า
+    const sort = Math.max(0, ...tags.filter((t) => t.group === "topic").map((t) => t.sort)) + 10;
+    const { error } = await sb.from("tags").insert({ name, color: DEFAULT_TAG_COLOR, group: "topic", sort });
+    if (error) return flash("สร้างแท็กไม่สำเร็จ");
+    await loadTags();
+    await changeTag(name, "add");
+  }
+
+  function toggleFilter(name: string) {
+    setTagFilter((prev) => (prev.includes(name) ? prev.filter((t) => t !== name) : [...prev, name]));
   }
 
   function attachFile(file: File | null | undefined) {
@@ -268,6 +316,7 @@ export function InboxClient() {
   const metaWindow = !isMeta || inboundAgeH == null ? null
     : inboundAgeH <= 24 ? null
     : inboundAgeH <= 24 * 7 ? "human" : "closed";
+  const suggestedTags = (suggestion?.suggested_tags ?? []).filter((t) => !selected?.tags.includes(t));
   const edited = chosen != null && suggestion?.options[chosen] && suggestion.options[chosen].text !== text;
 
   return (
@@ -283,7 +332,20 @@ export function InboxClient() {
             ยังไม่อ่าน {counts.unread > 0 && <b className="badge">{counts.unread}</b>}
           </button>
         </div>
-        {shown.length === 0 && <div className="empty">ยังไม่มีแชท</div>}
+        <details className="tag-filter">
+          <summary>กรองตามแท็ก{tagFilter.length > 0 && <b className="badge">{tagFilter.length}</b>}</summary>
+          <div className="tag-filter-list">
+            {tags.filter((t) => t.active).map((t) => (
+              <button key={t.id} className={`tag-toggle ${tagFilter.includes(t.name) ? "on" : ""}`}
+                aria-pressed={tagFilter.includes(t.name)} onClick={() => toggleFilter(t.name)}>
+                <TagChip name={t.name} color={t.color} />
+              </button>
+            ))}
+            {tagFilter.length > 0 && <button className="btn ghost small" onClick={() => setTagFilter([])}>ล้างตัวกรอง</button>}
+          </div>
+          {tagFilter.length > 1 && <div className="muted small">แสดงแชทที่มีครบทุกแท็กที่เลือก</div>}
+        </details>
+        {shown.length === 0 && <div className="empty">{tagFilter.length ? "ไม่มีแชทที่ตรงกับแท็กที่เลือก" : "ยังไม่มีแชท"}</div>}
         {shown.map((c) => (
           <button key={c.id} className={`conv ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""}`}
             onClick={() => setSelectedId(c.id)}>
@@ -299,6 +361,7 @@ export function InboxClient() {
                 {c.contacts && c.contacts.language !== "th" && <span className="chip">🌐 {LANGUAGE_NAME[c.contacts.language] ?? c.contacts.language}</span>}
                 <span className={`chip mode-${effectiveMode(c)}`}>AI: {AI_MODE_LABEL[effectiveMode(c)]}</span>
                 {c.needs_human && <span className="chip red">ต้องให้คนตอบ</span>}
+                {c.tags.map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
               </div>
             </div>
             {c.unread_count > 0 && <b className="badge">{c.unread_count}</b>}
@@ -328,6 +391,12 @@ export function InboxClient() {
                 <div className="muted small">
                   {selected.channels?.name}
                   {customerLang !== "th" && <> · ลูกค้าใช้ภาษา{LANGUAGE_NAME[customerLang] ?? customerLang} (ระบบแปลให้อัตโนมัติ)</>}
+                </div>
+                <div className="chips head-tags">
+                  {selected.tags.map((t) => (
+                    <TagChip key={t} name={t} color={tagColor.get(t)} onRemove={() => changeTag(t, "remove")} />
+                  ))}
+                  <TagPicker tags={tags} current={selected.tags} onPick={(t) => changeTag(t, "add")} onCreate={createTag} />
                 </div>
               </div>
               <div className="head-actions">
@@ -387,6 +456,14 @@ export function InboxClient() {
                   {suggesting ? "กำลังคิด…" : "↻ แนะนำใหม่"}
                 </button>
               </div>
+              {suggestedTags.length > 0 && (
+                <div className="ai-tags">
+                  <span className="muted small">AI แนะนำ:</span>
+                  {suggestedTags.map((t) => (
+                    <button key={t} className="ai-tag" aria-label={`ติดแท็ก ${t}`} onClick={() => changeTag(t, "add")}>{t} ✓</button>
+                  ))}
+                </div>
+              )}
               <div className="sugg-list">
                 {!suggestion && !suggesting && <div className="muted small">ยังไม่มีคำแนะนำ กด “แนะนำใหม่”</div>}
                 {suggestion?.options.map((o, i) => (

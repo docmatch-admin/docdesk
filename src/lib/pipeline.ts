@@ -6,7 +6,8 @@ import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { scrubPII } from "./pii";
 import { markConversationReadWith } from "./read-receipts";
-import { hasUrgentSignal, isCustomerText } from "./suggest-rules";
+import { classifyAck, hasUrgentSignal, isCustomerText } from "./suggest-rules";
+import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
 import { CHAT_BUCKET, consumeUpload, downloadFile, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
 import { MAX_IMAGE_BYTES } from "./media";
@@ -102,7 +103,48 @@ export async function storeIncoming(input: IncomingInput) {
     }).eq("id", conv.id),
   ]);
 
+  if (isCustomerText(input.text)) await applyTagRules(conv.id as string, [input.text, th ?? ""].join("\n"), language, input.text);
+
   return { conversationId: conv.id as string, messageId: msg.id as string, duplicate: false };
+}
+
+/** กฎคำสำคัญ: ไม่ใช้ AI ทำงานทุกโหมด แท็กพลาดต้องไม่ทำให้ข้อความลูกค้าหาย */
+async function applyTagRules(conversationId: string, text: string, language: string, original: string) {
+  try {
+    const db = supabaseAdmin();
+    const [{ data: rules }, { data: tags }] = await Promise.all([
+      db.from("tag_rules").select("kind, keyword, tag"),
+      db.from("tags").select("name").eq("active", true),
+    ]);
+    // คำสั้นอย่าง "ok" หรือ "thanks" คนไทยก็พิมพ์ ไม่ใช่สัญญาณว่าเป็นชาวต่างชาติ
+    const effectiveLanguage = classifyAck(original) ? "th" : language;
+    const names = (tags ?? []).map((t) => t.name as string);
+    for (const tag of matchTagRules(text, effectiveLanguage, (rules ?? []) as TagRule[], names)) {
+      await setConversationTag(conversationId, tag, "add", "rule");
+    }
+  } catch (e) {
+    console.error("tag rules failed", e);
+  }
+}
+
+export async function setConversationTag(conversationId: string, tag: string, action: "add" | "remove", by: "staff" | "ai" | "rule") {
+  const { data, error } = await supabaseAdmin().rpc("set_conversation_tag", {
+    p_conversation: conversationId, p_tag: tag, p_action: action, p_by: by,
+  });
+  if (error) throw error;
+  return (data ?? []) as string[];
+}
+
+/** โหมด auto: ติดแท็กที่ AI เสนอเองเฉพาะกลุ่ม topic ไม่เรียก LLM เพิ่ม */
+async function autoApplyTopicTags(conversationId: string, suggested: string[] = []) {
+  if (!suggested.length) return;
+  try {
+    const { data: topics } = await supabaseAdmin().from("tags").select("name")
+      .eq("group", "topic").eq("active", true).in("name", suggested);
+    for (const t of topics ?? []) await setConversationTag(conversationId, t.name as string, "add", "ai");
+  } catch (e) {
+    console.error("auto tag failed", e);
+  }
 }
 
 /** auto/fallback: รอให้ลูกค้าพิมพ์จบก่อน ข้อความใหม่จะเริ่มนับใหม่ และร่างครั้งเดียวจากทั้งชุด */
@@ -136,6 +178,8 @@ export async function processIncoming(conversationId: string, messageId: string,
 
   const suggestion = await generateSuggestions(conversationId);
   if (suggestion.skipped) return;
+
+  if (mode === "auto") await autoApplyTopicTags(conversationId, suggestion.suggested_tags);
 
   if (mode === "fallback") {
     const hours = await getSetting<BusinessHours>("business_hours", { tz: "Asia/Bangkok", days: {} });

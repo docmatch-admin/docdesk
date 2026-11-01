@@ -15,6 +15,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         <div className="brand">Doc<span>Desk</span></div>
         <Link href="/inbox">💬 แชท</Link>
         <Link href="/knowledge">📚 ฐานข้อมูล &amp; คำตอบ</Link>
+        <Link href="/reports">📊 รายงาน</Link>
         <Link href="/settings">⚙️ ตั้งค่า AI</Link>
         <div className="nav-foot">
           <div className="muted small">{staff?.display_name ?? user.email}</div>

@@ -87,10 +87,27 @@ function query(name) {
   return b;
 }
 
+/** เลียนแบบ set_conversation_tag ใน migration 010 */
+function setTag({ p_conversation, p_tag, p_action, p_by }) {
+  const conv = state.tables.conversations.find((c) => c.id === p_conversation);
+  const events = (state.tables.tag_events ??= []);
+  conv.tags ??= [];
+  const log = () => events.push({ conversation_id: p_conversation, tag: p_tag, action: p_action, by: p_by });
+  if (p_action === "add") {
+    const removedByStaff = events.some((e) => e.conversation_id === p_conversation && e.tag === p_tag && e.action === "remove" && e.by === "staff");
+    if ((p_by === "staff" || !removedByStaff) && !conv.tags.includes(p_tag)) { conv.tags.push(p_tag); log(); }
+  } else if (conv.tags.includes(p_tag)) {
+    conv.tags = conv.tags.filter((t) => t !== p_tag);
+    log();
+  }
+  return conv.tags;
+}
+
 const client = {
   from: query,
   storage: { from: bucket },
-  async rpc(fn) {
+  async rpc(fn, args) {
+    if (fn === "set_conversation_tag") return { data: setTag(args), error: null };
     if (fn === "match_examples") return { data: state.matchExamples };
     if (fn === "match_knowledge") return { data: state.matchKnowledge };
     return { data: null };
