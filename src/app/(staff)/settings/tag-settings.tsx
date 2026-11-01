@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { DEFAULT_TAG_COLOR, TAG_GROUP_LABEL, type Tag, type TagGroup, type TagRule } from "@/lib/tags";
+import { DEFAULT_TAG_COLOR, NON_THAI_MIN_MESSAGES, TAG_GROUP_LABEL, type Tag, type TagGroup, type TagRule } from "@/lib/tags";
 
 const GROUPS = Object.keys(TAG_GROUP_LABEL) as TagGroup[];
 
@@ -15,13 +15,14 @@ export function TagSettings() {
   const [group, setGroup] = useState<TagGroup>("topic");
   const [color, setColor] = useState(DEFAULT_TAG_COLOR);
   const [ruleKeyword, setRuleKeyword] = useState("");
+  const [ruleExclude, setRuleExclude] = useState("");
   const [ruleTag, setRuleTag] = useState("");
   const [msg, setMsg] = useState("");
 
   const load = useCallback(async () => {
     const [{ data: t }, { data: r }] = await Promise.all([
       sb.from("tags").select("id, name, color, group, sort, active").order("sort").order("name"),
-      sb.from("tag_rules").select("id, kind, keyword, tag").order("created_at"),
+      sb.from("tag_rules").select("id, kind, keyword, exclude_keywords, tag").order("created_at"),
     ]);
     setTags((t ?? []) as Tag[]);
     setRules((r ?? []) as (TagRule & { id: string })[]);
@@ -63,8 +64,8 @@ export function TagSettings() {
   async function addRule(e: React.FormEvent) {
     e.preventDefault();
     if (!ruleKeyword.trim() || !ruleTag) return;
-    const { error } = await sb.from("tag_rules").insert({ kind: "keyword", keyword: ruleKeyword.trim(), tag: ruleTag });
-    if (report(error)) { setRuleKeyword(""); load(); }
+    const { error } = await sb.from("tag_rules").insert({ kind: "keyword", keyword: ruleKeyword.trim(), exclude_keywords: ruleExclude.trim(), tag: ruleTag });
+    if (report(error)) { setRuleKeyword(""); setRuleExclude(""); load(); }
   }
 
   async function patchRule(id: string, patch: Partial<TagRule>) {
@@ -110,15 +111,21 @@ export function TagSettings() {
 
       <section className="card">
         <h3>กฎติดแท็กอัตโนมัติ</h3>
-        <p className="muted small">ไม่ใช้ AI คั่นหลายคำด้วย | เช่น บริษัท|พนักงาน|โรงงาน ถ้าเอาแท็กออกจากแชทเอง กฎจะไม่ติดกลับให้แชทนั้น</p>
+        <p className="muted small">ไม่ใช้ AI คั่นหลายคำด้วย | เช่น พนักงาน|โรงงาน ถ้าข้อความมีคำยกเว้นจะไม่ติดแท็ก ถ้าเอาแท็กออกจากแชทเอง กฎจะไม่ติดกลับให้แชทนั้น</p>
         {rules.map((r) => (
           <div key={r.id} className="tag-row">
             {r.kind === "non_thai"
-              ? <span className="grow">ข้อความที่ไม่ใช่ภาษาไทย</span>
-              : <input className="grow" defaultValue={r.keyword} aria-label="คำสำคัญ" onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v && v !== r.keyword) patchRule(r.id, { keyword: v });
-                }} />}
+              ? <span className="grow">ลูกค้าใช้ภาษาอื่นอย่างน้อย {NON_THAI_MIN_MESSAGES} ข้อความ</span>
+              : <>
+                  <input className="grow" defaultValue={r.keyword} aria-label="คำสำคัญ" placeholder="คำสำคัญ" onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v && v !== r.keyword) patchRule(r.id, { keyword: v });
+                  }} />
+                  <input className="grow" defaultValue={r.exclude_keywords ?? ""} aria-label="คำยกเว้น" placeholder="คำยกเว้น (ไม่ใส่ก็ได้)" onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v !== (r.exclude_keywords ?? "")) patchRule(r.id, { exclude_keywords: v });
+                  }} />
+                </>}
             <span aria-hidden>→</span>
             <select value={r.tag} aria-label="แท็กที่จะติด" onChange={(e) => patchRule(r.id, { tag: e.target.value })}>
               {!tagOptions.some((t) => t.name === r.tag) && <option value={r.tag}>{r.tag} (ปิดใช้)</option>}
@@ -129,6 +136,7 @@ export function TagSettings() {
         ))}
         <form className="tag-row" onSubmit={addRule}>
           <input className="grow" value={ruleKeyword} placeholder="คำสำคัญใหม่" aria-label="คำสำคัญใหม่" onChange={(e) => setRuleKeyword(e.target.value)} />
+          <input className="grow" value={ruleExclude} placeholder="คำยกเว้น (ไม่ใส่ก็ได้)" aria-label="คำยกเว้นของกฎใหม่" onChange={(e) => setRuleExclude(e.target.value)} />
           <span aria-hidden>→</span>
           <select value={ruleTag} aria-label="แท็กของกฎใหม่" onChange={(e) => setRuleTag(e.target.value)}>
             <option value="">เลือกแท็ก</option>

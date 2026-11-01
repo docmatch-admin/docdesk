@@ -9,20 +9,42 @@ export const TAG_GROUP_LABEL: Record<TagGroup, string> = {
 };
 
 export interface Tag { id: string; name: string; color: string; group: TagGroup; sort: number; active: boolean }
-export interface TagRule { id?: string; kind: "keyword" | "non_thai"; keyword: string; tag: string }
+export interface TagRule { id?: string; kind: "keyword" | "non_thai"; keyword: string; exclude_keywords?: string; tag: string }
 
 export const DEFAULT_TAG_COLOR = "#475569";
 
-/** keyword เป็นข้อความธรรมดาคั่นด้วย | ไม่ตีความเป็น regex กันกฎที่พิมพ์ผิดหรือทำให้ระบบช้า */
-export function matchTagRules(text: string, language: string, rules: TagRule[], activeTags: string[]): string[] {
+/** ต้องใช้ภาษาอื่นอย่างน้อยเท่านี้ข้อความ คนไทยที่พิมพ์ "HPV vaccine price" ครั้งเดียวจะได้ไม่ติดแท็กต่างชาติ */
+export const NON_THAI_MIN_MESSAGES = 2;
+
+const ASCII_WORD = /^[a-z0-9 ]+$/;
+const ASCII_CHAR = /[a-z0-9]/;
+
+/** คำอังกฤษต้องตรงทั้งคำ ไม่อย่างนั้น "HR" จะตรงกับ "three" ส่วนภาษาไทยไม่มีช่องว่างคั่นคำจึงเทียบแบบมีอยู่ในข้อความ */
+function containsKeyword(hay: string, keyword: string): boolean {
+  if (!ASCII_WORD.test(keyword)) return hay.includes(keyword);
+  for (let at = hay.indexOf(keyword); at !== -1; at = hay.indexOf(keyword, at + 1)) {
+    const before = hay[at - 1] ?? "";
+    const after = hay[at + keyword.length] ?? "";
+    if (!ASCII_CHAR.test(before) && !ASCII_CHAR.test(after)) return true;
+  }
+  return false;
+}
+
+/** คำคั่นด้วย | เป็นข้อความธรรมดา ไม่ตีความเป็น regex กันกฎที่พิมพ์ผิดหรือทำให้ระบบช้า */
+function matchesAny(hay: string, list: string | undefined): boolean {
+  return (list ?? "").split("|").map((k) => k.trim().toLowerCase()).filter(Boolean).some((k) => containsKeyword(hay, k));
+}
+
+/** foreignMessages = จำนวนข้อความของลูกค้าที่ toThai ตรวจว่าไม่ใช่ภาษาไทย รวมข้อความนี้ */
+export function matchTagRules(text: string, foreignMessages: number, rules: TagRule[], activeTags: string[]): string[] {
   const hay = text.toLowerCase();
   const active = new Set(activeTags);
   const out = new Set<string>();
   for (const rule of rules) {
     if (!active.has(rule.tag)) continue;
     const hit = rule.kind === "non_thai"
-      ? !!language && language !== "th"
-      : rule.keyword.split("|").map((k) => k.trim().toLowerCase()).filter(Boolean).some((k) => hay.includes(k));
+      ? foreignMessages >= NON_THAI_MIN_MESSAGES
+      : matchesAny(hay, rule.keyword) && !matchesAny(hay, rule.exclude_keywords);
     if (hit) out.add(rule.tag);
   }
   return [...out];

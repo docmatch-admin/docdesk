@@ -103,28 +103,38 @@ export async function storeIncoming(input: IncomingInput) {
     }).eq("id", conv.id),
   ]);
 
-  if (isCustomerText(input.text)) await applyTagRules(conv.id as string, [input.text, th ?? ""].join("\n"), language, input.text);
+  if (isCustomerText(input.text)) {
+    // เกินเพดาน AI ไม่ได้ตรวจภาษาของข้อความนี้ language เป็นค่าเดิมของรายชื่อ จึงไม่นำมานับ
+    await applyTagRules(conv.id as string, [input.text, th ?? ""].join("\n"), input.skipAi ? "th" : language);
+  }
 
   return { conversationId: conv.id as string, messageId: msg.id as string, duplicate: false };
 }
 
 /** กฎคำสำคัญ: ไม่ใช้ AI ทำงานทุกโหมด แท็กพลาดต้องไม่ทำให้ข้อความลูกค้าหาย */
-async function applyTagRules(conversationId: string, text: string, language: string, original: string) {
+async function applyTagRules(conversationId: string, text: string, language: string) {
   try {
     const db = supabaseAdmin();
     const [{ data: rules }, { data: tags }] = await Promise.all([
-      db.from("tag_rules").select("kind, keyword, tag"),
+      db.from("tag_rules").select("kind, keyword, exclude_keywords, tag"),
       db.from("tags").select("name").eq("active", true),
     ]);
-    // คำสั้นอย่าง "ok" หรือ "thanks" คนไทยก็พิมพ์ ไม่ใช่สัญญาณว่าเป็นชาวต่างชาติ
-    const effectiveLanguage = classifyAck(original) ? "th" : language;
     const names = (tags ?? []).map((t) => t.name as string);
-    for (const tag of matchTagRules(text, effectiveLanguage, (rules ?? []) as TagRule[], names)) {
+    const foreign = language === "th" ? 0 : await countForeignMessages(conversationId);
+    for (const tag of matchTagRules(text, foreign, (rules ?? []) as TagRule[], names)) {
       await setConversationTag(conversationId, tag, "add", "rule");
     }
   } catch (e) {
     console.error("tag rules failed", e);
   }
+}
+
+/** ข้อความของลูกค้าที่ toThai ตรวจว่าไม่ใช่ภาษาไทย ไม่นับรูป และคำสั้นอย่าง "ok" หรือ "thanks" ที่คนไทยก็พิมพ์ */
+async function countForeignMessages(conversationId: string) {
+  const { data } = await supabaseAdmin().from("messages").select("body")
+    .eq("conversation_id", conversationId).eq("direction", "in").neq("language", "th")
+    .order("created_at", { ascending: false }).limit(20);
+  return (data ?? []).filter((m) => isCustomerText(m.body as string) && !classifyAck(m.body as string)).length;
 }
 
 export async function setConversationTag(conversationId: string, tag: string, action: "add" | "remove", by: "staff" | "ai" | "rule") {

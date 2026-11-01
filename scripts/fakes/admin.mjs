@@ -74,6 +74,7 @@ function query(name) {
     delete() { op = "delete"; return b; },
     not(k, _op, v) { filters.push((r) => (r[k] ?? null) !== v); return b; },
     eq(k, v) { filters.push((r) => r[k] === v); return b; },
+    neq(k, v) { filters.push((r) => r[k] !== v); return b; },
     is(k, v) { filters.push((r) => (r[k] ?? null) === v); return b; },
     in(k, v) { filters.push((r) => v.includes(r[k])); return b; },
     lte(k, v) { filters.push((r) => r[k] != null && Date.parse(r[k]) <= Date.parse(v)); return b; },
