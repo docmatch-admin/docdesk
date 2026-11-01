@@ -156,11 +156,25 @@ function setTag({ p_conversation, p_tag, p_action, p_by }) {
   return conv.tags;
 }
 
+/** เลียนแบบ set_assignee และ assign_if_unassigned ใน migration 019 */
+function setAssignee(fn, { p_conversation, p_to, p_by }) {
+  const conv = state.tables.conversations.find((c) => c.id === p_conversation);
+  const log = (state.tables.assignment_log ??= []);
+  const from = conv.assigned_to ?? null;
+  if (fn === "assign_if_unassigned" && from) return from;
+  if (from !== (p_to ?? null)) {
+    conv.assigned_to = p_to;
+    log.push({ conversation_id: p_conversation, from_staff: from, to_staff: p_to, by_staff: p_by ?? p_to });
+  }
+  return p_to;
+}
+
 const client = {
   from: query,
   storage: { from: bucket },
   async rpc(fn, args) {
     if (fn === "set_conversation_tag") return { data: setTag(args), error: null };
+    if (fn === "set_assignee" || fn === "assign_if_unassigned") return { data: setAssignee(fn, args), error: null };
     if (fn === "match_examples") return { data: state.matchExamples };
     if (fn === "match_knowledge") return { data: state.matchKnowledge };
     return { data: null };

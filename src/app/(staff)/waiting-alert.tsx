@@ -2,11 +2,17 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { shouldAlertStaff } from "@/lib/assignment";
+import type { BusinessHoursConfig } from "@/lib/business-hours";
 import { titleWithCount } from "@/lib/case-flow";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 const REPEAT_MS = 60_000;
+/** ต้องประเมินซ้ำเอง เพราะแชทของคนอื่นจะมาแจ้งเราเมื่อครบเวลา โดยไม่มีข้อมูลเปลี่ยน */
+const EVALUATE_MS = 30_000;
 const MUTE_KEY = "docdesk_alert_muted";
+
+interface WaitingChat { assigned_to: string | null; waiting_since: string | null; last_inbound_at: string | null }
 
 function readMuted() {
   try { return localStorage.getItem(MUTE_KEY) === "1"; } catch { return false; }
@@ -28,10 +34,13 @@ function beep(ctx: AudioContext) {
 }
 
 /** อยู่ใน layout เพื่อให้เตือนได้ในทุกหน้าของเจ้าหน้าที่ ไม่ใช่แค่หน้าแชท */
-export function WaitingAlert() {
+export function WaitingAlert({ meId }: { meId: string }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const pathname = usePathname();
   const [count, setCount] = useState(0);
+  const [waiting, setWaiting] = useState<WaitingChat[]>([]);
+  const [hours, setHours] = useState<BusinessHoursConfig>({ tz: "Asia/Bangkok", days: {} });
+  const [now, setNow] = useState(() => Date.now());
   const [muted, setMuted] = useState(false);
   const audio = useRef<AudioContext | null>(null);
   const previous = useRef(0);
@@ -40,11 +49,14 @@ export function WaitingAlert() {
 
   useEffect(() => {
     const load = async () => {
-      const { count: n } = await sb.from("conversations").select("id", { count: "exact", head: true })
-        .eq("status", "open").eq("last_direction", "in");
+      const { data, count: n } = await sb.from("conversations").select("assigned_to, waiting_since, last_inbound_at", { count: "exact" })
+        .eq("status", "open").eq("last_direction", "in").limit(500);
       if (n !== null) setCount(n);
+      setWaiting((data ?? []) as WaitingChat[]);
     };
     load();
+    sb.from("settings").select("value").eq("key", "business_hours").maybeSingle()
+      .then(({ data }) => { if (data) setHours(data.value as BusinessHoursConfig); });
     const channel = sb.channel("waiting-alert")
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, load)
       .subscribe();
@@ -52,6 +64,17 @@ export function WaitingAlert() {
     const poll = setInterval(load, REPEAT_MS);
     return () => { sb.removeChannel(channel); clearInterval(poll); };
   }, [sb]);
+
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), EVALUATE_MS);
+    return () => clearInterval(tick);
+  }, []);
+
+  // เสียงเตือนเฉพาะแชทที่เกี่ยวกับเรา ส่วนป้ายบนแท็บยังนับรอตอบทั้งหมด
+  const alertCount = useMemo(
+    () => waiting.filter((c) => shouldAlertStaff(c, meId, hours, now)).length,
+    [waiting, meId, hours, now],
+  );
 
   // เบราว์เซอร์ไม่ให้เล่นเสียงจนกว่าผู้ใช้จะแตะหน้าเว็บ
   useEffect(() => {
@@ -77,12 +100,12 @@ export function WaitingAlert() {
 
   useEffect(() => {
     const play = () => { if (audio.current?.state === "running") beep(audio.current); };
-    if (!muted && count > previous.current) play();
-    previous.current = count;
-    if (muted || count === 0) return;
+    if (!muted && alertCount > previous.current) play();
+    previous.current = alertCount;
+    if (muted || alertCount === 0) return;
     const repeat = setInterval(play, REPEAT_MS);
     return () => clearInterval(repeat);
-  }, [count, muted]);
+  }, [alertCount, muted]);
 
   function toggle() {
     const next = !muted;

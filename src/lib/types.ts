@@ -50,6 +50,7 @@ export interface Conversation {
   status: "open" | "closed";
   ai_mode: AiMode | null;
   tags: string[];
+  assigned_to: string | null;
   unread_count: number;
   needs_human: boolean;
   ai_due_at: string | null;

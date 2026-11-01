@@ -293,3 +293,12 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 /* ---------- เจ้าหน้าที่ ---------- */
 .secret-card { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; border-color: #128a6c; }
 .secret-card code { font-size: 16px; background: var(--bg); padding: 4px 8px; border-radius: 6px; user-select: all; }
+
+/* ---------- ผู้ดูแลแชท ---------- */
+.scope-filter { display: flex; gap: 4px; padding: 6px 10px; background: #fff; border-bottom: 1px solid var(--line); }
+.scope-filter button { flex: 1; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 4px 8px; font-size: 13px; cursor: pointer; color: var(--muted); }
+.scope-filter button.on { background: var(--blue-soft); color: var(--ink); border-color: var(--blue); font-weight: 600; }
+.assignee-chip { width: 24px; height: 24px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.assignee { display: flex; align-items: center; gap: 6px; }
+.customer-panel { background: #fff; border-bottom: 1px solid var(--line); padding: 4px 16px; font-size: 13px; }
+.customer-panel summary { cursor: pointer; color: var(--muted); }

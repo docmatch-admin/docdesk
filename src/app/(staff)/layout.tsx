@@ -36,7 +36,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         {isAdmin && <Link href="/staff">👥 เจ้าหน้าที่</Link>}
         {isAdmin && <Link href="/settings">⚙️ ตั้งค่า AI</Link>}
         <div className="nav-foot">
-          <WaitingAlert />
+          <WaitingAlert meId={me.id} />
           <div className="muted small">{me.displayName}</div>
           <SignOut />
         </div>

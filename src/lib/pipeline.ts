@@ -315,12 +315,19 @@ export async function sendReply(input: ReplyInput) {
   }).eq("id", input.conversationId);
 
   if (input.senderType === "staff") {
+    if (input.senderId) await claimIfUnassigned(input.conversationId, input.senderId);
     await learnFromStaffReply(input, msg?.id ?? null).catch((e) => console.error("learn failed", e));
   } else if (input.suggestionId != null && input.chosenIndex != null) {
     await db.from("suggestions").update({ chosen_index: input.chosenIndex, edited: false }).eq("id", input.suggestionId);
   }
 
   return { messageId: msg?.id ?? null, body };
+}
+
+/** เจ้าหน้าที่ตอบแชทที่ยังไม่มีผู้ดูแล: เป็นผู้ดูแลอัตโนมัติ พลาดแล้วต้องไม่ทำให้การส่งข้อความล้ม */
+async function claimIfUnassigned(conversationId: string, staffId: string) {
+  const { error } = await supabaseAdmin().rpc("assign_if_unassigned", { p_conversation: conversationId, p_to: staffId });
+  if (error) console.error("auto assign failed", error);
 }
 
 export interface MediaReplyInput {
@@ -417,6 +424,7 @@ export async function sendMediaReply(input: MediaReplyInput) {
     last_message_at: new Date().toISOString(),
     last_message_preview: preview(`[รูปภาพ] ${captionTh}`),
   }).eq("id", input.conversationId);
+  await claimIfUnassigned(input.conversationId, input.senderId);
 
   return { messageId };
 }

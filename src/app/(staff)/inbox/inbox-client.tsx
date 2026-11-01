@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
+import { staffInitial } from "@/lib/assignment";
 import { CLOSE_PATCH, isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
+import { AssigneeControl } from "./assignee-control";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import {
@@ -26,9 +28,11 @@ const timeTh = (iso: string) =>
   new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
 
 interface StaffOption { id: string; display_name: string; active: boolean }
+interface AssignmentEntry { id: number; from_staff: string | null; to_staff: string | null; by_staff: string | null; created_at: string }
 interface QuickMedia { id: string; title: string; preview_path: string; previewUrl?: string }
 interface Attachment { file?: File; quick?: QuickMedia; previewUrl: string; name: string }
 
+const SCOPE_KEY = "docdesk_inbox_scope";
 const SIGNED_URL_SECONDS = 600;
 /** รูปเข้าที่ยังโหลดไม่เสร็จนานเกินนี้ถือว่าล้มเหลว (เช่น function ถูกตัดก่อนโหลดเสร็จ) */
 const IMAGE_LOADING_MAX_MS = 2 * 60 * 1000;
@@ -40,6 +44,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const [filter, setFilter] = useState<Filter>("waiting");
   const [lists, setLists] = useState<Record<Filter, Conversation[]>>({ waiting: [], open: [], closed: [] });
   const [counts, setCounts] = useState({ waiting: 0, open: 0 });
+  const [scope, setScope] = useState<"all" | "mine">("all");
+  const scopeRef = useRef<"all" | "mine">("all");
+  scopeRef.current = scope;
+  const [history, setHistory] = useState<AssignmentEntry[]>([]);
   const [search, setSearch] = useState("");
   const searchRef = useRef("");
   const loadSeq = useRef(0);
@@ -91,6 +99,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     const base = (status: "open" | "closed") => {
       let query = sb.from("conversations").select(columns, { count: "exact" }).eq("status", status);
       if (matched) query = query.in("id", matched);
+      if (scopeRef.current === "mine") query = query.eq("assigned_to", me.id);
       return tagFilterRef.current.length ? query.contains("tags", tagFilterRef.current) : query;
     };
     const [waiting, open_, closed] = await Promise.all([
@@ -110,14 +119,26 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       const { data: one } = await sb.from("conversations").select(columns).eq("id", open).maybeSingle();
       setOpenConv((one as Conversation | null) ?? null);
     }
-  }, [sb]);
+  }, [sb, me.id]);
 
   const loadTags = useCallback(async () => {
     const { data } = await sb.from("tags").select("id, name, color, group, sort, active").order("sort").order("name");
     setTags((data ?? []) as Tag[]);
   }, [sb]);
 
-  useEffect(() => { loadConvs(); }, [tagFilter, loadConvs]);
+  useEffect(() => { loadConvs(); }, [tagFilter, scope, loadConvs]);
+
+  // จำค่าไว้ในเครื่อง อ่านหลัง mount เพราะฝั่ง server ไม่มี localStorage
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SCOPE_KEY) === "mine") setScope("mine");
+    } catch { /* ใช้ค่าเริ่มต้น */ }
+  }, []);
+
+  function changeScope(next: "all" | "mine") {
+    setScope(next);
+    try { localStorage.setItem(SCOPE_KEY, next); } catch { /* จำไม่ได้ก็ใช้แค่รอบนี้ */ }
+  }
 
   useEffect(() => {
     searchRef.current = search;
@@ -227,6 +248,14 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages]);
 
+  const assignedTo = selected?.assigned_to ?? null;
+  useEffect(() => {
+    if (!selectedId) return;
+    sb.from("assignment_log").select("id, from_staff, to_staff, by_staff, created_at")
+      .eq("conversation_id", selectedId).order("created_at", { ascending: false }).limit(20)
+      .then(({ data }) => setHistory((data ?? []) as AssignmentEntry[]));
+  }, [sb, selectedId, assignedTo]);
+
   const cancelClosing = useCallback(() => setClosing(false), []);
   const flash = (s: string) => { setToast(s); setTimeout(() => setToast(""), 2500); };
 
@@ -267,6 +296,17 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       body: JSON.stringify({ tag, action }),
     });
     if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "บันทึกแท็กไม่สำเร็จ");
+    loadConvs();
+  }
+
+  async function assign(to: string | null) {
+    if (!selectedId) return;
+    const res = await fetch(`/api/conversations/${selectedId}/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to }),
+    });
+    if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "เปลี่ยนผู้ดูแลไม่สำเร็จ");
     loadConvs();
   }
 
@@ -398,6 +438,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           </button>
           <button role="tab" aria-selected={filter === "closed"} className={filter === "closed" ? "on" : ""} onClick={() => setFilter("closed")}>✅ เสร็จแล้ว</button>
         </div>
+        <div className="scope-filter" role="group" aria-label="ขอบเขตแชท">
+          <button className={scope === "all" ? "on" : ""} aria-pressed={scope === "all"} onClick={() => changeScope("all")}>ทุกคน</button>
+          <button className={scope === "mine" ? "on" : ""} aria-pressed={scope === "mine"} onClick={() => changeScope("mine")}>ของฉัน</button>
+        </div>
         <details className="tag-filter">
           <summary>กรองตามแท็ก{tagFilter.length > 0 && <b className="badge">{tagFilter.length}</b>}</summary>
           <div className="tag-filter-list">
@@ -411,7 +455,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           </div>
           {tagFilter.length > 1 && <div className="muted small">แสดงแชทที่มีครบทุกแท็กที่เลือก</div>}
         </details>
-        {shown.length === 0 && (search.trim() || tagFilter.length ? (
+        {shown.length === 0 && (search.trim() || tagFilter.length || scope === "mine" ? (
           <div className="empty">ไม่พบแชทที่ตรงกับการค้นหาหรือแท็กที่เลือก</div>
         ) : filter === "waiting" ? (
           <div className="all-done">🎉 ตอบครบแล้ว</div>
@@ -438,6 +482,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 {c.tags.map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
               </div>
             </div>
+            {c.assigned_to && (
+              <span className="assignee-chip" title={`ผู้ดูแล: ${staffName.get(c.assigned_to) ?? ""}`} aria-label={`ผู้ดูแล ${staffName.get(c.assigned_to) ?? ""}`}>
+                {staffInitial(staffName.get(c.assigned_to))}
+              </span>
+            )}
             {c.unread_count > 0 && <b className="badge">{c.unread_count}</b>}
           </button>
         ))}
@@ -475,6 +524,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 </div>
               </div>
               <div className="head-actions">
+                <AssigneeControl me={me} assignedTo={selected.assigned_to} staff={staffList} onChange={assign} />
                 <label className="mode-select" title={AI_MODE_HINT[effectiveMode(selected)]}>
                   AI แชทนี้
                   <select value={selected.ai_mode ?? ""} disabled={!isAdmin} onChange={(e) => setConvMode((e.target.value || null) as AiMode | null)}>
@@ -495,6 +545,19 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 )}
               </div>
             </header>
+
+            <details className="customer-panel">
+              <summary>ข้อมูลลูกค้า</summary>
+              <div className="small">ช่องทาง: {selected.channels?.name} · ภาษา: {LANGUAGE_NAME[customerLang] ?? customerLang}</div>
+              <div className="small"><b>ประวัติผู้ดูแล</b></div>
+              {history.length === 0 && <div className="muted small">ยังไม่มีการเปลี่ยนผู้ดูแล</div>}
+              {history.map((h) => (
+                <div key={h.id} className="muted small">
+                  {timeTh(h.created_at)}: {staffName.get(h.from_staff ?? "") ?? "ไม่มี"} → {staffName.get(h.to_staff ?? "") ?? "ไม่มี"}
+                  {h.by_staff && <> (โดย {staffName.get(h.by_staff) ?? "เจ้าหน้าที่"})</>}
+                </div>
+              ))}
+            </details>
 
             {dueMin != null && (
               <div className="banner">⏱ ถ้าไม่มีใครตอบ AI จะตอบแทนในอีก ~{dueMin} นาที</div>
