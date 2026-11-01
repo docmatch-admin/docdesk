@@ -17,9 +17,11 @@ export function TeamReport({ meId, isAdmin }: { meId: string; isAdmin: boolean }
   const [rows, setRows] = useState<TeamRow[]>([]);
   const [ranking, setRanking] = useState<{ staffId: string; name: string; total: number; rank: number }[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let stale = false;
+    setLoading(true);
     fetch(`/api/reports/team?period=${period}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error())))
       .then((j) => {
@@ -28,7 +30,8 @@ export function TeamReport({ meId, isAdmin }: { meId: string; isAdmin: boolean }
         setRanking(j.ranking);
         setError("");
       })
-      .catch(() => { if (!stale) setError("โหลดรายงานไม่สำเร็จ"); });
+      .catch(() => { if (!stale) setError("โหลดรายงานไม่สำเร็จ"); })
+      .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };
   }, [period]);
 
@@ -69,7 +72,7 @@ export function TeamReport({ meId, isAdmin }: { meId: string; isAdmin: boolean }
                   <td><b>{r.total}</b></td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={7} className="muted">ยังไม่มีข้อมูลในช่วงนี้</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={7} className="muted">{loading ? "กำลังโหลด…" : "ยังไม่มีข้อมูลในช่วงนี้"}</td></tr>}
             </tbody>
           </table>
         </div>
