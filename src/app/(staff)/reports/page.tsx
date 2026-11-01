@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { getStaffContext } from "@/lib/auth";
-import { ReportsClient } from "./reports-client";
+import { ReportsTabs } from "./reports-tabs";
 
 export default async function ReportsPage() {
-  if ((await getStaffContext())?.role !== "admin") redirect("/inbox");
-  return <ReportsClient />;
+  const me = await getStaffContext();
+  if (!me) redirect("/login");
+  return <ReportsTabs meId={me.id} isAdmin={me.role === "admin"} />;
 }

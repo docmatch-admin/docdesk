@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AUTO_CLOSE_EXEMPT_TAGS, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "@/lib/case-flow";
+import { DEFAULT_SCORE_RULES, normalizeScoreRules, type ScoreRules } from "@/lib/scoring";
 import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib/llm-usage";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { HealthPanel } from "./health-panel";
@@ -23,6 +24,7 @@ export function SettingsClient() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [saved, setSaved] = useState("");
   const [usage, setUsage] = useState<LlmUsageRow[]>([]);
+  const [scoreRules, setScoreRules] = useState<ScoreRules>(DEFAULT_SCORE_RULES);
   const [retentionDays, setRetentionDays] = useState(90);
   const [autoCloseHours, setAutoCloseHours] = useState(DEFAULT_AUTO_CLOSE_HOURS);
 
@@ -36,6 +38,7 @@ export function SettingsClient() {
         if (r.key === "business_hours") setHours(r.value as Hours);
         if (r.key === "clinic_profile") setProfile(r.value as { name: string; tone: string });
         if (r.key === "media_retention_days") setRetentionDays(Number(r.value));
+        if (r.key === "score_rules") setScoreRules(normalizeScoreRules(r.value));
         if (r.key === "auto_close_hours") setAutoCloseHours(normalizeAutoCloseHours(r.value));
       }
     });
@@ -52,6 +55,7 @@ export function SettingsClient() {
       { key: "clinic_profile", value: profile, updated_at: now },
       { key: "media_retention_days", value: Math.max(1, Math.floor(retentionDays) || 90), updated_at: now },
       { key: "auto_close_hours", value: normalizeAutoCloseHours(autoCloseHours), updated_at: now },
+      { key: "score_rules", value: normalizeScoreRules(scoreRules), updated_at: now },
     ]);
     for (const c of channels) {
       await sb.from("channels").update({ ai_mode: c.ai_mode, enabled: c.enabled }).eq("id", c.id);
@@ -134,6 +138,35 @@ export function SettingsClient() {
         <h3>บุคลิกการตอบของ AI</h3>
         <label>ชื่อคลินิก<input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></label>
         <label>โทน/สำนวน<textarea rows={3} value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} /></label>
+      </section>
+
+      <section className="card">
+        <h3>เกณฑ์คะแนนเจ้าหน้าที่</h3>
+        <p className="muted small">นับเวลาเฉพาะเวลาทำการ ตอบช้ากว่าขั้นสุดท้ายได้ 0 คะแนน</p>
+        {scoreRules.speed.map((tier, i) => (
+          <label key={i} className="inline">
+            ตอบภายใน
+            <input type="number" min={0} value={tier.maxSeconds / 60} aria-label={`นาทีของขั้นที่ ${i + 1}`} onChange={(e) => {
+              const speed = [...scoreRules.speed];
+              speed[i] = { ...tier, maxSeconds: Number(e.target.value) * 60 };
+              setScoreRules({ ...scoreRules, speed });
+            }} /> นาที ได้
+            <input type="number" min={0} step={0.5} value={tier.points} aria-label={`คะแนนของขั้นที่ ${i + 1}`} onChange={(e) => {
+              const speed = [...scoreRules.speed];
+              speed[i] = { ...tier, points: Number(e.target.value) };
+              setScoreRules({ ...scoreRules, speed });
+            }} /> คะแนน
+          </label>
+        ))}
+        <label className="inline">คำตอบสั้นกว่า
+          <input type="number" min={0} value={scoreRules.shortChars} onChange={(e) => setScoreRules({ ...scoreRules, shortChars: Number(e.target.value) })} /> ตัวอักษร ได้ครึ่งเดียว
+        </label>
+        <label className="inline">ข้อความถูกกดดาว ได้
+          <input type="number" min={0} step={0.5} value={scoreRules.starPoints} onChange={(e) => setScoreRules({ ...scoreRules, starPoints: Number(e.target.value) })} /> คะแนน
+        </label>
+        <label className="inline">กดเสร็จแล้ว คนที่ตอบล่าสุดได้
+          <input type="number" min={0} step={0.5} value={scoreRules.closePoints} onChange={(e) => setScoreRules({ ...scoreRules, closePoints: Number(e.target.value) })} /> คะแนน
+        </label>
       </section>
 
       <section className="card">

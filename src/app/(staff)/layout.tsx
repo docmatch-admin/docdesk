@@ -4,6 +4,7 @@ import { getStaffContext } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase/server";
 import { HealthBanner } from "./health-banner";
 import { SignOut } from "./sign-out";
+import { TodayScore } from "./today-score";
 import { WaitingAlert } from "./waiting-alert";
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
@@ -32,10 +33,11 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         <div className="brand">Doc<span>Desk</span></div>
         <Link href="/inbox">💬 แชท</Link>
         {isAdmin && <Link href="/knowledge">📚 ฐานข้อมูล &amp; คำตอบ</Link>}
-        {isAdmin && <Link href="/reports">📊 รายงาน</Link>}
+        <Link href="/reports">📊 รายงาน</Link>
         {isAdmin && <Link href="/staff">👥 เจ้าหน้าที่</Link>}
         {isAdmin && <Link href="/settings">⚙️ ตั้งค่า AI</Link>}
         <div className="nav-foot">
+          <TodayScore meId={me.id} />
           <WaitingAlert meId={me.id} />
           <div className="muted small">{me.displayName}</div>
           <SignOut />

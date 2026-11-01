@@ -302,3 +302,7 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .assignee { display: flex; align-items: center; gap: 6px; }
 .customer-panel { background: #fff; border-bottom: 1px solid var(--line); padding: 4px 16px; font-size: 13px; }
 .customer-panel summary { cursor: pointer; color: var(--muted); }
+
+/* ---------- คะแนน ---------- */
+.today-score { font-size: 14px; padding: 4px 2px; }
+.report-switch { padding-bottom: 0; }

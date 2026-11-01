@@ -7,6 +7,7 @@ import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { scrubPII } from "./pii";
 import { markConversationReadWith } from "./read-receipts";
+import { awardStarPoints, recordStaffResponse } from "./score-store";
 import { classifyAck, hasUrgentSignal, isCustomerText } from "./suggest-rules";
 import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
@@ -304,7 +305,7 @@ export async function sendReply(input: ReplyInput) {
     body_th: language === "th" ? null : input.textTh,
     language,
     ...(isMeta ? { created_at: sentAt } : {}),
-  }).select("id").single();
+  }).select("id, created_at").single();
 
   await db.from("conversations").update({
     unread_count: 0,
@@ -315,7 +316,16 @@ export async function sendReply(input: ReplyInput) {
   }).eq("id", input.conversationId);
 
   if (input.senderType === "staff") {
-    if (input.senderId) await claimIfUnassigned(input.conversationId, input.senderId);
+    if (input.senderId) {
+      await claimIfUnassigned(input.conversationId, input.senderId);
+      await recordStaffResponse({
+        conversationId: input.conversationId,
+        replyId: msg?.id ?? null,
+        staffId: input.senderId,
+        replyText: input.textTh,
+        repliedAt: (msg?.created_at as string | undefined) ?? new Date().toISOString(),
+      });
+    }
     await learnFromStaffReply(input, msg?.id ?? null).catch((e) => console.error("learn failed", e));
   } else if (input.suggestionId != null && input.chosenIndex != null) {
     await db.from("suggestions").update({ chosen_index: input.chosenIndex, edited: false }).eq("id", input.suggestionId);
@@ -388,7 +398,7 @@ export async function sendMediaReply(input: MediaReplyInput) {
 
   // ต้องมีแถวก่อนส่ง เพราะ Meta ดึงรูประหว่างที่เรายังรอคำตอบ
   const messageId = crypto.randomUUID();
-  await db.from("messages").insert({
+  const { data: inserted } = await db.from("messages").insert({
     id: messageId,
     conversation_id: input.conversationId,
     direction: "out",
@@ -402,7 +412,7 @@ export async function sendMediaReply(input: MediaReplyInput) {
     media_preview_path: media.previewPath,
     media_width: media.width,
     media_height: media.height,
-  });
+  }).select("created_at").single();
 
   try {
     const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
@@ -425,6 +435,13 @@ export async function sendMediaReply(input: MediaReplyInput) {
     last_message_preview: preview(`[รูปภาพ] ${captionTh}`),
   }).eq("id", input.conversationId);
   await claimIfUnassigned(input.conversationId, input.senderId);
+  await recordStaffResponse({
+    conversationId: input.conversationId,
+    replyId: messageId,
+    staffId: input.senderId,
+    replyText: captionTh,
+    repliedAt: (inserted?.created_at as string | undefined) ?? new Date().toISOString(),
+  });
 
   return { messageId };
 }
@@ -477,10 +494,19 @@ async function learnFromStaffReply(input: ReplyInput, messageId: string | null) 
 export async function starMessage(messageId: string, staffId: string) {
   const db = supabaseAdmin();
   const { data: m } = await db.from("messages")
-    .select("id, conversation_id, direction, body, body_th, created_at").eq("id", messageId).single();
+    .select("id, conversation_id, direction, body, body_th, created_at, sender_id, sender_type, starred").eq("id", messageId).single();
   if (!m || m.direction !== "out") throw new Error("กดดาวได้เฉพาะข้อความที่คลินิกตอบ");
 
+  const firstStar = !m.starred;
   await db.from("messages").update({ starred: true }).eq("id", messageId);
+  if (firstStar) {
+    await awardStarPoints({
+      id: m.id as string,
+      conversation_id: m.conversation_id as string,
+      sender_id: (m.sender_id as string | null) ?? null,
+      sender_type: m.sender_type as string,
+    }, staffId);
+  }
 
   const { data: existing } = await db.from("reply_examples").select("id").eq("source_message_id", messageId).maybeSingle();
   if (existing) {

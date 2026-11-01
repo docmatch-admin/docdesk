@@ -4,6 +4,7 @@ let clock = Date.parse("2026-11-01T03:00:00Z");
 export const state = { tables: {}, matchExamples: [], matchKnowledge: [], files: {} };
 
 export function nextTime() { clock += 1000; return new Date(clock).toISOString(); }
+export function setClock(iso) { clock = Date.parse(iso) - 1000; }
 export function resetDb(tables) {
   state.tables = { suggestions: [], messages: [], settings: [], knowledge_items: [], ai_daily_usage: [], ...tables };
   state.matchExamples = [];
@@ -133,6 +134,7 @@ function query(name) {
     like(k, v) { const prefix = v.replace(/%$/, ""); filters.push((r) => String(r[k]).startsWith(prefix)); return b; },
     order(key, o) { sort = { key, dir: o?.ascending === false ? -1 : 1 }; return b; },
     limit(n) { max = n; return b; },
+    range(a, z) { max = z - a + 1; return b; },
     async single() { return { data: run()[0] ?? null, error: null }; },
     async maybeSingle() { return { data: run()[0] ?? null, error: null }; },
     then(resolve) { const data = run(); return resolve({ data, error: null, count: data.length }); },

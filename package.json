@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/number-guard.test.mjs scripts/meta.test.mjs scripts/line-reply.test.mjs scripts/webchat-guard.test.mjs scripts/read-receipts.test.mjs scripts/llm-savings.test.mjs scripts/media.test.mjs scripts/tags.test.mjs scripts/case-flow.test.mjs scripts/inbox-tabs.test.mjs scripts/reply-style.test.mjs scripts/health.test.mjs scripts/roles.test.mjs scripts/assignment.test.mjs",
+    "test": "node --test scripts/number-guard.test.mjs scripts/meta.test.mjs scripts/line-reply.test.mjs scripts/webchat-guard.test.mjs scripts/read-receipts.test.mjs scripts/llm-savings.test.mjs scripts/media.test.mjs scripts/tags.test.mjs scripts/case-flow.test.mjs scripts/inbox-tabs.test.mjs scripts/reply-style.test.mjs scripts/health.test.mjs scripts/roles.test.mjs scripts/assignment.test.mjs scripts/scoring.test.mjs",
     "embed": "node --env-file=.env.local scripts/embed-knowledge.mjs"
   },
   "dependencies": {

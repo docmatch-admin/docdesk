@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
 import { staffInitial } from "@/lib/assignment";
-import { CLOSE_PATCH, isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
+import { isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
@@ -371,9 +371,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     if (!selected) return;
     const id = selected.id;
     setClosing(false);
-    if (tag && !selected.tags.includes(tag)) await changeTag(tag, "add");
-    const { error } = await sb.from("conversations").update(CLOSE_PATCH).eq("id", id);
-    if (error) return flash("บันทึกไม่สำเร็จ");
+    const res = await fetch(`/api/conversations/${id}/close`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag: tag && !selected.tags.includes(tag) ? tag : undefined }),
+    });
+    if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "บันทึกไม่สำเร็จ");
     setSelectedId(nextOpenChat(lists.waiting, id));
     loadConvs();
   }
