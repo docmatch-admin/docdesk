@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { bangkokRange, buildTagCsv, isValidDate, type ExportRow } from "@/lib/tags";
 import { supabaseServer } from "@/lib/supabase/server";
 
@@ -9,7 +9,7 @@ const PAGE = 1000;
 
 /** ส่งออกรายชื่อแชทตามแท็ก: มีเฉพาะชื่อที่แสดง ช่องทาง แท็ก และวันที่ */
 export async function GET(req: Request) {
-  const { error } = await requireStaff();
+  const { error } = await requireAdmin();
   if (error) return error;
   const q = new URL(req.url).searchParams;
   const from = q.get("from");

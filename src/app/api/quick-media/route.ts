@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { MediaError } from "@/lib/media";
 import { consumeUpload, QUICK_BUCKET, removeFiles } from "@/lib/media-store";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -11,7 +11,7 @@ const STAFF_UPLOAD_RE = /^uploads\/staff-[0-9a-f-]{36}$/i;
 
 /** เพิ่มรูปที่ใช้บ่อย */
 export async function POST(req: Request) {
-  const { user, error } = await requireStaff();
+  const { user, error } = await requireAdmin();
   if (error) return error;
   const { uploadPath, title } = (await req.json().catch(() => ({}))) as { uploadPath?: string; title?: string };
   if (!uploadPath || !STAFF_UPLOAD_RE.test(uploadPath) || !title?.trim()) {
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { error } = await requireStaff();
+  const { error } = await requireAdmin();
   if (error) return error;
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "ไม่มี id" }, { status: 400 });

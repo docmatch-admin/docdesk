@@ -289,3 +289,7 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .health-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
 .health-dot.ok { background: #16a34a; }
 .health-dot.bad { background: #dc2626; }
+
+/* ---------- เจ้าหน้าที่ ---------- */
+.secret-card { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; border-color: #128a6c; }
+.secret-card code { font-size: 16px; background: var(--bg); padding: 4px 8px; border-radius: 6px; user-select: all; }

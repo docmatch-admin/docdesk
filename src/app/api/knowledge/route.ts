@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { embed } from "@/lib/ai";
-import { requireStaff } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
 /** เพิ่ม/แก้ข้อมูลคลินิก (สร้าง embedding ใหม่ทุกครั้ง) */
 export async function POST(req: Request) {
-  const { user, error } = await requireStaff();
+  const { user, error } = await requireAdmin();
   if (error) return error;
   const b = (await req.json().catch(() => ({}))) as {
     id?: string; category?: string; title?: string; content?: string; active?: boolean;

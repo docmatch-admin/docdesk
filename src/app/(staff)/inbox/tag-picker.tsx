@@ -9,7 +9,7 @@ export function TagPicker({ tags, current, onPick, onCreate }: {
   tags: Tag[];
   current: string[];
   onPick: (name: string) => void;
-  onCreate: (name: string) => void;
+  onCreate?: (name: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -28,7 +28,7 @@ export function TagPicker({ tags, current, onPick, onCreate }: {
   const finish = () => { setOpen(false); setQ(""); };
 
   function pick(name: string) { onPick(name); finish(); }
-  function create() { if (query && !exists) { onCreate(query); finish(); } }
+  function create() { if (onCreate && query && !exists) { onCreate(query); finish(); } }
 
   return (
     <div className="tag-picker" ref={root}>
@@ -56,7 +56,7 @@ export function TagPicker({ tags, current, onPick, onCreate }: {
                 </div>
               );
             })}
-            {query && !exists && (
+            {onCreate && query && !exists && (
               <button className="tag-pop-item" onClick={create}>+ สร้างแท็ก “{query}”</button>
             )}
             {!matches.length && !query && <div className="muted small tag-pop-group">ติดแท็กครบแล้ว</div>}

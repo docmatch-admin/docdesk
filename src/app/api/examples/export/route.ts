@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "@/lib/mode";
 import { scrubPII } from "@/lib/pii";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
  * ?all=1      → เอาทุกคำตอบที่ยังใช้งานอยู่
  */
 export async function GET(req: Request) {
-  const { error } = await requireStaff();
+  const { error } = await requireAdmin();
   if (error) return error;
 
   const url = new URL(req.url);

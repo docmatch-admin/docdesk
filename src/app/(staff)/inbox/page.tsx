@@ -1,5 +1,9 @@
+import { redirect } from "next/navigation";
+import { getStaffContext } from "@/lib/auth";
 import { InboxClient } from "./inbox-client";
 
-export default function InboxPage() {
-  return <InboxClient />;
+export default async function InboxPage() {
+  const me = await getStaffContext();
+  if (!me) redirect("/login");
+  return <InboxClient me={{ id: me.id, role: me.role, displayName: me.displayName }} />;
 }

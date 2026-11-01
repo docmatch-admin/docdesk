@@ -32,7 +32,8 @@ const SIGNED_URL_SECONDS = 600;
 /** รูปเข้าที่ยังโหลดไม่เสร็จนานเกินนี้ถือว่าล้มเหลว (เช่น function ถูกตัดก่อนโหลดเสร็จ) */
 const IMAGE_LOADING_MAX_MS = 2 * 60 * 1000;
 
-export function InboxClient() {
+export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent"; displayName: string } }) {
+  const isAdmin = me.role === "admin";
   const sb = useMemo(() => supabaseBrowser(), []);
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [filter, setFilter] = useState<Filter>("waiting");
@@ -465,13 +466,13 @@ export function InboxClient() {
                   {selected.tags.map((t) => (
                     <TagChip key={t} name={t} color={tagColor.get(t)} onRemove={() => changeTag(t, "remove")} />
                   ))}
-                  <TagPicker tags={tags} current={selected.tags} onPick={(t) => changeTag(t, "add")} onCreate={createTag} />
+                  <TagPicker tags={tags} current={selected.tags} onPick={(t) => changeTag(t, "add")} onCreate={isAdmin ? createTag : undefined} />
                 </div>
               </div>
               <div className="head-actions">
                 <label className="mode-select" title={AI_MODE_HINT[effectiveMode(selected)]}>
                   AI แชทนี้
-                  <select value={selected.ai_mode ?? ""} onChange={(e) => setConvMode((e.target.value || null) as AiMode | null)}>
+                  <select value={selected.ai_mode ?? ""} disabled={!isAdmin} onChange={(e) => setConvMode((e.target.value || null) as AiMode | null)}>
                     <option value="">ตามช่องทาง ({AI_MODE_LABEL[selected.channels?.ai_mode ?? globalMode]})</option>
                     {(Object.keys(AI_MODE_LABEL) as AiMode[]).map((m) => <option key={m} value={m}>{AI_MODE_LABEL[m]}</option>)}
                   </select>
