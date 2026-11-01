@@ -68,6 +68,66 @@ export const hasSensitiveSignal = (text: string) => {
   return SENSITIVE.some((w) => s.includes(w));
 };
 
+/** คำตอบแชทควรสั้น ยาวกว่านี้ไม่ให้ AI ส่งเอง */
+export const MAX_ANSWER_CHARS = 200;
+const LONG_ANSWER_PENALTY = 0.15;
+/**
+ * ต้องต่ำกว่าเกณฑ์ส่งเอง (AUTO_SEND_MIN_CONFIDENCE = 0.75)
+ * ถ้าลดอย่างเดียว คำตอบยาวที่มั่นใจ 0.9 ขึ้นไปจะยังเหลือ 0.75 และถูกส่งเอง
+ */
+export const LONG_ANSWER_MAX_CONFIDENCE = 0.74;
+
+const normalizeText = (s: string) => s.replace(/\s+/g, " ").trim();
+
+/** คำตอบยาวเกินกำหนด: ลดความมั่นใจ ยกเว้นคำตอบดาวที่เจ้าหน้าที่ตั้งใจเขียนไว้แล้ว */
+export function applyLengthGuard<T extends { text: string; confidence: number; note?: string }>(option: T, starredAnswers: string[] = []): T {
+  if ([...option.text].length <= MAX_ANSWER_CHARS) return option;
+  if (starredAnswers.some((a) => normalizeText(a) === normalizeText(option.text))) return option;
+  const warning = `คำตอบยาวเกิน ${MAX_ANSWER_CHARS} ตัวอักษร`;
+  return {
+    ...option,
+    confidence: Math.max(0, Math.min(option.confidence - LONG_ANSWER_PENALTY, LONG_ANSWER_MAX_CONFIDENCE)),
+    note: option.note ? `${option.note} · ${warning}` : warning,
+  };
+}
+
+/** เงื่อนไขการรับบริการที่ตัวกันตัวเลขจับไม่ได้ เช่น PEP/PrEP ต้องนัดก่อน */
+const SERVICE_CLAIMS = ["ไม่ต้องนัด", "ไม่ต้องจอง", "ไม่ต้องรอคิว", "ฉีดได้เลย"];
+const UNVERIFIED_CLAIM_MAX_CONFIDENCE = 0.5;
+
+/** อ้างเงื่อนไขที่ไม่มีในข้อมูลคลินิก: ไม่ให้ AI ส่งเอง และเตือนเจ้าหน้าที่ */
+export function applyClaimGuard<T extends { text: string; confidence: number; note?: string }>(option: T, trustedTexts: string[]): T {
+  const unverified = SERVICE_CLAIMS.filter((c) => option.text.includes(c) && !trustedTexts.some((t) => t.includes(c)));
+  if (!unverified.length) return option;
+  const warning = `ตรวจสอบเงื่อนไข "${unverified.join(", ")}" (ไม่พบในข้อมูลคลินิก)`;
+  return {
+    ...option,
+    confidence: Math.min(option.confidence, UNVERIFIED_CLAIM_MAX_CONFIDENCE),
+    note: option.note ? `${option.note} · ${warning}` : warning,
+  };
+}
+
+interface StyleExample { answer: string; starred: boolean }
+
+/** เรียงคำตอบเดิมให้ AI เห็นแบบที่ควรเลียนก่อน: สั้นและติดดาว, สั้น, ติดดาว, ที่เหลือ แล้วสั้นก่อนในแต่ละกลุ่ม */
+export function sortByStyle<T extends StyleExample>(examples: T[]): T[] {
+  const rank = (e: T) => ([...e.answer].length <= MAX_ANSWER_CHARS ? 0 : 2) + (e.starred ? 0 : 1);
+  return [...examples].sort((a, b) => rank(a) - rank(b) || [...a.answer].length - [...b.answer].length);
+}
+
+const STYLE_EXAMPLE_MAX_CHARS = 120;
+const STYLE_EXAMPLE_COUNT = 3;
+const HAS_URL = /https?:\/\//i;
+
+/**
+ * few-shot สำนวนจากคำตอบที่ติดดาวเท่านั้น เพราะถูกส่งให้ AI ในทุกแชท ไม่ขึ้นกับคำถาม
+ * คำตอบที่ไม่ได้ติดดาวอาจเป็นคำแนะนำเฉพาะคนหรือมีชื่อลูกค้า ห้ามนำไปใช้ข้ามแชท
+ */
+export function pickStyleExamples<T extends StyleExample>(examples: T[]): T[] {
+  return sortByStyle(examples.filter((e) => e.starred && [...e.answer].length <= STYLE_EXAMPLE_MAX_CHARS && !HAS_URL.test(e.answer)))
+    .slice(0, STYLE_EXAMPLE_COUNT);
+}
+
 interface StarredHit { id: string; question: string; answer: string; starred: boolean; similarity: number }
 interface ChatMsg { direction: "in" | "out"; sender_type: string; body: string; body_th: string | null; created_at: string }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth";
-import { getSetting } from "@/lib/mode";
+import { DEFAULT_CLINIC_PROFILE, getSetting } from "@/lib/mode";
 import { scrubPII } from "@/lib/pii";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -19,9 +19,7 @@ export async function GET(req: Request) {
   const all = url.searchParams.get("all") === "1";
   const minUse = Math.max(0, Number(url.searchParams.get("min_use") ?? 2) || 0);
 
-  const profile = await getSetting<{ name: string; tone: string }>("clinic_profile", {
-    name: "คลินิก", tone: "สุภาพ เป็นกันเอง",
-  });
+  const profile = await getSetting<{ name: string; tone: string }>("clinic_profile", DEFAULT_CLINIC_PROFILE);
   const system = `คุณคือแอดมินแชทของ ${profile.name} โทนการตอบ: ${profile.tone}`;
 
   let q = supabaseAdmin().from("reply_examples")

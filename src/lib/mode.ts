@@ -6,6 +6,12 @@ export interface BusinessHours {
   days: Record<string, [string, string] | null>;
 }
 
+/** ใช้เมื่อไม่มีค่าในฐานข้อมูล ค่าที่แก้ในหน้าตั้งค่ามาก่อนเสมอ */
+export const DEFAULT_CLINIC_PROFILE = {
+  name: "HappiWell Medical Clinic",
+  tone: "ตอบเหมือนแอดมินคลินิกคุยไลน์กับลูกค้า สั้น กระชับ เป็นกันเอง ใช้ภาษาพูด ลงท้าย ค่ะ/นะคะ ไม่ใช้ภาษาทางการ อีโมจิได้ไม่เกิน 1 ตัว",
+};
+
 export async function getSetting<T>(key: string, fallback: T): Promise<T> {
   const { data } = await supabaseAdmin().from("settings").select("value").eq("key", key).maybeSingle();
   return (data?.value as T) ?? fallback;

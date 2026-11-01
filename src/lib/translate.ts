@@ -32,9 +32,10 @@ Return JSON: {"language": "<code>", "th": "<Thai translation>"}`,
 export async function fromThai(textTh: string, language: string): Promise<string> {
   if (!language || language === "th") return textTh;
   const out = await chatJSON<{ text: string }>(
-    `You translate replies from a Thai medical clinic's staff to the customer.
+    `You translate chat replies from a Thai medical clinic's staff to the customer.
 Translate the Thai text into the language with ISO 639-1 code "${language}".
-Keep it polite and natural, keep prices, phone numbers, times, LINE IDs and URLs exactly.
+Write it the way a friendly clinic admin types in a chat app: short, casual and polite, not formal or corporate. Do not make it longer than the Thai, and do not add greetings, thanks or sign-offs that are not in the Thai.
+Keep every fact and every instruction, especially medical or emergency advice. Keep prices, phone numbers, times, LINE IDs, URLs and emoji exactly.
 Drop Thai politeness particles (ค่ะ/ครับ) naturally. Return JSON: {"text": "<translation>"}`,
     textTh,
     0,

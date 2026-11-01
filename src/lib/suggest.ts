@@ -1,8 +1,8 @@
 import { chatJSON, embed } from "./ai";
 import { bangkokDate } from "./llm-usage";
-import { getSetting, resolveAiMode } from "./mode";
+import { DEFAULT_CLINIC_PROFILE, getSetting, resolveAiMode } from "./mode";
 import { applyNumberGuard, buildNumberSources } from "./number-guard";
-import { pickStarredAnswer, shouldSkipSuggestion } from "./suggest-rules";
+import { applyClaimGuard, applyLengthGuard, pickStarredAnswer, pickStyleExamples, shouldSkipSuggestion, sortByStyle } from "./suggest-rules";
 import { supabaseAdmin } from "./supabase/admin";
 import { sanitizeSuggestedTags } from "./tags";
 import type { AiMode, ChannelType, SuggestionOption, SuggestionResult, SuggestionSource } from "./types";
@@ -14,6 +14,12 @@ const EXAMPLE_MIN_SIM = 0.45;
 export const AUTO_SEND_MIN_CONFIDENCE = 0.75;
 /** หมวดที่ส่งให้ AI เสมอ ไม่ขึ้นกับผล vector search (คำถามหลายเรื่องมักค้นเวลาทำการไม่เจอ) */
 const ALWAYS_INCLUDED_CATEGORIES = ["นโยบายการตอบ", "ข้อมูลคลินิก"];
+/** few-shot สไตล์แอดมินไลน์ */
+const STYLE_FEW_SHOT = [
+  "ไข้หวัดใหญ่เข็มละ 390 บาทค่ะ 😊",
+  "เสาร์-อาทิตย์เปิด 08.00–12.00 น. ค่ะ",
+  "ตรวจสุขภาพมีชุดเล็กกับชุดใหญ่ค่ะ สนใจแบบไหนดีคะ",
+];
 
 interface KnowledgeHit { id: string; category: string; title: string; content: string; updated_at: string; similarity: number }
 interface ExampleHit { id: string; question: string; answer: string; starred: boolean; use_count: number; created_at: string; similarity: number }
@@ -128,9 +134,11 @@ export async function generateSuggestions(conversationId: string, { force = fals
     return { id: saved?.id ?? null, options: [starred], needs_human: false };
   }
 
-  const profile = await getSetting<{ name: string; tone: string }>("clinic_profile", {
-    name: "HappiWell Medical Clinic", tone: "สุภาพ เป็นกันเอง",
-  });
+  const profile = await getSetting<{ name: string; tone: string }>("clinic_profile", DEFAULT_CLINIC_PROFILE);
+  // คำตอบมาตรฐานของคลินิกเป็นตัวอย่างสำนวน ไม่นำเข้าแหล่งยืนยันตัวเลข
+  const { data: starredRows } = await db.from("reply_examples").select("answer, starred")
+    .eq("active", true).eq("starred", true).limit(50);
+  const clinicStyle = pickStyleExamples((starredRows ?? []) as { answer: string; starred: boolean }[]);
   const { data: tagRows } = await db.from("tags").select("name").eq("active", true).order("sort");
   const tagNames = (tagRows ?? []).map((t) => t.name as string);
 
@@ -144,7 +152,7 @@ export async function generateSuggestions(conversationId: string, { force = fals
     ? knowledge.map((k) => `- [K:${k.id}] (${k.category}) ${k.title}: ${k.content} (อัปเดต ${thDate(k.updated_at)})`).join("\n")
     : "(ไม่พบข้อมูลที่เกี่ยวข้อง)";
   const eBlock = examples.length
-    ? examples.map((e) =>
+    ? sortByStyle(examples).map((e) =>
         `- [E:${e.id}]${e.starred ? " ⭐คำตอบมาตรฐาน" : ""} ใช้แล้ว ${e.use_count} ครั้ง ตอบเมื่อ ${thDate(e.created_at)}\n  ถาม: ${e.question}\n  ตอบ: ${e.answer}`).join("\n")
     : "(ยังไม่มีคำตอบเดิมที่คล้ายกัน)";
 
@@ -161,11 +169,18 @@ export async function generateSuggestions(conversationId: string, { force = fals
 - ถ้าคำตอบเดิม [E] ขัดกับฐานข้อมูล [K] ให้ใช้ข้อมูลจาก [K] และใส่ note อธิบายสั้นๆ
 - คำถามเรื่องอาการ การวินิจฉัย ผลแล็บ การใช้ยา/ขนาดยา หรือเรื่องฉุกเฉิน: needs_human = true และร่างคำตอบที่แนะนำให้มาพบแพทย์/โทรหาคลินิก ห้ามวินิจฉัยหรือแนะนำยาเอง; ถ้ามีสัญญาณฉุกเฉินให้แนะนำโทร 1669
 - ลูกค้าขอคุยกับคน/ไม่พอใจ/ร้องเรียน: needs_human = true
-- ให้ 1–3 ตัวเลือกที่ต่างกันจริง (เช่น ตอบสั้น / ตอบละเอียด / ถามกลับเพื่อเก็บข้อมูลที่ขาด) เขียนเป็นภาษาไทยเสมอ (ระบบจะแปลให้ลูกค้าเอง)
+- ทุกตัวเลือกต้องเป็นภาษาแชท 1–2 ประโยค ยาวสุด 3 บรรทัด ห้ามใช้ bullet หัวข้อ หรือตัวหนา ห้ามทวนคำถาม ห้ามขึ้นต้นด้วยการขอบคุณที่สอบถาม ถามกลับได้ครั้งละ 1 คำถาม
+- ต้องให้อย่างน้อย 2 ตัวเลือก เรียงตามนี้: (1) สั้นที่สุด ตอบแค่ที่ถาม แต่ต้องครบเงื่อนไขในข้อมูล เช่น วันที่เริ่มใช้ (2) คำตอบเดียวกับข้อ 1 แล้วเพิ่มรายละเอียดจากข้อมูลที่ลูกค้าน่าจะถามต่อ (3) ถามกลับ 1 คำถาม เฉพาะเมื่อข้อมูลไม่พอ เขียนเป็นภาษาไทยเสมอ (ระบบจะแปลให้ลูกค้าเอง)
+- ทุกตัวเลือกต้องตอบคำถามได้ด้วยตัวเอง ห้ามลงท้ายด้วยการเชิญชวนให้ถามเพิ่ม
+- ความถูกต้องสำคัญกว่าความสั้น: ห้ามตัดเงื่อนไขที่ทำให้คำตอบเข้าใจผิด เช่น วันที่เริ่มใช้สิทธิ หรือรับเฉพาะบางโรงพยาบาล เรื่องอาการ ยา หรือฉุกเฉิน ต้องบอกให้ครบแม้จะยาวขึ้น
+- ห้ามเดาเงื่อนไขการรับบริการ เช่น ต้องนัด ไม่ต้องนัด ฉีดได้เลย มาได้เลย ถ้าข้อมูลไม่ได้ระบุ
 - source: "knowledge" ถ้าอิงฐานข้อมูลเป็นหลัก, "example" ถ้าอิงคำตอบเดิม, "history" ถ้าอิงประวัติลูกค้า
 - ref_ids: id ที่อ้างอิง (ไม่ต้องใส่ K: หรือ E:)
 - confidence 0–1: มั่นใจแค่ไหนว่าส่งได้เลยโดยไม่ต้องแก้
 - suggested_tags: แท็กของแชทนี้ไม่เกิน 3 แท็ก เลือกจากรายการแท็กที่ให้เท่านั้น ห้ามสร้างชื่อใหม่ ถ้าไม่มีที่ตรงให้เป็น []
+
+ตัวอย่างสำนวนที่ดี ใช้เป็นแบบความยาวและน้ำเสียงเท่านั้น ห้ามนำราคา เวลา หรือเงื่อนไขในตัวอย่างไปตอบ ข้อเท็จจริงต้องมาจากข้อมูลที่ให้เท่านั้น:
+${[...STYLE_FEW_SHOT, ...clinicStyle.map((e) => e.answer)].map((s) => `- "${s}"`).join("\n")}
 
 ตอบเป็น JSON:
 {"needs_human": boolean, "reason": "เหตุผลสั้นๆ ถ้า needs_human", "suggested_tags": ["..."],
@@ -202,7 +217,9 @@ ${question}`;
       confidence: Math.max(0, Math.min(1, Number(o.confidence) || 0)),
       ...(o.note ? { note: String(o.note) } : {}),
     }))
-    .map((o) => applyNumberGuard(o, numberSources));
+    .map((o) => applyNumberGuard(o, numberSources))
+    .map((o) => applyClaimGuard(o, numberSources.trusted))
+    .map((o) => applyLengthGuard(o, examples.filter((e) => e.starred).map((e) => e.answer)));
 
   const needs_human = !!out.needs_human;
   const { data: saved } = await db
