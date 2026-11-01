@@ -31,14 +31,20 @@ export function classifyAck(line: string): "thanks" | "affirm" | null {
   return original === "คะ" ? null : "affirm";
 }
 
-const asksQuestion = (text: string) => /[?？]|ไหม|มั้ย|หรือเปล่า|รึเปล่า|หรือไม่|คะ\s*$/.test(text);
+/** ข้อความที่ระบบแทนไฟล์แนบ ไม่ใช่คำพูดลูกค้า */
+export const isAttachmentPlaceholder = (body: string) => /^\s*\[(ลูกค้าส่ง|รูปภาพ)/.test(body);
+
+/** มีข้อความที่ลูกค้าพิมพ์จริง: รูปหรือไฟล์แนบที่ตามหลังมาต้องไม่ยกเลิกการร่างคำตอบของข้อความนั้น */
+export const isCustomerText = (body: string) => !!body.trim() && !isAttachmentPlaceholder(body);
+
+const asksQuestion =(text: string) => /[?？]|ไหม|มั้ย|หรือเปล่า|รึเปล่า|หรือไม่|คะ\s*$/.test(text);
 
 /** ไม่ต้องร่างคำตอบ: ทุกบรรทัดเป็นคำขอบคุณ/รับทราบ/อีโมจิ หรือไฟล์แนบที่ AI อ่านไม่ได้ */
 export function shouldSkipSuggestion(pendingText: string, lastOutText: string | null): boolean {
   const lines = pendingText.split("\n").filter((l) => l.trim());
   if (!lines.length) return false;
   return lines.every((line) => {
-    if (line.trim().startsWith("[ลูกค้าส่ง")) return true;
+    if (isAttachmentPlaceholder(line)) return true;
     const kind = classifyAck(line);
     if (kind === "thanks") return true;
     // "โอเคค่ะ" หลังคลินิกถามว่าสะดวกไหม คือคำตอบที่ต้องตอบต่อ

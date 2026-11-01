@@ -20,6 +20,7 @@ export function SettingsClient() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [saved, setSaved] = useState("");
   const [usage, setUsage] = useState<LlmUsageRow[]>([]);
+  const [retentionDays, setRetentionDays] = useState(90);
 
   useEffect(() => {
     sb.from("llm_usage_daily").select("*").gte("day", `${bangkokDate().slice(0, 7)}-01`)
@@ -30,6 +31,7 @@ export function SettingsClient() {
         if (r.key === "fallback_minutes") setMinutes(Number(r.value));
         if (r.key === "business_hours") setHours(r.value as Hours);
         if (r.key === "clinic_profile") setProfile(r.value as { name: string; tone: string });
+        if (r.key === "media_retention_days") setRetentionDays(Number(r.value));
       }
     });
     sb.from("channels").select("id, type, name, ai_mode, enabled").order("created_at")
@@ -43,6 +45,7 @@ export function SettingsClient() {
       { key: "fallback_minutes", value: minutes, updated_at: now },
       { key: "business_hours", value: hours, updated_at: now },
       { key: "clinic_profile", value: profile, updated_at: now },
+      { key: "media_retention_days", value: Math.max(1, Math.floor(retentionDays) || 90), updated_at: now },
     ]);
     for (const c of channels) {
       await sb.from("channels").update({ ai_mode: c.ai_mode, enabled: c.enabled }).eq("id", c.id);
@@ -123,6 +126,15 @@ export function SettingsClient() {
         <h3>บุคลิกการตอบของ AI</h3>
         <label>ชื่อคลินิก<input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></label>
         <label>โทน/สำนวน<textarea rows={3} value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} /></label>
+      </section>
+
+      <section className="card">
+        <h3>การเก็บรูปภาพ</h3>
+        <label className="inline">
+          ลบรูปในแชทอัตโนมัติเมื่อเก่ากว่า
+          <input type="number" min={1} max={3650} value={retentionDays} onChange={(e) => setRetentionDays(Number(e.target.value))} /> วัน
+        </label>
+        <p className="muted small">ข้อความยังอยู่ แต่รูปจะขึ้นว่า “รูปถูกลบตามนโยบายเก็บข้อมูล” การลบกู้คืนไม่ได้ รูปที่ใช้บ่อยไม่ถูกลบ</p>
       </section>
 
       <section className="card">

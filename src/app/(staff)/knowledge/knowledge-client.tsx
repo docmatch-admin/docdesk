@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 
 interface Item { id: string; category: string; title: string; content: string; active: boolean; updated_at: string }
 interface Example { id: string; question: string; answer: string; starred: boolean; use_count: number; active: boolean; created_at: string }
@@ -11,7 +12,7 @@ const EMPTY = { id: "", category: "", title: "", content: "" };
 
 export function KnowledgeClient() {
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [tab, setTab] = useState<"kb" | "ex">("kb");
+  const [tab, setTab] = useState<"kb" | "ex" | "media">("kb");
   const [items, setItems] = useState<Item[]>([]);
   const [examples, setExamples] = useState<Example[]>([]);
   const [q, setQ] = useState("");
@@ -59,10 +60,11 @@ export function KnowledgeClient() {
       <div className="tabs wide">
         <button className={tab === "kb" ? "on" : ""} onClick={() => setTab("kb")}>📚 ฐานข้อมูลคลินิก ({items.length})</button>
         <button className={tab === "ex" ? "on" : ""} onClick={() => setTab("ex")}>💬 คำตอบที่เรียนรู้ ({examples.filter((x) => x.active).length})</button>
+        <button className={tab === "media" ? "on" : ""} onClick={() => setTab("media")}>📷 รูปที่ใช้บ่อย</button>
         <input className="search" placeholder="ค้นหา…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
-      {tab === "kb" ? (
+      {tab === "media" ? <QuickMediaPanel /> : tab === "kb" ? (
         <div className="kb-grid">
           <form className="card form" onSubmit={save}>
             <h3>{form.id ? "แก้ไขข้อมูล" : "เพิ่มข้อมูลใหม่"}</h3>
@@ -120,7 +122,79 @@ export function KnowledgeClient() {
   );
 }
 
-function ExampleRow({ x, onChange }: { x: Example; onChange: () => void }) {
+interface QuickItem { id: string; title: string; preview_path: string; url?: string }
+
+function QuickMediaPanel() {
+  const sb = useMemo(() => supabaseBrowser(), []);
+  const [items, setItems] = useState<QuickItem[]>([]);
+  const [title, setTitle] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const load = useCallback(async () => {
+    const { data } = await sb.from("quick_media").select("id, title, preview_path").order("created_at", { ascending: false });
+    const rows = (data ?? []) as QuickItem[];
+    const { data: urls } = rows.length
+      ? await sb.storage.from("quick-media").createSignedUrls(rows.map((r) => r.preview_path), 3600)
+      : { data: [] };
+    setItems(rows.map((r, i) => ({ ...r, url: urls?.[i]?.signedUrl ?? undefined })));
+  }, [sb]);
+  useEffect(() => { load(); }, [load]);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    if (!file) return setMsg("กรุณาเลือกรูป");
+    if (file.size > MAX_UPLOAD_BYTES) return setMsg("รูปต้องไม่เกิน 10MB");
+    setBusy(true);
+    setMsg("");
+    try {
+      const uploadPath = await uploadStaffImage(file);
+      const res = await fetch("/api/quick-media", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadPath, title }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "บันทึกไม่สำเร็จ");
+      setTitle(""); setFile(null);
+      (e.target as HTMLFormElement).reset();
+      load();
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <form className="card form" onSubmit={add}>
+        <h3>เพิ่มรูปที่ใช้บ่อย</h3>
+        <label>ชื่อรูป<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="เช่น แผนที่คลินิก" required /></label>
+        <label>ไฟล์รูป (JPEG, PNG, WebP, HEIC ไม่เกิน 10MB)
+          <input type="file" accept="image/*,.heic,.heif" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required />
+        </label>
+        {msg && <div className="muted small">{msg}</div>}
+        <div className="row"><button className="btn primary" disabled={busy}>{busy ? "กำลังบันทึก…" : "เพิ่มรูป"}</button></div>
+      </form>
+      {items.length === 0 && <div className="empty">ยังไม่มีรูปที่ใช้บ่อย</div>}
+      <div className="quick-grid">
+        {items.map((i) => (
+          <div key={i.id} className="card quick-card">
+            {i.url && <img src={i.url} alt={i.title} />}
+            <b>{i.title}</b>
+            <button className="btn ghost small" onClick={async () => {
+              await fetch(`/api/quick-media?id=${i.id}`, { method: "DELETE" });
+              load();
+            }}>ลบ</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ExampleRow({ x, onChange }:{ x: Example; onChange: () => void }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [editing, setEditing] = useState(false);
   const [answer, setAnswer] = useState(x.answer);

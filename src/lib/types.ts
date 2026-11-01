@@ -68,5 +68,11 @@ export interface Message {
   language: string;
   starred: boolean;
   read_by_customer_at: string | null;
+  media_type: string | null;
+  media_path: string | null;
+  media_preview_path: string | null;
+  media_width: number | null;
+  media_height: number | null;
+  media_deleted_at: string | null;
   created_at: string;
 }

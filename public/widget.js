@@ -10,8 +10,8 @@
   var API = new URL(script ? script.src : location.href).origin + "/api/webchat";
   var en = (document.documentElement.lang || "").toLowerCase().indexOf("en") === 0;
   var T = en
-    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment.", read: "Read" }
-    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่", read: "อ่านแล้ว" };
+    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment.", read: "Read", attach: "Attach image", tooBig: "Images must be 5MB or smaller.", badImage: "This image could not be sent. Please use JPEG, PNG, WebP or HEIC.", mediaDeleted: "Image removed under our data retention policy" }
+    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่", read: "อ่านแล้ว", attach: "แนบรูป", tooBig: "รูปต้องไม่เกิน 5MB", badImage: "ส่งรูปนี้ไม่ได้ กรุณาใช้ไฟล์ JPEG, PNG, WebP หรือ HEIC", mediaDeleted: "รูปถูกลบตามนโยบายเก็บข้อมูล" };
 
   var KEY = "docdesk_session";
   function uuid() {
@@ -35,6 +35,9 @@
 .dd-in{align-self:flex-end;background:#4A63E0;color:#fff;border-bottom-right-radius:4px}\
 .dd-out{align-self:flex-start;background:#fff;border:1px solid #e3e7f0;border-bottom-left-radius:4px}\
 .dd-read{align-self:flex-end;margin-top:-4px;font-size:11px;color:#7a8295}\
+.dd-img{display:block;max-width:100%;max-height:220px;border-radius:10px;cursor:zoom-in}\
+.dd-cap{margin-top:6px}\
+#dd-form #dd-attach{background:none;color:#4A63E0;border:1px solid #cfd5e3;padding:0 10px;font-size:18px}\
 #dd-form{display:flex;gap:8px;padding:10px;border-top:1px solid #e3e7f0}\
 #dd-form textarea{flex:1;resize:none;border:1px solid #cfd5e3;border-radius:10px;padding:9px 11px;font:inherit;height:44px}\
 #dd-form button{background:#22C7A0;color:#fff;border:0;border-radius:10px;padding:0 16px;font:600 16px system-ui;cursor:pointer}";
@@ -50,7 +53,9 @@
   panel.innerHTML =
     "<header><span>" + T.title + "</span><button aria-label='close'>×</button></header>" +
     "<div id='dd-list'></div>" +
-    "<form id='dd-form'><textarea placeholder='" + T.ph + "'></textarea><button type='submit'>" + T.send + "</button></form>";
+    "<form id='dd-form'><button type='button' id='dd-attach' aria-label='" + T.attach + "' title='" + T.attach + "'>📎</button>" +
+    "<input type='file' id='dd-file' accept='image/*,.heic,.heif' style='display:none'>" +
+    "<textarea placeholder='" + T.ph + "'></textarea><button type='submit'>" + T.send + "</button></form>";
   document.body.appendChild(btn);
   document.body.appendChild(panel);
 
@@ -69,7 +74,24 @@
     seen[m.id] = 1;
     var d = document.createElement("div");
     d.className = "dd-m " + (m.direction === "in" ? "dd-in" : "dd-out");
-    d.textContent = m.body;
+    if (m.media_deleted) {
+      d.textContent = T.mediaDeleted;
+    } else if (m.preview_url) {
+      var img = document.createElement("img");
+      img.className = "dd-img";
+      img.src = m.preview_url;
+      img.alt = "";
+      img.onclick = function () { window.open(m.media_url, "_blank", "noopener"); };
+      d.appendChild(img);
+      if (m.body) {
+        var cap = document.createElement("div");
+        cap.className = "dd-cap";
+        cap.textContent = m.body;
+        d.appendChild(cap);
+      }
+    } else {
+      d.textContent = m.body;
+    }
     list.appendChild(d);
     list.scrollTop = list.scrollHeight;
     if (m.created_at) {
@@ -138,6 +160,38 @@
       });
   }
   form.onsubmit = send;
+
+  // รูป: ขอช่องอัปโหลด (นับ rate limit) → อัปโหลดตรงเข้า Storage → แจ้ง server ให้ตรวจและเก็บ
+  var fileInput = form.querySelector("#dd-file");
+  var MAX_IMAGE = 5 * 1024 * 1024;
+  function note(text) { add({ id: "note-" + Date.now(), direction: "out", body: text }); }
+  function postUpload(body) {
+    return fetch(API + "/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  }
+  function uploadImage(file) {
+    if (file.size > MAX_IMAGE) { note(T.tooBig); return Promise.resolve(); }
+    return postUpload({ session: session }).then(function (r) {
+      if (r.status === 429) { note(T.busy); return; }
+      if (!r.ok) { note(T.badImage); return; }
+      return r.json().then(function (slot) {
+        return fetch(slot.url, { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file })
+          .then(function (put) {
+            if (!put.ok) throw new Error("upload failed");
+            return postUpload({ session: session, path: slot.path });
+          })
+          .then(function (done) {
+            if (!done.ok) { note(T.badImage); return; }
+            clearTimeout(timer); poll();
+          });
+      });
+    }).catch(function () { note(T.badImage); });
+  }
+  form.querySelector("#dd-attach").onclick = function () { fileInput.click(); };
+  fileInput.onchange = function () {
+    var file = fileInput.files && fileInput.files[0];
+    fileInput.value = "";
+    if (file) uploadImage(file);
+  };
   input.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) send(e); });
 
   poll();

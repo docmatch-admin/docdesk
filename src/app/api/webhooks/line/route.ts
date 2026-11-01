@@ -1,5 +1,7 @@
 import { after, NextResponse } from "next/server";
-import { getLineProfile, verifyLineSignature } from "@/lib/channels/line";
+import { getLineProfile, lineContentRequest, verifyLineSignature } from "@/lib/channels/line";
+import { downloadLimited } from "@/lib/media";
+import { ingestInboundImage } from "@/lib/media-store";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
@@ -24,10 +26,11 @@ export async function POST(req: Request) {
     const userId = ev.source?.userId;
     if (ev.type !== "message" || !userId || ev.source?.type !== "user" || !ev.message) continue;
 
-    // เฟสแรกรองรับข้อความตัวอักษร ประเภทอื่นบันทึกเป็นข้อความแจ้งเตือน
+    const isImage = ev.message.type === "image";
+    // รองรับข้อความและรูป ประเภทอื่นบันทึกเป็นข้อความแจ้งเตือน
     const text = ev.message.type === "text"
       ? ev.message.text ?? ""
-      : `[ลูกค้าส่ง ${ev.message.type} — เปิดดูใน LINE OA]`;
+      : isImage ? "" : `[ลูกค้าส่ง ${ev.message.type} — เปิดดูใน LINE OA]`;
 
     const profile = await getLineProfile(userId);
     const stored = await storeIncoming({
@@ -39,9 +42,14 @@ export async function POST(req: Request) {
       externalMessageId: ev.message.id,
       replyToken: ev.replyToken,
       markAsReadToken: ev.message.markAsReadToken,
+      isImage,
     });
 
-    if (!stored.duplicate && ev.message.type === "text") {
+    if (stored.duplicate) continue;
+    if (isImage) {
+      const content = lineContentRequest(ev.message.id);
+      after(() => ingestInboundImage(stored.messageId, () => downloadLimited(content.url, content.headers)));
+    } else if (ev.message.type === "text") {
       after(() => processIncoming(stored.conversationId, stored.messageId, ev.replyToken).catch((e) => console.error("processIncoming", e)));
     }
   }

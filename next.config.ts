@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ["sharp", "heic-convert", "heic-decode", "libheif-js"],
   async headers() {
     return [
       {

@@ -1,12 +1,15 @@
 import { embed } from "./ai";
-import { sendToChannel } from "./channels";
+import { sendImageToChannel, sendToChannel } from "./channels";
 import { lineMarkAsRead } from "./channels/line";
-import { metaMarkSeen } from "./channels/meta";
+import { metaMarkSeen, metaMessagingType } from "./channels/meta";
 import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { scrubPII } from "./pii";
 import { markConversationReadWith } from "./read-receipts";
-import { hasUrgentSignal } from "./suggest-rules";
+import { hasUrgentSignal, isCustomerText } from "./suggest-rules";
+import { buildOutMediaUrl } from "./media-url";
+import { CHAT_BUCKET, consumeUpload, downloadFile, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
+import { MAX_IMAGE_BYTES } from "./media";
 import { AUTO_SEND_MIN_CONFIDENCE, generateSuggestions, pendingCustomerText } from "./suggest";
 import { supabaseAdmin } from "./supabase/admin";
 import { fromThai, toThai } from "./translate";
@@ -27,6 +30,8 @@ export interface IncomingInput {
   replyToken?: string;
   markAsReadToken?: string;
   skipAi?: boolean;             // เกินเพดาน AI: เก็บข้อความโดยไม่แปล
+  isImage?: boolean;            // รูปภาพ: text เป็น caption ได้ ว่างได้
+  media?: StoredMedia;          // มีเมื่อรูปถูกเก็บแล้ว ถ้าไม่มี = รอดาวน์โหลดใน after()
 }
 
 /** บันทึกข้อความเข้า แล้วคืน conversationId (เร็ว ใช้ก่อนตอบ webhook) */
@@ -59,7 +64,8 @@ export async function storeIncoming(input: IncomingInput) {
     .select("id, unread_count").single();
   if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
 
-  const { language, th } = input.skipAi
+  const imageOnly = !!input.isImage && !input.text.trim();
+  const { language, th } = input.skipAi || imageOnly
     ? { language: contact.language as string, th: null }
     : await toThai(input.text);
 
@@ -72,6 +78,13 @@ export async function storeIncoming(input: IncomingInput) {
     language,
     external_id: input.externalMessageId ?? null,
     line_mark_as_read_token: input.markAsReadToken ?? null,
+    ...(input.isImage ? {
+      media_type: "image",
+      media_path: input.media?.path ?? null,
+      media_preview_path: input.media?.previewPath ?? null,
+      media_width: input.media?.width ?? null,
+      media_height: input.media?.height ?? null,
+    } : {}),
   }).select("id").single();
   if (mErr || !msg) throw mErr ?? new Error("message insert failed");
 
@@ -81,7 +94,8 @@ export async function storeIncoming(input: IncomingInput) {
       status: "open",
       unread_count: (conv.unread_count ?? 0) + 1,
       last_message_at: new Date().toISOString(),
-      last_message_preview: preview(th ?? input.text),
+      last_message_preview: preview(th ?? input.text) || "[รูปภาพ]",
+      ...(imageOnly ? { needs_human: true } : {}), // AI ไม่เห็นรูป ต้องให้คนดู
       ...(input.replyToken
         ? { line_reply_token: input.replyToken, line_reply_token_at: new Date().toISOString() }
         : {}),
@@ -114,9 +128,10 @@ export async function processIncoming(conversationId: string, messageId: string,
   }
 
   await new Promise((resolve) => setTimeout(resolve, aiTiming.debounceMs));
-  const { data: latest } = await db.from("messages").select("id")
+  const { data: recent } = await db.from("messages").select("id, body")
     .eq("conversation_id", conversationId).eq("direction", "in")
-    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    .order("created_at", { ascending: false }).limit(20);
+  const latest = (recent ?? []).find((m) => isCustomerText(m.body as string));
   if (latest?.id !== messageId) return; // มีข้อความใหม่กว่า ให้รอบของข้อความนั้นทำแทน
 
   const suggestion = await generateSuggestions(conversationId);
@@ -244,6 +259,103 @@ export async function sendReply(input: ReplyInput) {
   }
 
   return { messageId: msg?.id ?? null, body };
+}
+
+export interface MediaReplyInput {
+  conversationId: string;
+  uploadPath?: string;          // ไฟล์ที่เจ้าหน้าที่อัปโหลดเข้า uploads/
+  quickMediaId?: string;
+  captionTh?: string;
+  senderId: string;
+  skipTranslate?: boolean;
+  origin: string;               // โดเมนของแอป ใช้สร้าง URL ที่ LINE/Meta ดึงรูป
+}
+
+/** เจ้าหน้าที่ส่งรูป: ไม่เข้าระบบเรียนรู้คำตอบ */
+export async function sendMediaReply(input: MediaReplyInput) {
+  const db = supabaseAdmin();
+  const { data: conv, error } = await db
+    .from("conversations")
+    .select("id, contacts(external_id, language), channels(type)")
+    .eq("id", input.conversationId).single();
+  if (error || !conv) throw error ?? new Error("conversation not found");
+  const contact = (Array.isArray(conv.contacts) ? conv.contacts[0] : conv.contacts) as { external_id: string; language: string };
+  const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as { type: ChannelType };
+
+  // ตรวจกติกา 24 ชม. ก่อนเริ่มบีบอัดและเก็บไฟล์
+  const isMeta = channel.type === "facebook" || channel.type === "instagram";
+  let lastInboundAt: Date | null = null;
+  if (isMeta) {
+    const { data: lastIn } = await db.from("messages").select("created_at")
+      .eq("conversation_id", input.conversationId).eq("direction", "in")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    lastInboundAt = lastIn ? new Date(lastIn.created_at as string) : null;
+    metaMessagingType(lastInboundAt, "staff");
+  }
+
+  const captionTh = input.captionTh?.trim() ?? "";
+  const language = input.skipTranslate ? "th" : contact.language || "th";
+  const caption = captionTh && language !== "th" ? await fromThai(captionTh, language) : captionTh;
+
+  // รูปใช้บ่อยคัดลอกเป็นไฟล์ของแชท ลบจากคลังภายหลังแล้วประวัติแชทไม่เสีย และระบบลบตามอายุไม่แตะคลัง
+  let media: StoredMedia;
+  if (input.quickMediaId) {
+    const { data: quick } = await db.from("quick_media").select("path, preview_path").eq("id", input.quickMediaId).maybeSingle();
+    if (!quick) throw new Error("ไม่พบรูปที่ใช้บ่อยนี้");
+    const { default: sharp } = await import("sharp");
+    const main = await downloadFile(QUICK_BUCKET, quick.path as string);
+    const meta = await sharp(main).metadata();
+    media = await storeImage(CHAT_BUCKET, {
+      main,
+      preview: await downloadFile(QUICK_BUCKET, quick.preview_path as string),
+      width: meta.width ?? 0,
+      height: meta.height ?? 0,
+    });
+  } else if (input.uploadPath) {
+    media = await consumeUpload(input.uploadPath, CHAT_BUCKET, MAX_IMAGE_BYTES);
+  } else {
+    throw new Error("ไม่มีรูปที่จะส่ง");
+  }
+
+  // ต้องมีแถวก่อนส่ง เพราะ Meta ดึงรูประหว่างที่เรายังรอคำตอบ
+  const messageId = crypto.randomUUID();
+  await db.from("messages").insert({
+    id: messageId,
+    conversation_id: input.conversationId,
+    direction: "out",
+    sender_type: "staff",
+    sender_id: input.senderId,
+    body: caption,
+    body_th: caption !== captionTh ? captionTh : null,
+    language,
+    media_type: "image",
+    media_path: media.path,
+    media_preview_path: media.previewPath,
+    media_width: media.width,
+    media_height: media.height,
+  });
+
+  try {
+    const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
+    await sendImageToChannel(channel.type, contact.external_id, {
+      main: buildOutMediaUrl(input.origin, messageId, "main"),
+      preview: buildOutMediaUrl(input.origin, messageId, "preview"),
+    }, caption, { replyToken, lastInboundAt, senderType: "staff" });
+  } catch (e) {
+    await db.from("messages").delete().eq("id", messageId);
+    await removeFiles(CHAT_BUCKET, [media.path, media.previewPath]);
+    throw e;
+  }
+
+  await db.from("conversations").update({
+    unread_count: 0,
+    ai_due_at: null,
+    needs_human: false,
+    last_message_at: new Date().toISOString(),
+    last_message_preview: preview(`[รูปภาพ] ${captionTh}`),
+  }).eq("id", input.conversationId);
+
+  return { messageId };
 }
 
 // ---------------------------------------------------------------------------

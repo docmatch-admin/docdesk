@@ -31,7 +31,7 @@ export function pendingCustomerText(msgs: MsgRow[]): { text: string; lastId: str
   }
   const pick = pending.length ? pending : msgs.filter((m) => m.direction === "in").slice(-1);
   return {
-    text: pick.map((m) => m.body_th || m.body).join("\n"),
+    text: pick.map((m) => m.body_th || m.body).filter((t) => t.trim()).join("\n"),
     lastId: pick.at(-1)?.id ?? null,
   };
 }
@@ -78,7 +78,8 @@ export async function generateSuggestions(conversationId: string, { force = fals
     .limit(30);
   const msgs = ((rows ?? []) as MsgRow[]).reverse();
   const { text: question, lastId } = pendingCustomerText(msgs);
-  if (!question.trim()) return { id: null, options: [], needs_human: false };
+  // ส่งมาแต่รูป: AI ไม่เห็นรูป ไม่ต้องร่าง
+  if (!question.trim()) return { id: null, options: [], needs_human: false, skipped: "no_reply_needed" };
 
   if (!force) {
     if (msgs.at(-1)?.direction !== "in") return { id: null, options: [], needs_human: false, skipped: "answered" };
@@ -126,7 +127,7 @@ export async function generateSuggestions(conversationId: string, { force = fals
   // ---- แหล่งที่ 3: ประวัติของลูกค้าคนนี้ ----
   const history = msgs
     .slice(-20)
-    .map((m) => `[${thDate(m.created_at)}] ${m.direction === "in" ? "ลูกค้า" : m.sender_type === "ai" ? "AI" : "เจ้าหน้าที่"}: ${m.body_th || m.body}`)
+    .map((m) => `[${thDate(m.created_at)}] ${m.direction === "in" ? "ลูกค้า" : m.sender_type === "ai" ? "AI" : "เจ้าหน้าที่"}: ${m.body_th || m.body || "[รูปภาพ]"}`)
     .join("\n");
 
   const kBlock = knowledge.length

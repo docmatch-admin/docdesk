@@ -30,13 +30,28 @@ test("แปลง webhook ของ Messenger: ข้าม echo และแ�
   const fb = parseMetaWebhook({ object: "page", entry: [{ id: "PAGE", messaging: [
     { sender: { id: "U1" }, recipient: { id: "PAGE" }, message: { mid: "m1", text: "สวัสดี" } },
     { sender: { id: "PAGE" }, recipient: { id: "U1" }, message: { mid: "m2", text: "echo", is_echo: true } },
-    { sender: { id: "U2" }, recipient: { id: "PAGE" }, message: { mid: "m3", attachments: [{ type: "image" }] } },
+    { sender: { id: "U2" }, recipient: { id: "PAGE" }, message: { mid: "m3", attachments: [{ type: "video" }] } },
     { sender: { id: "U3" }, recipient: { id: "PAGE" } },
   ] }] });
   assert.equal(fb.length, 2);
   assert.deepEqual(fb[0], { kind: "facebook", senderId: "U1", messageId: "m1", text: "สวัสดี", isText: true });
   assert.equal(fb[1].isText, false);
-  assert.match(fb[1].text, /รูปภาพ/);
+  assert.match(fb[1].text, /วิดีโอ/);
+});
+
+test("แปลง webhook รูปภาพ: เก็บลิงก์ไว้ดาวน์โหลด และหลายรูปได้ id ไม่ซ้ำ", () => {
+  const [one, two, noUrl] = parseMetaWebhook({ object: "page", entry: [{ id: "PAGE", messaging: [
+    { sender: { id: "U1" }, message: { mid: "m1", attachments: [
+      { type: "image", payload: { url: "https://cdn.test/a.jpg" } },
+      { type: "image", payload: { url: "https://cdn.test/b.jpg" } },
+    ] } },
+    { sender: { id: "U2" }, message: { mid: "m2", attachments: [{ type: "image" }] } },
+  ] }] });
+  assert.deepEqual(one, { kind: "facebook", senderId: "U1", messageId: "m1", text: "", isText: false, imageUrl: "https://cdn.test/a.jpg" });
+  assert.equal(two.messageId, "m1:1");
+  assert.equal(two.imageUrl, "https://cdn.test/b.jpg");
+  assert.equal(noUrl.imageUrl, undefined);
+  assert.match(noUrl.text, /รูปภาพ/);
 });
 
 test("แปลง webhook ของ Instagram และไม่รับ object อื่น", () => {

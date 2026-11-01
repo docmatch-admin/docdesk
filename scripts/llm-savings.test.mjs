@@ -1,24 +1,7 @@
 // ทดสอบการลดการเรียก LLM ด้วยโค้ดจริงของ pipeline และ suggest แทนเฉพาะ OpenAI กับฐานข้อมูล: npm test
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
-import { registerHooks } from "node:module";
 import { beforeEach, test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const fake = (name) => new URL(`./fakes/${name}.mjs`, import.meta.url).href;
-registerHooks({
-  resolve(specifier, context, next) {
-    if (specifier.startsWith(".") && context.parentURL?.includes("/src/lib/")) {
-      const base = fileURLToPath(new URL(specifier, context.parentURL));
-      const file = pathToFileURL(`${base}.ts`).href;
-      if (file.endsWith("/lib/ai.ts")) return { url: fake("ai"), shortCircuit: true };
-      if (file.endsWith("/lib/supabase/admin.ts")) return { url: fake("admin"), shortCircuit: true };
-      if (existsSync(`${base}.ts`)) return { url: file, shortCircuit: true };
-      if (existsSync(`${base}/index.ts`)) return { url: pathToFileURL(`${base}/index.ts`).href, shortCircuit: true };
-    }
-    return next(specifier, context);
-  },
-});
+import { fake } from "./fakes/hooks.mjs";
 
 const { calls, replies, reset } = await import(fake("ai"));
 const { nextTime, resetDb, state } = await import(fake("admin"));

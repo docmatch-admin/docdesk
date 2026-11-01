@@ -43,6 +43,40 @@ export async function lineReply(replyToken: string, text: string): Promise<boole
   }
 }
 
+/** ที่อยู่สำหรับดาวน์โหลดรูปที่ลูกค้าส่งมา (ใช้ host คนละตัวกับ API อื่น) */
+export function lineContentRequest(messageId: string) {
+  return {
+    url: `https://api-data.line.me/v2/bot/message/${messageId}/content`,
+    headers: { Authorization: `Bearer ${token()}` },
+  };
+}
+
+/** ส่งรูป: ใช้ replyToken ก่อนเหมือนข้อความ caption ไปเป็นข้อความถัดไปเพราะ image message ของ LINE ไม่มี caption */
+export async function lineSendImage(
+  userId: string,
+  originalContentUrl: string,
+  previewContentUrl: string,
+  caption: string,
+  replyToken?: string,
+) {
+  const messages: Record<string, string>[] = [{ type: "image", originalContentUrl, previewContentUrl }];
+  if (caption.trim()) messages.push({ type: "text", text: caption.slice(0, 5000) });
+  const post = (path: string, body: Record<string, unknown>) => fetch(`${API}/message/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
+    body: JSON.stringify({ ...body, messages }),
+  });
+  if (replyToken) {
+    try {
+      if ((await post("reply", { replyToken })).ok) return;
+    } catch (e) {
+      console.error("LINE reply failed", e);
+    }
+  }
+  const res = await post("push", { to: userId });
+  if (!res.ok) throw new Error(`LINE push failed ${res.status}: ${await res.text()}`);
+}
+
 /** แจ้ง LINE ว่าอ่านแล้ว: ลูกค้าเห็น "อ่านแล้ว" ถึงข้อความของ token นี้และข้อความก่อนหน้าทั้งหมด */
 export async function lineMarkAsRead(markAsReadToken: string) {
   const res = await fetch(`${API}/chat/markAsRead`, {

@@ -1,4 +1,5 @@
 import { after, NextResponse } from "next/server";
+import { attachWidgetMedia } from "@/lib/media-store";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { admitWebchat, clientIp, corsHeaders, hashIp, isAllowedOrigin, type WebchatAdmission } from "@/lib/webchat-guard";
@@ -78,9 +79,9 @@ export async function GET(req: Request) {
   const { data: conv } = await db.from("conversations").select("id, customer_marked_read_at").eq("contact_id", contact.id).maybeSingle();
   if (!conv) return NextResponse.json({ messages: [] }, { headers: cors });
 
-  let q = db.from("messages").select("id, direction, body, created_at")
+  let q = db.from("messages").select("id, direction, body, created_at, media_path, media_preview_path, media_deleted_at")
     .eq("conversation_id", conv.id).order("created_at").limit(100);
   if (after_) q = q.gt("created_at", after_);
   const { data } = await q;
-  return NextResponse.json({ messages: data ?? [], clinic_read_at: conv.customer_marked_read_at }, { headers: cors });
+  return NextResponse.json({ messages: await attachWidgetMedia(data ?? []), clinic_read_at: conv.customer_marked_read_at }, { headers: cors });
 }

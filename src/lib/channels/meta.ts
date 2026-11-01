@@ -104,6 +104,28 @@ export async function metaSend(
   }
 }
 
+/** ส่งรูปตามกติกาเวลาเดียวกับข้อความ caption ไปเป็นข้อความถัดไปเพราะ attachment ไม่มี caption */
+export async function metaSendImage(
+  kind: "facebook" | "instagram",
+  recipientId: string,
+  imageUrl: string,
+  caption: string,
+  opts: { lastInboundAt: Date | null; senderType: "staff" | "ai" },
+) {
+  const type = metaMessagingType(opts.lastInboundAt, opts.senderType);
+  const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      recipient: { id: recipientId },
+      message: { attachment: { type: "image", payload: { url: imageUrl } } },
+      ...type,
+    }),
+  });
+  if (!res.ok) throw new Error(`Meta send image failed ${res.status}: ${await res.text()}`);
+  if (caption.trim()) await metaSend(kind, recipientId, caption, opts);
+}
+
 /** แจ้ง Facebook/Instagram ว่าเพจอ่านแล้ว */
 export async function metaMarkSeen(_kind: "facebook" | "instagram", recipientId: string) {
   const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
@@ -123,6 +145,8 @@ export interface MetaIncoming {
   messageId: string;
   text: string;
   isText: boolean;
+  /** รูปภาพ: ลิงก์หมดอายุเร็ว ต้องดาวน์โหลดทันที */
+  imageUrl?: string;
 }
 
 interface MetaWebhookBody {
@@ -138,7 +162,7 @@ interface MetaWebhookBody {
         mid: string;
         text?: string;
         is_echo?: boolean;
-        attachments?: { type: string }[];
+        attachments?: { type: string; payload?: { url?: string } }[];
       };
     }[];
   }[];
@@ -161,6 +185,11 @@ export function parseMetaWebhook(body: MetaWebhookBody): MetaIncoming[] {
       if (!m || m.is_echo || !senderId || senderId === entry.id) continue;
       if (m.text) {
         out.push({ kind, senderId, messageId: m.mid, text: m.text, isText: true });
+      } else if (m.attachments?.some((a) => a.type === "image" && a.payload?.url)) {
+        // ส่งหลายรูปพร้อมกันได้ mid เดียว ต้องแยก id ไม่อย่างนั้นตัวกันซ้ำจะทิ้งรูปที่เหลือ
+        m.attachments.filter((a) => a.type === "image" && a.payload?.url).forEach((a, i) => {
+          out.push({ kind, senderId, messageId: i ? `${m.mid}:${i}` : m.mid, text: "", isText: false, imageUrl: a.payload!.url });
+        });
       } else if (m.attachments?.length) {
         const t = m.attachments[0].type;
         out.push({

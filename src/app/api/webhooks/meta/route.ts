@@ -1,5 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { getMetaProfile, parseMetaReads, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
+import { downloadLimited } from "@/lib/media";
+import { ingestInboundImage } from "@/lib/media-store";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
 import { applyCustomerRead, findConversationId } from "@/lib/read-receipts";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -41,9 +43,13 @@ export async function POST(req: Request) {
       displayName: profile.name,
       avatarUrl: profile.avatar,
       externalMessageId: m.messageId,
+      isImage: !!m.imageUrl,
     });
 
-    if (!stored.duplicate && m.isText) {
+    if (!stored.duplicate && m.imageUrl) {
+      const url = m.imageUrl;
+      after(() => ingestInboundImage(stored.messageId, () => downloadLimited(url)));
+    } else if (!stored.duplicate && m.isText) {
       after(() => processIncoming(stored.conversationId, stored.messageId).catch((e) => console.error("processIncoming", e)));
     }
   }

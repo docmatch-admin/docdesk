@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
+import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import {
   AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL,
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
@@ -18,6 +19,13 @@ const SOURCE_LABEL: Record<SuggestionOption["source"], string> = {
 
 const timeTh = (iso: string) =>
   new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
+
+interface QuickMedia { id: string; title: string; preview_path: string; previewUrl?: string }
+interface Attachment { file?: File; quick?: QuickMedia; previewUrl: string; name: string }
+
+const SIGNED_URL_SECONDS = 600;
+/** รูปเข้าที่ยังโหลดไม่เสร็จนานเกินนี้ถือว่าล้มเหลว (เช่น function ถูกตัดก่อนโหลดเสร็จ) */
+const IMAGE_LOADING_MAX_MS = 2 * 60 * 1000;
 
 export function InboxClient() {
   const sb = useMemo(() => supabaseBrowser(), []);
@@ -38,6 +46,11 @@ export function InboxClient() {
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selectedId;
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [caption, setCaption] = useState("");
+  const [quickMedia, setQuickMedia] = useState<QuickMedia[]>([]);
+  const [dragging, setDragging] = useState(false);
 
   const selected = convs.find((c) => c.id === selectedId) ?? null;
   const customerLang = selected?.contacts?.language ?? "th";
@@ -80,6 +93,12 @@ export function InboxClient() {
 
   useEffect(() => {
     loadConvs();
+    sb.from("quick_media").select("id, title, preview_path").order("created_at", { ascending: false }).then(async ({ data }) => {
+      const rows = (data ?? []) as QuickMedia[];
+      if (!rows.length) return;
+      const { data: urls } = await sb.storage.from("quick-media").createSignedUrls(rows.map((r) => r.preview_path), 3600);
+      setQuickMedia(rows.map((r, i) => ({ ...r, previewUrl: urls?.[i]?.signedUrl ?? undefined })));
+    });
     sb.from("settings").select("value").eq("key", "ai_mode").maybeSingle()
       .then(({ data }) => data && setGlobalMode(data.value as AiMode));
 
@@ -105,6 +124,10 @@ export function InboxClient() {
           setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, ...m } : x)));
         }
       })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, (p) => {
+        // ส่งรูปไม่สำเร็จ แถวที่สร้างไว้ก่อนส่งถูกลบ
+        setMessages((prev) => prev.filter((x) => x.id !== (p.old as { id: string }).id));
+      })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (p) => {
         const s = p.new as { id: string; conversation_id: string; options: SuggestionOption[]; needs_human: boolean };
         if (s.conversation_id === selectedRef.current) {
@@ -127,7 +150,7 @@ export function InboxClient() {
   // ---------- เลือกแชท ----------
   useEffect(() => {
     if (!selectedId) return;
-    setText(""); setChosen(null); setSuggestion(null); setRawMode(false);
+    setText(""); setChosen(null); setSuggestion(null); setRawMode(false); setAttachment(null); setCaption("");
     sb.from("messages").select("*").eq("conversation_id", selectedId).order("created_at").limit(300)
       .then(({ data }) => setMessages((data ?? []) as Message[]));
     if (draftTimer.current) clearTimeout(draftTimer.current);
@@ -171,6 +194,39 @@ export function InboxClient() {
     setText(""); setChosen(null); setSuggestion(null);
   }
 
+  function attachFile(file: File | null | undefined) {
+    if (!file) return;
+    if (file.size > MAX_UPLOAD_BYTES) return flash("รูปต้องไม่เกิน 10MB");
+    // ชนิดจริงตรวจจาก magic bytes ที่ server ตรงนี้แค่กันเลือกผิด
+    setAttachment({ file, previewUrl: URL.createObjectURL(file), name: file.name || "รูปภาพ" });
+  }
+
+  function onPaste(e: React.ClipboardEvent) {
+    const item = [...e.clipboardData.items].find((i) => i.type.startsWith("image/"));
+    if (!item) return;
+    e.preventDefault();
+    attachFile(item.getAsFile());
+  }
+
+  async function sendAttachment() {
+    if (!selectedId || !attachment || sending) return;
+    setSending(true);
+    try {
+      const uploadPath = attachment.file ? await uploadStaffImage(attachment.file) : undefined;
+      const res = await fetch(`/api/conversations/${selectedId}/send-media`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadPath, quickMediaId: attachment.quick?.id, caption, skipTranslate: rawMode }),
+      });
+      if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "ส่งรูปไม่สำเร็จ");
+      setAttachment(null); setCaption(""); setSuggestion(null); setChosen(null);
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "ส่งรูปไม่สำเร็จ");
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function setConvMode(mode: AiMode | null) {
     if (!selectedId) return;
     await sb.from("conversations").update({ ai_mode: mode, ...(mode !== "fallback" ? { ai_due_at: null } : {}) }).eq("id", selectedId);
@@ -191,7 +247,7 @@ export function InboxClient() {
   }
 
   function onKey(e: React.KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); send(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); if (attachment) sendAttachment(); else send(); }
     if (e.altKey && ["1", "2", "3"].includes(e.key)) { e.preventDefault(); pick(Number(e.key) - 1); }
   }
 
@@ -251,7 +307,17 @@ export function InboxClient() {
       </aside>
 
       {/* ---------- ห้องแชท ---------- */}
-      <section className="chat">
+      <section
+        className={`chat ${dragging ? "dragging" : ""}`}
+        onDragOver={(e) => { if (selected) { e.preventDefault(); setDragging(true); } }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          if (!selected) return;
+          e.preventDefault();
+          setDragging(false);
+          attachFile(e.dataTransfer.files[0]);
+        }}
+      >
         {!selected ? (
           <div className="empty big">เลือกแชททางซ้ายเพื่อเริ่มตอบ</div>
         ) : (
@@ -291,7 +357,8 @@ export function InboxClient() {
               {messages.map((m) => (
                 <div key={m.id} className={`msg ${m.direction} ${m.sender_type}`}>
                   <div className="bubble">
-                    <div>{m.direction === "in" ? (m.body_th ?? m.body) : (m.body_th ?? m.body)}</div>
+                    {m.media_type && <ChatImage message={m} />}
+                    {(m.body_th ?? m.body) && <div>{m.body_th ?? m.body}</div>}
                     {m.body_th && (
                       <div className="orig">
                         {m.direction === "in" ? "ต้นฉบับ: " : "ส่งจริง: "}{m.body}
@@ -302,7 +369,7 @@ export function InboxClient() {
                     {m.sender_type === "ai" && <span className="chip mode-auto">🤖 AI</span>}
                     {timeTh(m.created_at)}
                     {m.direction === "out" && <span>{m.read_by_customer_at ? "✓✓ อ่านแล้ว" : "✓ ส่งแล้ว"}</span>}
-                    {m.direction === "out" && (
+                    {m.direction === "out" && !m.media_type && (
                       <button className={`star ${m.starred ? "on" : ""}`} title="บันทึกเป็นคำตอบมาตรฐาน"
                         onClick={() => !m.starred && star(m)}>{m.starred ? "★" : "☆"}</button>
                     )}
@@ -339,14 +406,38 @@ export function InboxClient() {
 
             {/* ---------- ช่องพิมพ์ ---------- */}
             <div className="composer">
+              {quickMedia.length > 0 && (
+                <div className="quick-bar" aria-label="รูปที่ใช้บ่อย">
+                  {quickMedia.map((q) => (
+                    <button key={q.id} className="quick-item" title={q.title}
+                      onClick={() => setAttachment({ quick: q, previewUrl: q.previewUrl ?? "", name: q.title })}>
+                      {q.previewUrl && <img src={q.previewUrl} alt={q.title} />}
+                      <span className="small">{q.title}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {attachment && (
+                <div className="attach-preview">
+                  <img src={attachment.previewUrl} alt={attachment.name} />
+                  <input value={caption} onChange={(e) => setCaption(e.target.value)} onKeyDown={onKey}
+                    placeholder="คำบรรยายรูป (ไม่ใส่ก็ได้)" aria-label="คำบรรยายรูป" />
+                  <button className="btn ghost small" onClick={() => { setAttachment(null); setCaption(""); }}>ยกเลิก</button>
+                </div>
+              )}
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={onKey}
+                onPaste={onPaste}
                 placeholder={customerLang !== "th" && !rawMode ? "พิมพ์ภาษาไทย ระบบจะแปลให้ลูกค้า… (Ctrl+Enter ส่ง)" : "พิมพ์ข้อความ… (Ctrl+Enter ส่ง)"}
               />
               <div className="composer-foot">
                 <div className="muted small">
+                  <button className="btn ghost small attach-btn" title="แนบรูป (ลากวาง หรือ Ctrl+V ได้)" aria-label="แนบรูป"
+                    onClick={() => fileInput.current?.click()}>📎</button>
+                  <input ref={fileInput} type="file" accept="image/*,.heic,.heif" hidden
+                    onChange={(e) => { attachFile(e.target.files?.[0]); e.target.value = ""; }} />
                   {chosen != null && (edited ? "✏️ แก้จากคำแนะนำ — ระบบจะจำสำนวนนี้" : "✅ ใช้คำแนะนำตามเดิม")}
                   {customerLang !== "th" && (
                     <label className="raw">
@@ -355,9 +446,15 @@ export function InboxClient() {
                     </label>
                   )}
                 </div>
-                <button className="btn primary" onClick={send} disabled={sending || !text.trim() || metaWindow === "closed"}>
-                  {sending ? "กำลังส่ง…" : customerLang !== "th" && !rawMode ? `แปล & ส่ง` : "ส่ง"}
-                </button>
+                {attachment ? (
+                  <button className="btn primary" onClick={sendAttachment} disabled={sending || metaWindow === "closed"}>
+                    {sending ? "กำลังส่ง…" : "ส่งรูป"}
+                  </button>
+                ) : (
+                  <button className="btn primary" onClick={send} disabled={sending || !text.trim() || metaWindow === "closed"}>
+                    {sending ? "กำลังส่ง…" : customerLang !== "th" && !rawMode ? `แปล & ส่ง` : "ส่ง"}
+                  </button>
+                )}
               </div>
             </div>
           </>
@@ -368,7 +465,39 @@ export function InboxClient() {
   );
 }
 
-function Avatar({ name, url }: { name?: string | null; url?: string | null }) {
+/** แสดง preview ก่อน คลิกเปิดรูปใหญ่ รูปอยู่ใน bucket private เปิดผ่าน signed URL อายุ 10 นาทีเท่านั้น */
+function ChatImage({ message: m }: { message: Message }) {
+  const sb = useMemo(() => supabaseBrowser(), []);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!m.media_preview_path) return;
+    sb.storage.from("chat-media").createSignedUrl(m.media_preview_path, SIGNED_URL_SECONDS)
+      .then(({ data }) => setPreviewUrl(data?.signedUrl ?? null));
+  }, [sb, m.media_preview_path]);
+
+  async function openFull() {
+    if (!m.media_path) return;
+    // เปิดหน้าต่างก่อน ไม่อย่างนั้นเบราว์เซอร์จะบล็อกเพราะมีการรอ
+    const win = window.open("", "_blank");
+    const { data } = await sb.storage.from("chat-media").createSignedUrl(m.media_path, SIGNED_URL_SECONDS);
+    if (win && data?.signedUrl) win.location.href = data.signedUrl;
+    else win?.close();
+  }
+
+  if (m.media_deleted_at) return <div className="media-note">รูปถูกลบตามนโยบายเก็บข้อมูล</div>;
+  if (!m.media_path) {
+    const stuck = Date.now() - new Date(m.created_at).getTime() > IMAGE_LOADING_MAX_MS;
+    return <div className="media-note">{stuck ? "[รูปภาพ — โหลดไม่สำเร็จ เปิดดูในแอปต้นทาง]" : "กำลังโหลดรูป…"}</div>;
+  }
+  return (
+    <button className="chat-image" onClick={openFull} title="เปิดรูปใหญ่" aria-label="เปิดรูปใหญ่">
+      {previewUrl ? <img src={previewUrl} alt="รูปภาพในแชท" /> : <span className="media-note">กำลังโหลดรูป…</span>}
+    </button>
+  );
+}
+
+function Avatar({ name, url }:{ name?: string | null; url?: string | null }) {
   if (url) return <img className="avatar" src={url} alt="" />;
   return <div className="avatar">{(name || "?").slice(0, 1)}</div>;
 }
