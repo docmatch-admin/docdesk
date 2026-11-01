@@ -25,6 +25,7 @@ const SOURCE_LABEL: Record<SuggestionOption["source"], string> = {
 const timeTh = (iso: string) =>
   new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
 
+interface StaffOption { id: string; display_name: string; active: boolean }
 interface QuickMedia { id: string; title: string; preview_path: string; previewUrl?: string }
 interface Attachment { file?: File; quick?: QuickMedia; previewUrl: string; name: string }
 
@@ -64,6 +65,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const [quickMedia, setQuickMedia] = useState<QuickMedia[]>([]);
   const [dragging, setDragging] = useState(false);
 
+  const [staffList, setStaffList] = useState<StaffOption[]>([]);
+  const staffName = useMemo(() => new Map(staffList.map((s) => [s.id, s.display_name])), [staffList]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const tagFilterRef = useRef<string[]>([]);
@@ -151,6 +154,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   useEffect(() => {
     loadTags();
+    sb.from("staff").select("id, display_name, active").order("display_name")
+      .then(({ data }) => setStaffList((data ?? []) as StaffOption[]));
     sb.from("quick_media").select("id, title, preview_path").order("created_at", { ascending: false }).then(async ({ data }) => {
       const rows = (data ?? []) as QuickMedia[];
       if (!rows.length) return;
@@ -515,8 +520,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                     )}
                   </div>
                   <div className="meta">
-                    {m.sender_type === "ai" && <span className="chip mode-auto">🤖 AI</span>}
-                    {timeTh(m.created_at)}
+                    <span>{senderLabel(m, staffName)}{timeTh(m.created_at)}</span>
                     {m.direction === "out" && <span>{m.read_by_customer_at ? "✓✓ อ่านแล้ว" : "✓ ส่งแล้ว"}</span>}
                     {m.direction === "out" && !m.media_type && (
                       <button className={`star ${m.starred ? "on" : ""}`} title="บันทึกเป็นคำตอบมาตรฐาน"
@@ -652,6 +656,13 @@ function ChatImage({ message: m }: { message: Message }) {
       {previewUrl ? <img src={previewUrl} alt="รูปภาพในแชท" /> : <span className="media-note">กำลังโหลดรูป…</span>}
     </button>
   );
+}
+
+/** ผู้ส่งข้อความขาออก เช่น "Admin · " หรือ "🤖 AI · " ข้อความลูกค้าไม่ต้องแสดง */
+function senderLabel(m: Message, names: Map<string, string>): string {
+  if (m.direction !== "out") return "";
+  if (m.sender_type === "ai") return "🤖 AI · ";
+  return `${(m.sender_id && names.get(m.sender_id)) || "เจ้าหน้าที่"} · `;
 }
 
 function WaitChip({ since }: { since: string | null }) {

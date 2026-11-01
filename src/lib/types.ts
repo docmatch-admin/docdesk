@@ -69,6 +69,7 @@ export interface Message {
   conversation_id: string;
   direction: "in" | "out";
   sender_type: "customer" | "staff" | "ai" | "system";
+  sender_id: string | null;
   body: string;
   body_th: string | null;
   language: string;
