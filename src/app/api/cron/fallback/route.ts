@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { touchHeartbeat } from "@/lib/health";
 import { purgeExpiredMedia, purgeStaleUploads } from "@/lib/media-store";
 import { autoCloseQuietChats, runFallback } from "@/lib/pipeline";
 
@@ -9,6 +10,8 @@ async function handle(req: Request) {
   if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  // บันทึกก่อนงานอื่น cron ที่รันแต่งานล้มเหลวไม่ได้แปลว่า cron หยุด
+  await touchHeartbeat("cron_fallback").catch((e) => console.error("heartbeat failed", e));
   const result = await runFallback();
   // ลบรูปพลาดรอบนี้ไม่เป็นไร รอบหน้าลองใหม่ ต้องไม่กระทบ AI ที่ตอบแทน
   let mediaPurged = 0;

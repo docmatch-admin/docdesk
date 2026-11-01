@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { getMetaProfile, parseMetaReads, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
+import { logSystemError } from "@/lib/health";
 import { downloadLimited } from "@/lib/media";
 import { ingestInboundImage } from "@/lib/media-store";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
@@ -29,6 +30,7 @@ export async function POST(req: Request) {
 
   const body = JSON.parse(raw);
   const incoming = parseMetaWebhook(body);
+  try {
   for (const m of incoming) {
     // ดึงโปรไฟล์เฉพาะลูกค้าใหม่ (ประหยัดการเรียก API)
     const { data: known } = await supabaseAdmin().from("contacts")
@@ -50,8 +52,15 @@ export async function POST(req: Request) {
       const url = m.imageUrl;
       after(() => ingestInboundImage(stored.messageId, () => downloadLimited(url)));
     } else if (!stored.duplicate && m.isText) {
-      after(() => processIncoming(stored.conversationId, stored.messageId).catch((e) => console.error("processIncoming", e)));
+      after(() => processIncoming(stored.conversationId, stored.messageId).catch((e) => {
+        console.error("processIncoming", e);
+        return logSystemError("webhook:meta", e);
+      }));
     }
+  }
+  } catch (e) {
+    await logSystemError("webhook:meta", e);
+    throw e;
   }
 
   // ลูกค้าอ่านข้อความแล้ว
@@ -62,6 +71,7 @@ export async function POST(req: Request) {
       if (conversationId) await applyCustomerRead(db, conversationId, new Date(r.watermark).toISOString(), new Date(r.readAt));
     } catch (e) {
       console.error("meta read failed", e);
+      await logSystemError("webhook:meta", e);
     }
   }
 

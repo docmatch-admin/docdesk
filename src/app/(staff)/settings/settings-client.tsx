@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AUTO_CLOSE_EXEMPT_TAGS, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "@/lib/case-flow";
 import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib/llm-usage";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { HealthPanel } from "./health-panel";
 import { TagSettings } from "./tag-settings";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
 
@@ -66,6 +67,8 @@ export function SettingsClient() {
   return (
     <div className="page narrow">
       <h1>ตั้งค่า AI</h1>
+
+      <HealthPanel />
 
       <section className="card">
         <h3>โหมด AI ทั้งระบบ</h3>

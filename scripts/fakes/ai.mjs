@@ -10,3 +10,7 @@ export async function chatJSON(system, user) {
 }
 export const CHAT_MODEL = "gpt-4o-mini";
 export const EMBED_MODEL = "text-embedding-3-small";
+export const openaiState = { fail: null };
+export const openai = () => ({
+  embeddings: { create: async () => { if (openaiState.fail) throw new Error(openaiState.fail); return { data: [{ embedding: [0] }] }; } },
+});

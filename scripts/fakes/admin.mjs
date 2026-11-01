@@ -129,11 +129,13 @@ function query(name) {
     in(k, v) { filters.push((r) => v.includes(r[k])); return b; },
     lte(k, v) { filters.push((r) => r[k] != null && Date.parse(r[k]) <= Date.parse(v)); return b; },
     lt(k, v) { filters.push((r) => Date.parse(r[k]) < Date.parse(v)); return b; },
+    gte(k, v) { filters.push((r) => r[k] != null && r[k] >= v); return b; },
+    like(k, v) { const prefix = v.replace(/%$/, ""); filters.push((r) => String(r[k]).startsWith(prefix)); return b; },
     order(key, o) { sort = { key, dir: o?.ascending === false ? -1 : 1 }; return b; },
     limit(n) { max = n; return b; },
     async single() { return { data: run()[0] ?? null, error: null }; },
     async maybeSingle() { return { data: run()[0] ?? null, error: null }; },
-    then(resolve) { return resolve({ data: run(), error: null }); },
+    then(resolve) { const data = run(); return resolve({ data, error: null, count: data.length }); },
   };
   return b;
 }
