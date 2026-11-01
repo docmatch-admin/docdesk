@@ -1,5 +1,5 @@
 import type { ChannelType } from "../types";
-import { linePush, lineReply } from "./line";
+import { lineSend } from "./line";
 import { metaSend } from "./meta";
 
 export interface SendOptions {
@@ -18,8 +18,7 @@ export interface SendOptions {
 export async function sendToChannel(type: ChannelType, externalId: string, text: string, opts: SendOptions = {}) {
   switch (type) {
     case "line":
-      if (opts.replyToken && (await lineReply(opts.replyToken, text))) return;
-      return linePush(externalId, text);
+      return lineSend(externalId, text, opts.replyToken);
     case "facebook":
     case "instagram":
       return metaSend(type, externalId, text, {

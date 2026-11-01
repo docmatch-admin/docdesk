@@ -1,5 +1,6 @@
 import { embed } from "./ai";
 import { sendToChannel } from "./channels";
+import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { scrubPII } from "./pii";
 import { AUTO_SEND_MIN_CONFIDENCE, generateSuggestions, pendingCustomerText } from "./suggest";
@@ -72,6 +73,9 @@ export async function storeIncoming(input: IncomingInput) {
       unread_count: (conv.unread_count ?? 0) + 1,
       last_message_at: new Date().toISOString(),
       last_message_preview: preview(th ?? input.text),
+      ...(input.replyToken
+        ? { line_reply_token: input.replyToken, line_reply_token_at: new Date().toISOString() }
+        : {}),
     }).eq("id", conv.id),
   ]);
 
@@ -172,8 +176,9 @@ export async function sendReply(input: ReplyInput) {
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
     lastInboundAt = lastIn ? new Date(lastIn.created_at as string) : null;
   }
+  const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
   await sendToChannel(channel.type, contact.external_id, body, {
-    replyToken: input.replyToken, lastInboundAt, senderType: input.senderType,
+    replyToken, lastInboundAt, senderType: input.senderType,
   });
 
   const { data: msg } = await db.from("messages").insert({

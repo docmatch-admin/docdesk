@@ -30,10 +30,21 @@ export async function linePush(userId: string, text: string) {
 
 /** ตอบกลับด้วย replyToken — ฟรี ไม่นับโควต้า แต่ token หมดอายุเร็ว (ใช้ตอน AI ตอบทันที) */
 export async function lineReply(replyToken: string, text: string): Promise<boolean> {
-  const res = await fetch(`${API}/message/reply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
-    body: JSON.stringify({ replyToken, messages: [{ type: "text", text: text.slice(0, 5000) }] }),
-  });
-  return res.ok;
+  try {
+    const res = await fetch(`${API}/message/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
+      body: JSON.stringify({ replyToken, messages: [{ type: "text", text: text.slice(0, 5000) }] }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("LINE reply failed", e);
+    return false;
+  }
+}
+
+/** ใช้ replyToken ก่อนถ้ามี ถ้าไม่สำเร็จค่อย push */
+export async function lineSend(userId: string, text: string, replyToken?: string) {
+  if (replyToken && (await lineReply(replyToken, text))) return;
+  return linePush(userId, text);
 }
