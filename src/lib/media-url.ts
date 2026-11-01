@@ -1,24 +1,31 @@
 import crypto from "node:crypto";
 
-/** LINE อาจดึงรูปตอนลูกค้าเปิดแชท ไม่ใช่ตอนส่ง จึงต้องใช้ได้นาน */
-export const OUT_URL_TTL_SECONDS = 30 * 24 * 60 * 60;
+export const DEFAULT_RETENTION_DAYS = 90;
 
 export type MediaVariant = "main" | "preview";
+
+/** ค่าเสียหรือต่ำกว่า 1 วันต้องไม่ทำให้รูปถูกลบทั้งหมด หรือได้ลิงก์ที่หมดอายุทันที */
+export function normalizeRetentionDays(value: unknown): number {
+  const days = Number(value);
+  return value !== null && Number.isFinite(days) && days >= 1 ? days : DEFAULT_RETENTION_DAYS;
+}
 
 function hmac(messageId: string, variant: MediaVariant, exp: number, secret: string) {
   return crypto.createHmac("sha256", secret).update(`${messageId}:${variant}:${exp}`).digest("hex");
 }
 
-/** URL สำหรับ LINE/Meta ดึงรูปขาออก: ไม่ต้องล็อกอิน ใช้ลายเซ็นแทน */
+/**
+ * URL สำหรับ LINE/Meta ดึงรูปขาออก: ไม่ต้องล็อกอิน ใช้ลายเซ็นแทน
+ * LINE อาจดึงรูปตอนลูกค้าเปิดแชท จึงให้ลิงก์อยู่นานเท่ากับที่เก็บรูป
+ */
 export function buildOutMediaUrl(
   origin: string,
   messageId: string,
   variant: MediaVariant,
-  now = Date.now(),
-  secret = process.env.MEDIA_URL_SECRET,
+  { ttlDays = DEFAULT_RETENTION_DAYS, now = Date.now(), secret = process.env.MEDIA_URL_SECRET }: { ttlDays?: number; now?: number; secret?: string } = {},
 ): string {
   if (!secret) throw new Error("ต้องตั้ง MEDIA_URL_SECRET");
-  const exp = Math.floor(now / 1000) + OUT_URL_TTL_SECONDS;
+  const exp = Math.floor(now / 1000) + Math.round(ttlDays * 24 * 60 * 60);
   const sig = hmac(messageId, variant, exp, secret);
   return `${origin}/api/media/out/${messageId}?v=${variant}&exp=${exp}&sig=${sig}`;
 }

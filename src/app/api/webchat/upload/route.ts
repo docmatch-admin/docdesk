@@ -3,7 +3,7 @@ import { MAX_WEB_IMAGE_BYTES, MediaError } from "@/lib/media";
 import { CHAT_BUCKET, consumeUpload, createUploadSlot } from "@/lib/media-store";
 import { storeIncoming } from "@/lib/pipeline";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { admitWebchat, clientIp, corsHeaders, hashIp, isAllowedOrigin } from "@/lib/webchat-guard";
+import { admitWebchatImage, clientIp, corsHeaders, hashIp, isAllowedOrigin } from "@/lib/webchat-guard";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,7 +17,7 @@ export function OPTIONS(req: Request) {
 }
 
 /**
- * ไม่มี path = ขอช่องอัปโหลด (นับรูปละ 1 ข้อความตาม rate limit เดียวกับข้อความ)
+ * ไม่มี path = ขอช่องอัปโหลด (นับรูปละ 1 ข้อความตาม rate limit เดียวกับข้อความ และนับเพดานรูปรายวัน ไม่นับเพดาน AI)
  * มี path = อัปโหลดเสร็จแล้ว ให้ตรวจและเก็บ
  * widget อัปโหลดตรงเข้า Storage เพราะ Vercel รับ request ได้ไม่เกิน 4.5MB
  */
@@ -34,8 +34,11 @@ export async function POST(req: Request) {
   if (!path) {
     let slot;
     try {
-      const admission = await admitWebchat(supabaseAdmin(), session, hashIp(clientIp(req.headers)));
-      if (!admission.allowed) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: cors });
+      const admission = await admitWebchatImage(supabaseAdmin(), session, hashIp(clientIp(req.headers)));
+      if (!admission.allowed) {
+        const error = admission.reason === "images_day" ? "image_cap" : "rate_limited";
+        return NextResponse.json({ error }, { status: 429, headers: cors });
+      }
       slot = await createUploadSlot(`web-${session}`);
     } catch (e) {
       console.error("webchat upload slot failed", e);

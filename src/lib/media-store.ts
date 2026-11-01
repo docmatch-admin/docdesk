@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { MediaError, processImage, type ProcessedImage } from "./media";
+import { DEFAULT_RETENTION_DAYS, normalizeRetentionDays } from "./media-url";
 import { getSetting } from "./mode";
 import { supabaseAdmin } from "./supabase/admin";
 
@@ -7,7 +8,6 @@ export const CHAT_BUCKET = "chat-media";
 export const QUICK_BUCKET = "quick-media";
 export const IMAGE_FAILED_TEXT = "[รูปภาพ — โหลดไม่สำเร็จ เปิดดูในแอปต้นทาง]";
 const WIDGET_URL_TTL_SECONDS = 600;
-const DEFAULT_RETENTION_DAYS = 90;
 const STALE_UPLOAD_MS = 60 * 60 * 1000;
 
 export interface StoredMedia { path: string; previewPath: string; width: number; height: number }
@@ -102,12 +102,15 @@ export async function attachWidgetMedia(rows: {
   }));
 }
 
+/** จำนวนวันเก็บรูปในหน้าตั้งค่า ใช้ทั้งการลบตามอายุและอายุลายเซ็น URL */
+export async function loadRetentionDays() {
+  return normalizeRetentionDays(await getSetting<unknown>("media_retention_days", DEFAULT_RETENTION_DAYS));
+}
+
 /** ลบรูปในแชทที่เก่าเกินกำหนด ข้อความยังอยู่ ไม่แตะ quick-media เพราะรูปในแชทเป็นสำเนาแยก */
 export async function purgeExpiredMedia(now = Date.now()) {
   const db = supabaseAdmin();
-  const setting = Number(await getSetting<number>("media_retention_days", DEFAULT_RETENTION_DAYS));
-  // ค่าเสียหรือ 0 ต้องไม่ทำให้รูปทั้งหมดถูกลบ
-  const days = Number.isFinite(setting) && setting >= 1 ? setting : DEFAULT_RETENTION_DAYS;
+  const days = await loadRetentionDays();
   const cutoff = new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: rows } = await db.from("messages").select("id, media_path, media_preview_path")

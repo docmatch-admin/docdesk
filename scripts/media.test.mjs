@@ -9,7 +9,7 @@ import { fake } from "./fakes/hooks.mjs";
 const { calls, reset } = await import(fake("ai"));
 const { nextTime, resetDb, state } = await import(fake("admin"));
 const { detectImageType, downloadLimited, MAX_WEB_IMAGE_BYTES, MediaError, processImage } = await import("../src/lib/media.ts");
-const { buildOutMediaUrl, OUT_URL_TTL_SECONDS, verifyOutMediaSignature } = await import("../src/lib/media-url.ts");
+const { buildOutMediaUrl, normalizeRetentionDays, verifyOutMediaSignature } = await import("../src/lib/media-url.ts");
 const { attachWidgetMedia, CHAT_BUCKET, consumeUpload, IMAGE_FAILED_TEXT, ingestInboundImage, purgeExpiredMedia, purgeStaleUploads, QUICK_BUCKET } = await import("../src/lib/media-store.ts");
 const { lineContentRequest, lineSendImage } = await import("../src/lib/channels/line.ts");
 const { metaSendImage, MetaWindowError } = await import("../src/lib/channels/meta.ts");
@@ -103,16 +103,29 @@ test("เลือกชนิดจากเนื้อไฟล์ ไม่�
 const NOW = Date.parse("2026-11-01T00:00:00Z");
 const params = (url) => { const u = new URL(url); return { v: u.searchParams.get("v"), exp: u.searchParams.get("exp"), sig: u.searchParams.get("sig") }; };
 
-test("ลายเซ็นถูกต้องใช้ได้ หมดอายุใน 30 วัน", () => {
-  const p = params(buildOutMediaUrl("https://app.test", "m1", "main", NOW));
-  assert.equal(verifyOutMediaSignature("m1", p, NOW), true);
-  assert.equal(verifyOutMediaSignature("m1", p, NOW + (OUT_URL_TTL_SECONDS - 1) * 1000), true);
-  assert.equal(verifyOutMediaSignature("m1", p, NOW + OUT_URL_TTL_SECONDS * 1000), false);
-  assert.equal(OUT_URL_TTL_SECONDS, 30 * 24 * 60 * 60);
+const DAY_MS = 86_400_000;
+for (const days of [90, 7, 365]) {
+  test(`ลายเซ็นตั้ง ${days} วัน: ใช้ได้จนครบ แล้วหมดอายุ`, () => {
+    const p = params(buildOutMediaUrl("https://app.test", "m1", "main", { ttlDays: days, now: NOW }));
+    assert.equal(verifyOutMediaSignature("m1", p, NOW), true);
+    assert.equal(verifyOutMediaSignature("m1", p, NOW + days * DAY_MS - 1000), true);
+    assert.equal(verifyOutMediaSignature("m1", p, NOW + days * DAY_MS), false);
+  });
+}
+
+test("ลายเซ็นค่าเริ่มต้นคือ 90 วัน", () => {
+  const p = params(buildOutMediaUrl("https://app.test", "m1", "main", { now: NOW }));
+  assert.equal(Number(p.exp) * 1000, NOW + 90 * DAY_MS);
+});
+
+test("จำนวนวันที่ใช้ไม่ได้กลับเป็น 90", () => {
+  for (const bad of [0, -5, "abc", null, undefined, Infinity]) assert.equal(normalizeRetentionDays(bad), 90, String(bad));
+  assert.equal(normalizeRetentionDays(30), 30);
+  assert.equal(normalizeRetentionDays("45"), 45);
 });
 
 test("ลายเซ็นผิดหรือถูกแก้ไม่ผ่าน", () => {
-  const p = params(buildOutMediaUrl("https://app.test", "m1", "preview", NOW));
+  const p = params(buildOutMediaUrl("https://app.test", "m1", "preview", { now: NOW }));
   assert.equal(verifyOutMediaSignature("m1", { ...p, sig: "0".repeat(64) }, NOW), false);
   assert.equal(verifyOutMediaSignature("m1", { ...p, sig: null }, NOW), false);
   assert.equal(verifyOutMediaSignature("m2", p, NOW), false, "ใช้กับข้อความอื่นไม่ได้");
@@ -314,6 +327,22 @@ test("เจ้าหน้าที่ส่งรูปทาง LINE: URL ม
   assert.equal(state.files[CHAT_BUCKET].has("uploads/staff-1"), false);
 });
 
+for (const [setting, days] of [[undefined, 90], [14, 14], [0, 90]]) {
+  test(`อายุลายเซ็นตามการตั้งค่า (${setting}) = ${days} วัน ทั้งภาพหลักและ preview`, async () => {
+    staffChat("line");
+    if (setting !== undefined) state.tables.settings.push({ key: "media_retention_days", value: setting });
+    const uploadPath = await withUpload();
+    const sent = mockFetch();
+    const before = Date.now();
+    await reply({ uploadPath });
+    const image = sent[0].body.messages[0];
+    for (const url of [image.originalContentUrl, image.previewContentUrl]) {
+      const ageDays = (Number(params(url).exp) * 1000 - before) / DAY_MS;
+      assert.ok(Math.abs(ageDays - days) < 0.01, `${url} = ${ageDays}`);
+    }
+  });
+}
+
 test("ส่งรูปไม่สำเร็จ: ลบแถวข้อความและไฟล์ ไม่ค้างในแชท", async () => {
   staffChat("line");
   const uploadPath = await withUpload();
@@ -481,6 +510,14 @@ test("widget ส่งรูปเกิน rate limit: เตือน ไม�
   await w.pick({ size: 1000, type: "image/jpeg" });
   assert.equal(w.puts.length, 0);
   assert.ok(widgetTexts(w).includes("ส่งเร็วเกินไป กรุณารอสักครู่"));
+});
+
+test("widget เกินเพดานรูปรายวัน: บอกให้ใช้ข้อความ ไม่บอกว่าส่งเร็วเกินไป", async () => {
+  const w = loadWidget({ start: { status: 429, json: { error: "image_cap" } } });
+  await w.pick({ size: 1000, type: "image/jpeg" });
+  assert.equal(w.puts.length, 0);
+  assert.ok(widgetTexts(w).some((t) => t.includes("รับรูปครบจำนวน")));
+  assert.ok(!widgetTexts(w).includes("ส่งเร็วเกินไป กรุณารอสักครู่"));
 });
 
 test("widget server ปฏิเสธไฟล์: แจ้งลูกค้า", async () => {

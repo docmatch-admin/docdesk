@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
-import { clientIp, corsHeaders, hashIp, isAllowedOrigin, WEBCHAT_LIMITS } from "../src/lib/webchat-guard.ts";
+import { admitWebchatImage, clientIp, corsHeaders, hashIp, isAllowedOrigin, WEBCHAT_LIMITS } from "../src/lib/webchat-guard.ts";
 
 test("ค่าเพดานตรงตามที่กำหนด", () => {
-  assert.deepEqual(WEBCHAT_LIMITS, { perMinute: 5, perHour: 30, newSessionsPerIpPerHour: 3, aiPerDay: 300 });
+  assert.deepEqual(WEBCHAT_LIMITS, { perMinute: 5, perHour: 30, newSessionsPerIpPerHour: 3, aiPerDay: 300, imagesPerDay: 100 });
 });
 
 for (const origin of [
@@ -42,6 +42,19 @@ for (const origin of [
 test("ใช้ IP ตัวแรกจาก x-forwarded-for", () => {
   assert.equal(clientIp(new Headers({ "x-forwarded-for": "1.2.3.4, 10.0.0.1" })), "1.2.3.4");
   assert.equal(clientIp(new Headers()), "unknown");
+});
+
+test("รูปใช้ RPC และเพดานของรูป ไม่ใช้เพดาน AI", async () => {
+  let call;
+  const db = { rpc: async (fn, args) => { call = { fn, args }; return { data: { allowed: true, reason: null } }; } };
+  assert.deepEqual(await admitWebchatImage(db, "s1", "h1"), { allowed: true, reason: null });
+  assert.equal(call.fn, "webchat_admit_image");
+  assert.equal(call.args.p_images_per_day, 100);
+  assert.equal(call.args.p_per_minute, 5);
+  assert.equal(call.args.p_per_hour, 30);
+  assert.equal(call.args.p_new_sessions_per_hour, 3);
+  assert.equal("p_ai_per_day" in call.args, false);
+  await assert.rejects(admitWebchatImage({ rpc: async () => ({ error: new Error("down") }) }, "s1", "h1"), /down/);
 });
 
 test("hash IP ไม่เก็บ IP จริง และขึ้นกับ secret", () => {

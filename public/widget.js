@@ -10,8 +10,8 @@
   var API = new URL(script ? script.src : location.href).origin + "/api/webchat";
   var en = (document.documentElement.lang || "").toLowerCase().indexOf("en") === 0;
   var T = en
-    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment.", read: "Read", attach: "Attach image", tooBig: "Images must be 5MB or smaller.", badImage: "This image could not be sent. Please use JPEG, PNG, WebP or HEIC.", mediaDeleted: "Image removed under our data retention policy" }
-    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่", read: "อ่านแล้ว", attach: "แนบรูป", tooBig: "รูปต้องไม่เกิน 5MB", badImage: "ส่งรูปนี้ไม่ได้ กรุณาใช้ไฟล์ JPEG, PNG, WebP หรือ HEIC", mediaDeleted: "รูปถูกลบตามนโยบายเก็บข้อมูล" };
+    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment.", read: "Read", attach: "Attach image", tooBig: "Images must be 5MB or smaller.", badImage: "This image could not be sent. Please use JPEG, PNG, WebP or HEIC.", mediaDeleted: "Image removed under our data retention policy", imageCap: "We can't accept more images today. Please send a message or call the clinic." }
+    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่", read: "อ่านแล้ว", attach: "แนบรูป", tooBig: "รูปต้องไม่เกิน 5MB", badImage: "ส่งรูปนี้ไม่ได้ กรุณาใช้ไฟล์ JPEG, PNG, WebP หรือ HEIC", mediaDeleted: "รูปถูกลบตามนโยบายเก็บข้อมูล", imageCap: "วันนี้รับรูปครบจำนวนแล้ว กรุณาพิมพ์ข้อความหรือโทรหาคลินิก" };
 
   var KEY = "docdesk_session";
   function uuid() {
@@ -171,7 +171,11 @@
   function uploadImage(file) {
     if (file.size > MAX_IMAGE) { note(T.tooBig); return Promise.resolve(); }
     return postUpload({ session: session }).then(function (r) {
-      if (r.status === 429) { note(T.busy); return; }
+      if (r.status === 429) {
+        return r.json().catch(function () { return null; }).then(function (j) {
+          note(j && j.error === "image_cap" ? T.imageCap : T.busy);
+        });
+      }
       if (!r.ok) { note(T.badImage); return; }
       return r.json().then(function (slot) {
         return fetch(slot.url, { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file })

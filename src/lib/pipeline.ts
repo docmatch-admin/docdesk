@@ -9,7 +9,7 @@ import { markConversationReadWith } from "./read-receipts";
 import { classifyAck, hasUrgentSignal, isCustomerText } from "./suggest-rules";
 import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
-import { CHAT_BUCKET, consumeUpload, downloadFile, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
+import { CHAT_BUCKET, consumeUpload, downloadFile, loadRetentionDays, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
 import { MAX_IMAGE_BYTES } from "./media";
 import { AUTO_SEND_MIN_CONFIDENCE, generateSuggestions, pendingCustomerText } from "./suggest";
 import { supabaseAdmin } from "./supabase/admin";
@@ -381,9 +381,10 @@ export async function sendMediaReply(input: MediaReplyInput) {
 
   try {
     const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
+    const ttlDays = await loadRetentionDays();
     await sendImageToChannel(channel.type, contact.external_id, {
-      main: buildOutMediaUrl(input.origin, messageId, "main"),
-      preview: buildOutMediaUrl(input.origin, messageId, "preview"),
+      main: buildOutMediaUrl(input.origin, messageId, "main", { ttlDays }),
+      preview: buildOutMediaUrl(input.origin, messageId, "preview", { ttlDays }),
     }, caption, { replyToken, lastInboundAt, senderType: "staff" });
   } catch (e) {
     await db.from("messages").delete().eq("id", messageId);

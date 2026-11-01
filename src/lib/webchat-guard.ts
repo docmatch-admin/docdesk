@@ -7,6 +7,8 @@ export const WEBCHAT_LIMITS = {
   newSessionsPerIpPerHour: 3,
   /** 1 ครั้ง = 1 ข้อความที่เข้าระบบ AI (ใน 1 ข้อความอาจเรียก OpenAI หลายครั้ง: แปล, embedding, ร่างคำตอบ) */
   aiPerDay: 300,
+  /** รูปทั้งระบบของช่องทางเว็บ นับตอนขอช่องอัปโหลด กันพื้นที่ Storage เต็ม ไม่รวมรูปจาก LINE/Meta/เจ้าหน้าที่ */
+  imagesPerDay: 100,
 };
 
 const ALLOWED_ORIGINS = new Set(["https://happiwellclinic.com", "https://www.happiwellclinic.com"]);
@@ -62,4 +64,23 @@ export async function admitWebchat(db: SupabaseClient, session: string, ipHash: 
   });
   if (error) throw error;
   return data as WebchatAdmission;
+}
+
+export interface WebchatImageAdmission {
+  allowed: boolean;
+  reason: WebchatAdmission["reason"] | "images_day";
+}
+
+/** รูป: ใช้ rate limit เดียวกับข้อความ แต่นับเพดานรูปรายวันแทนเพดาน AI */
+export async function admitWebchatImage(db: SupabaseClient, session: string, ipHash: string): Promise<WebchatImageAdmission> {
+  const { data, error } = await db.rpc("webchat_admit_image", {
+    p_session: session,
+    p_ip_hash: ipHash,
+    p_per_minute: WEBCHAT_LIMITS.perMinute,
+    p_per_hour: WEBCHAT_LIMITS.perHour,
+    p_new_sessions_per_hour: WEBCHAT_LIMITS.newSessionsPerIpPerHour,
+    p_images_per_day: WEBCHAT_LIMITS.imagesPerDay,
+  });
+  if (error) throw error;
+  return data as WebchatImageAdmission;
 }
