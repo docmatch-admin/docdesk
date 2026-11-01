@@ -25,7 +25,6 @@ Production ใช้งานได้ที่ https://docdesk-tau.vercel.app �
 | ตัวป้องกัน web chat บนเครื่อง | 40/40 |
 | ตัวป้องกัน web chat บน production | 39/39 |
 | `/send`, `requireStaff`, export บน production (ก่อนเพิ่มตัวป้องกัน) | 22/22 |
-
 | "อ่านแล้ว" บน production (API เว็บ, การเก็บ token ของ LINE) | 14/14 |
 
 ข้อมูลทดสอบถูกลบแล้ว เหลือข้อมูลจริงจาก LINE 2 รายชื่อ
