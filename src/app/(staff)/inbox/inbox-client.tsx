@@ -543,7 +543,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const statusTags = tags.filter((t) => t.group === "status" && t.active && t.name !== SENSITIVE_TAG);
   const locked = !!selected?.sensitive && !acked;
   const blurred = !!selected?.sensitive && !revealed;
-  const hasImported = messages.some((m) => m.imported);
+  // เจ้าหน้าที่ตอบแล้วถือว่ายืนยันว่าเป็นคนเดียวกัน ไม่ต้องมีปุ่มแยกอีก ข้อความ AI ไม่นับเป็นการยืนยัน
+  const canSplitImported = messages.some((m) => m.imported)
+    && !messages.some((m) => m.direction === "out" && m.sender_type === "staff" && !m.imported);
 
   const dueMin = selected?.ai_due_at ? Math.max(0, Math.ceil((new Date(selected.ai_due_at).getTime() - Date.now()) / 60000)) : null;
   // กติกา 24 ชม. ของ Facebook/Instagram
@@ -701,7 +703,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 ) : (
                   <button className="btn ghost small" onClick={reopenCase}>เปิดใหม่</button>
                 )}
-                {hasImported && (
+                {canSplitImported && (
                   <button className="btn ghost small" onClick={() => (confirmSplit ? splitImported() : setConfirmSplit(true))}>
                     {confirmSplit ? "ยืนยันแยกประวัติ?" : "แยกประวัติที่นำเข้า"}
                   </button>

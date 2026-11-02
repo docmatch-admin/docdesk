@@ -254,6 +254,16 @@ test("แยกประวัติที่มีคำสำคัญ: แช
   assert.equal(archived().sensitive, true);
 });
 
+test("เจ้าหน้าที่ตอบแล้ว: แยกประวัติไม่ได้ ข้อความ AI ไม่นับ", async () => {
+  const id = liveChat();
+  await importRoom("b1", room(rec("customer", 0, "ถามจำลองหน่อยค่ะ"), rec("official", 1, "ตอบจำลองค่ะนะ")), new Set(), true, true);
+  state.tables.messages.push({ id: "ai-reply", conversation_id: id, direction: "out", sender_type: "ai", body: "AI ตอบจำลอง", imported: false, created_at: "2026-10-30T03:01:00.000Z" });
+  state.tables.messages.push({ id: "staff-reply", conversation_id: id, direction: "out", sender_type: "staff", body: "เจ้าหน้าที่ตอบจำลอง", imported: false, created_at: "2026-10-30T03:02:00.000Z" });
+  const res = await act(id, { action: "split" });
+  assert.equal(res.status, 409);
+  assert.equal(inChat(id).filter((m) => m.imported).length, 2, "ประวัตินำเข้ายังอยู่ที่เดิม");
+});
+
 test("แยกซ้ำหรือไม่มีประวัตินำเข้า: 404", async () => {
   assert.equal((await act(liveChat(), { action: "split" })).status, 404);
 });

@@ -124,13 +124,17 @@ export async function dismissArchivedChat(targetId: string, archivedId: string, 
 }
 
 /** จับคู่ด้วยชื่อผิดคน: ย้ายข้อความนำเข้ากลับเป็นแชทเก่า แยกตามห้องเดิม และไม่ถามให้รวมอีก */
-export async function splitImportedHistory(conversationId: string, staffId: string): Promise<{ moved: number; chats: number } | null> {
+/** "replied" = เจ้าหน้าที่ตอบในแชทนี้แล้ว ถือว่ายืนยันว่าประวัติที่นำเข้าเป็นคนเดียวกัน ไม่ให้แยก */
+export async function splitImportedHistory(conversationId: string, staffId: string): Promise<{ moved: number; chats: number } | "replied" | null> {
   const db = supabaseAdmin();
   const { data: conv } = await db.from("conversations").select("contact_id, archived, sensitive").eq("id", conversationId).maybeSingle();
   if (!conv || conv.archived) return null;
   const { data: rows } = await db.from("messages").select("id, body, created_at, line_oa_chat_id").eq("conversation_id", conversationId).eq("imported", true).order("created_at");
   const imported = (rows ?? []) as { id: string; body: string; created_at: string; line_oa_chat_id: string | null }[];
   if (!imported.length) return null;
+  const { data: replied } = await db.from("messages").select("id").eq("conversation_id", conversationId)
+    .eq("direction", "out").eq("sender_type", "staff").eq("imported", false).limit(1);
+  if (replied?.length) return "replied";
   const { data: contact } = await db.from("contacts").select("display_name").eq("id", conv.contact_id as string).maybeSingle();
   const name = (contact?.display_name as string | null) ?? "ลูกค้า";
   const keywords = await loadSensitiveKeywords();

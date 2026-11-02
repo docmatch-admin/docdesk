@@ -27,6 +27,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (b.action === "split") {
       const result = await splitImportedHistory(id, user.id);
       if (!result) return NextResponse.json({ error: "ไม่มีประวัติที่นำเข้าในแชทนี้" }, { status: 404 });
+      if (result === "replied") return NextResponse.json({ error: "ตอบแชทนี้แล้ว ถือว่าเป็นคนเดียวกัน แยกประวัติไม่ได้" }, { status: 409 });
       return NextResponse.json(result);
     }
     if (typeof b.archivedId !== "string") return NextResponse.json({ error: "ข้อมูลไม่ถูกต้อง" }, { status: 400 });
