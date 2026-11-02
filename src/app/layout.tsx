@@ -4,6 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "DocDesk",
   description: "รวมแชททุกช่องทาง + AI ผู้ช่วยตอบ",
+  manifest: "/manifest.webmanifest",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

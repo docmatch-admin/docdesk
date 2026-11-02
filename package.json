@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/number-guard.test.mjs scripts/meta.test.mjs scripts/line-reply.test.mjs scripts/webchat-guard.test.mjs scripts/read-receipts.test.mjs scripts/llm-savings.test.mjs scripts/media.test.mjs scripts/tags.test.mjs scripts/case-flow.test.mjs scripts/inbox-tabs.test.mjs scripts/reply-style.test.mjs scripts/health.test.mjs scripts/roles.test.mjs scripts/assignment.test.mjs scripts/scoring.test.mjs",
+    "test": "node --test scripts/number-guard.test.mjs scripts/meta.test.mjs scripts/line-reply.test.mjs scripts/webchat-guard.test.mjs scripts/read-receipts.test.mjs scripts/llm-savings.test.mjs scripts/media.test.mjs scripts/tags.test.mjs scripts/case-flow.test.mjs scripts/inbox-tabs.test.mjs scripts/reply-style.test.mjs scripts/health.test.mjs scripts/roles.test.mjs scripts/assignment.test.mjs scripts/scoring.test.mjs scripts/lab-prices.test.mjs scripts/staff-login.test.mjs scripts/bookings.test.mjs scripts/line-import.test.mjs scripts/paste-import.test.mjs scripts/sensitive.test.mjs scripts/archive.test.mjs",
     "embed": "node --env-file=.env.local scripts/embed-knowledge.mjs"
   },
   "dependencies": {
@@ -16,14 +16,17 @@
     "heic-convert": "^2.1.0",
     "next": "^16.4.3",
     "openai": "^7.47.0",
+    "qrcode-generator": "2.0.4",
     "react": "^19",
     "react-dom": "^19",
-    "sharp": "^0.35.5"
+    "sharp": "^0.35.5",
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "typescript": "^5"
   }
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth";
+import { denyArchivedChat, denySensitiveChat, requireStaff } from "@/lib/auth";
 import { MediaError } from "@/lib/media";
 import { sendMediaReply } from "@/lib/pipeline";
 
@@ -14,9 +14,13 @@ const MEDIA_ERROR_TEXT: Record<MediaError["code"], string> = {
 };
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { user, error } = await requireStaff();
+  const { user, canViewSensitive, error } = await requireStaff();
   if (error) return error;
   const { id } = await params;
+  const denied = await denySensitiveChat(id, canViewSensitive);
+  if (denied) return denied;
+  const archived = await denyArchivedChat(id);
+  if (archived) return archived;
   const body = (await req.json().catch(() => ({}))) as {
     uploadPath?: string; quickMediaId?: string; caption?: string; skipTranslate?: boolean;
   };

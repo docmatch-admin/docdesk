@@ -306,3 +306,93 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 /* ---------- คะแนน ---------- */
 .today-score { font-size: 14px; padding: 4px 2px; }
 .report-switch { padding-bottom: 0; }
+
+/* ---------- ราคาแล็บ ---------- */
+.lab-panel { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 8px; background: #fff; }
+.lab-tabs { padding: 0; }
+.lab-list { max-height: 170px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.lab-row { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); font-weight: 400; cursor: pointer; }
+.lab-row:last-child { border-bottom: 0; }
+.lab-row input[type="checkbox"] { width: auto; flex-shrink: 0; }
+.lab-row .grow { flex: 1; min-width: 140px; }
+.lab-cost { flex-basis: 100%; padding-left: 24px; }
+.lab-summary { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; padding: 8px 10px; background: var(--bg); border-radius: 8px; }
+.lab-b2b { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.lab-b2b label { width: 100%; }
+.warn-text { color: #8a5200; font-weight: 600; }
+.lab-admin { display: flex; flex-direction: column; gap: 12px; }
+.lab-table input[type="number"] { width: 90px; padding: 4px 6px; text-align: right; }
+.lab-table input[type="checkbox"] { width: auto; }
+.lab-row-low td { background: #fff4e0; }
+.lab-row-none td { background: var(--red-soft); }
+.lab-off td { opacity: .5; }
+.lab-flag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-weight: 600; margin-right: 6px; }
+.lab-flag.low { background: #fff4e0; color: #8a5200; }
+.lab-flag.none { background: var(--red-soft); color: #b3263a; }
+.lab-search { max-width: 240px; }
+.lab-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+
+/* ---------- บัญชีพนักงาน ---------- */
+.staff-row { flex-wrap: wrap; }
+.staff-pending { margin-left: 6px; background: #fff4e0; color: #8a5200; }
+.print-slip { display: none; }
+@media print {
+  .print-slip { display: block; color: #000; font-size: 11pt; }
+  .print-slip h2 { font-size: 13pt; margin: 2mm 0; }
+  .print-slip dl { display: grid; grid-template-columns: auto 1fr; gap: 1.5mm 3mm; margin: 2mm 0; }
+  .print-slip dt { color: #444; }
+  .print-slip dd { margin: 0; font-weight: 600; word-break: break-all; }
+  .print-slip code { font-size: 13pt; }
+  .print-qr { width: 30mm; height: 30mm; margin: 3mm 0 1mm; }
+  .print-qr svg { display: block; width: 100%; height: 100%; }
+  .print-url { font-size: 8.5pt; word-break: break-all; margin: 0 0 2mm; }
+  .print-slip p:last-child { font-size: 9pt; margin: 0; }
+}
+
+/* ---------- นัดหมาย ---------- */
+.booking-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.booking-card.pending { background: var(--red-soft); }
+.booking-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-items: end; }
+.booking-chip { font-weight: 600; }
+.btn.done.blocked { opacity: .55; cursor: not-allowed; }
+.booking-unrecorded td { background: var(--red-soft); }
+.booking-soon td:first-child { font-weight: 600; }
+.booking-when { margin-left: 6px; background: #fff4e0; color: #8a5200; }
+
+/* ---------- นำเข้าประวัติ ---------- */
+.msg.imported .bubble { opacity: .55; }
+.imported-tag { font-style: italic; }
+.import-summary dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 8px; }
+.import-summary dt { color: var(--muted); }
+.import-summary dd { margin: 0; font-weight: 600; }
+
+/* ---------- วางข้อความ ---------- */
+.paste-lines { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; max-height: 480px; overflow-y: auto; }
+.paste-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
+.paste-line .grow { flex: 1; min-width: 200px; }
+.paste-line.s-unknown { background: #fff4e0; }
+.paste-line.s-clinic { background: var(--bg); }
+.paste-line.s-skip { opacity: .5; }
+.paste-senders { display: flex; gap: 4px; flex-shrink: 0; }
+.paste-senders button { border: 1px solid var(--line); background: #fff; border-radius: 6px; padding: 2px 8px; font-size: 13px; cursor: pointer; }
+.paste-senders button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.paste-pair { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.paste-pair.off { opacity: .5; }
+
+/* ---------- แชทลับ ---------- */
+.sensitive-banner { background: #b3263a; color: #fff; padding: 8px 14px; font-weight: 600; font-size: 14px; }
+.sensitive-ack { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin: 10px 14px; }
+.sensitive-reveal { display: flex; align-items: center; gap: 10px; padding: 6px 14px; border-bottom: 1px solid var(--line); }
+.sensitive-blur .bubble, .sensitive-blur .sugg, .sensitive-text { filter: blur(7px); user-select: none; }
+.sensitive-blur .sugg { pointer-events: none; }
+.conv.masked { cursor: default; opacity: .85; display: flex; gap: 10px; padding: 12px; border-bottom: 1px solid var(--line); }
+.sensitive-blur .booking-card > .small, .sensitive-blur .booking-form { filter: blur(7px); user-select: none; }
+.sensitive-blur .booking-card button { pointer-events: none; opacity: .5; }
+
+/* ---------- แชทเก่า ---------- */
+.archive-bar { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; padding: 8px 14px; background: #fff4e0; border-bottom: 1px solid var(--line); }
+.archive-options { display: flex; flex-direction: column; gap: 4px; }
+.archived-notice { padding: 16px; text-align: center; color: var(--muted); border-top: 1px solid var(--line); background: var(--bg); }
+.chat-head { flex-wrap: wrap; }
+.chat-head-main { min-width: 200px; flex: 1 1 200px; }
+.head-actions { flex-wrap: wrap; }

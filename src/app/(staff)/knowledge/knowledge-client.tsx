@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
+import { LabPricesPanel } from "./lab-prices-panel";
 
 interface Item { id: string; category: string; title: string; content: string; active: boolean; updated_at: string }
-interface Example { id: string; question: string; answer: string; starred: boolean; use_count: number; active: boolean; created_at: string }
+interface Example { id: string; question: string; answer: string; starred: boolean; use_count: number; active: boolean; created_at: string; source?: string; import_batch_id?: string | null }
 
 const dateTh = (iso: string) => new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });
 const EMPTY = { id: "", category: "", title: "", content: "" };
 
 export function KnowledgeClient() {
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [tab, setTab] = useState<"kb" | "ex" | "media">("kb");
+  const [tab, setTab] = useState<"kb" | "ex" | "media" | "lab">("kb");
   const [items, setItems] = useState<Item[]>([]);
   const [examples, setExamples] = useState<Example[]>([]);
   const [q, setQ] = useState("");
@@ -20,6 +21,9 @@ export function KnowledgeClient() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [showHidden, setShowHidden] = useState(false);
+  const [onlyImported, setOnlyImported] = useState(false);
+  const [confirmHide, setConfirmHide] = useState(false);
+  const [imported, setImported] = useState<Example[]>([]);
 
   const load = useCallback(async () => {
     const [{ data: k }, { data: e }] = await Promise.all([
@@ -29,6 +33,10 @@ export function KnowledgeClient() {
     ]);
     setItems((k ?? []) as Item[]);
     setExamples((e ?? []) as Example[]);
+    // แยกดึง คำตอบที่นำเข้าหรือวางใช้งานน้อยจึงอาจตกจาก 500 แถวแรก
+    const { data: i } = await sb.from("reply_examples").select("id, question, answer, starred, use_count, active, created_at, source, import_batch_id")
+      .in("source", ["line_import", "manual_paste"]).order("created_at", { ascending: false }).limit(500);
+    setImported((i ?? []) as Example[]);
   }, [sb]);
   useEffect(() => { load(); }, [load]);
 
@@ -50,7 +58,17 @@ export function KnowledgeClient() {
   const match = (s: string) => !q || s.toLowerCase().includes(q.toLowerCase());
   const categories = [...new Set(items.map((i) => i.category))];
   const kb = items.filter((i) => match(`${i.category} ${i.title} ${i.content}`));
-  const ex = examples.filter((x) => (showHidden || x.active) && match(`${x.question} ${x.answer}`));
+  const ex = (onlyImported ? imported : examples).filter((x) => (showHidden || x.active) && match(`${x.question} ${x.answer}`));
+  const batchIds = [...new Set(imported.filter((x) => x.active && x.import_batch_id).map((x) => x.import_batch_id as string))];
+
+  async function hideBatches() {
+    if (!confirmHide) return setConfirmHide(true);
+    setConfirmHide(false);
+    for (const id of batchIds) {
+      await fetch("/api/imports/line", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, hidden: true }) });
+    }
+    load();
+  }
 
   return (
     <div className="page">
@@ -61,10 +79,11 @@ export function KnowledgeClient() {
         <button className={tab === "kb" ? "on" : ""} onClick={() => setTab("kb")}>📚 ฐานข้อมูลคลินิก ({items.length})</button>
         <button className={tab === "ex" ? "on" : ""} onClick={() => setTab("ex")}>💬 คำตอบที่เรียนรู้ ({examples.filter((x) => x.active).length})</button>
         <button className={tab === "media" ? "on" : ""} onClick={() => setTab("media")}>📷 รูปที่ใช้บ่อย</button>
+        <button className={tab === "lab" ? "on" : ""} onClick={() => setTab("lab")}>🧪 ราคาแล็บ</button>
         <input className="search" placeholder="ค้นหา…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
-      {tab === "media" ? <QuickMediaPanel /> : tab === "kb" ? (
+      {tab === "lab" ? <LabPricesPanel /> : tab === "media" ? <QuickMediaPanel /> : tab === "kb" ? (
         <div className="kb-grid">
           <form className="card form" onSubmit={save}>
             <h3>{form.id ? "แก้ไขข้อมูล" : "เพิ่มข้อมูลใหม่"}</h3>
@@ -104,7 +123,13 @@ export function KnowledgeClient() {
       ) : (
         <div>
           <div className="row between">
-            <label className="raw"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> แสดงที่ซ่อนแล้ว</label>
+            <div className="row">
+              <label className="raw"><input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} /> แสดงที่ซ่อนแล้ว</label>
+              <label className="raw"><input type="checkbox" checked={onlyImported} onChange={(e) => { setOnlyImported(e.target.checked); setConfirmHide(false); }} /> นำเข้าจาก LINE ({imported.filter((x) => x.active).length})</label>
+              {onlyImported && batchIds.length > 0 && (
+                <button className="btn ghost small" onClick={hideBatches}>{confirmHide ? "ยืนยันซ่อนทั้งชุด?" : "ซ่อนทั้งชุดการนำเข้า"}</button>
+              )}
+            </div>
             <div className="row">
               <span className="muted small">
                 พร้อมใช้เทรน: {examples.filter((x) => x.active && (x.starred || x.use_count >= 2)).length} คู่ (ติดดาว หรือถูกใช้ ≥ 2 ครั้ง)

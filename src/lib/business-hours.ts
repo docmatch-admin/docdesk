@@ -9,7 +9,7 @@ function localDate(ms: number, tz: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
 }
 
-function offsetOf(ms: number, tz: string): string {
+export function offsetOf(ms: number, tz: string): string {
   const name = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" })
     .formatToParts(new Date(ms)).find((p) => p.type === "timeZoneName")?.value ?? "GMT";
   return name === "GMT" ? "+00:00" : name.slice(3);

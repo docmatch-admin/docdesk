@@ -5,10 +5,14 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
 import { staffInitial } from "@/lib/assignment";
 import { isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
+import { SENSITIVE_TAG } from "@/lib/sensitive-rules";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
+import { ArchiveMergeBar } from "./archive-merge-bar";
 import { AssigneeControl } from "./assignee-control";
+import { BookingCard, type BookingCardRow } from "./booking-card";
+import { LabPanel } from "./lab-panel";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import {
@@ -27,23 +31,27 @@ const SOURCE_LABEL: Record<SuggestionOption["source"], string> = {
 const timeTh = (iso: string) =>
   new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
 
-interface StaffOption { id: string; display_name: string; active: boolean }
+interface StaffOption { id: string; display_name: string; active: boolean; role?: string; can_view_sensitive?: boolean }
 interface AssignmentEntry { id: number; from_staff: string | null; to_staff: string | null; by_staff: string | null; created_at: string }
 interface QuickMedia { id: string; title: string; preview_path: string; previewUrl?: string }
 interface Attachment { file?: File; quick?: QuickMedia; previewUrl: string; name: string }
 
 const SCOPE_KEY = "docdesk_inbox_scope";
 const SIGNED_URL_SECONDS = 600;
+/** แชทลับเบลอกลับเมื่อไม่ขยับนานเท่านี้ */
+const SENSITIVE_IDLE_MS = 60_000;
 /** รูปเข้าที่ยังโหลดไม่เสร็จนานเกินนี้ถือว่าล้มเหลว (เช่น function ถูกตัดก่อนโหลดเสร็จ) */
 const IMAGE_LOADING_MAX_MS = 2 * 60 * 1000;
 
-export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent"; displayName: string } }) {
+export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent"; displayName: string; canViewSensitive: boolean; sensitiveAcked: boolean } }) {
   const isAdmin = me.role === "admin";
   const sb = useMemo(() => supabaseBrowser(), []);
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [filter, setFilter] = useState<Filter>("waiting");
   const [lists, setLists] = useState<Record<Filter, Conversation[]>>({ waiting: [], open: [], closed: [] });
   const [counts, setCounts] = useState({ waiting: 0, open: 0 });
+  const [reloadTick, setReloadTick] = useState(0);
+  const [confirmSplit, setConfirmSplit] = useState(false);
   const [scope, setScope] = useState<"all" | "mine">("all");
   const scopeRef = useRef<"all" | "mine">("all");
   scopeRef.current = scope;
@@ -52,6 +60,16 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const searchRef = useRef("");
   const loadSeq = useRef(0);
   const [closing, setClosing] = useState(false);
+  const [labOpen, setLabOpen] = useState(false);
+  // ไม่มีสิทธิ์: เห็นแค่ว่ามีแชทลับรอตอบ
+  const [maskedWaiting, setMaskedWaiting] = useState<{ key: string; waiting_since: string | null }[]>([]);
+  const [acked, setAcked] = useState(me.sensitiveAcked);
+  const [ackChecked, setAckChecked] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [confirmUntag, setConfirmUntag] = useState(false);
+  const [bookings, setBookings] = useState<BookingCardRow[]>([]);
+  // ข้อความขอเลื่อนที่อยู่ในช่องพิมพ์: ส่งแล้วจึงยกเลิกนัดนี้
+  const [cancelBookingId, setCancelBookingId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
@@ -97,14 +115,16 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       : null;
     // แยกดึงแต่ละแท็บ แชทจำนวนมากในแท็บหนึ่งจะได้ไม่เบียดอีกแท็บออกจาก 200 แถวแรก และนับจำนวนจริงเกิน 200 ได้
     const base = (status: "open" | "closed") => {
+      // แชทเก่าปิดอยู่เสมอ จึงอยู่ในเสร็จแล้วเท่านั้น
       let query = sb.from("conversations").select(columns, { count: "exact" }).eq("status", status);
+      if (status === "open") query = query.eq("archived", false);
       if (matched) query = query.in("id", matched);
       if (scopeRef.current === "mine") query = query.eq("assigned_to", me.id);
       return tagFilterRef.current.length ? query.contains("tags", tagFilterRef.current) : query;
     };
     const [waiting, open_, closed] = await Promise.all([
-      base("open").eq("last_direction", "in")
-        .order("needs_human", { ascending: false }).order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
+      base("open").or("last_direction.eq.in,booking_pending.eq.true")
+        .order("booking_pending", { ascending: false }).order("needs_human", { ascending: false }).order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
       base("open").order("last_message_at", { ascending: false }).limit(200),
       base("closed").order("closed_at", { ascending: false, nullsFirst: false }).limit(200),
     ]);
@@ -121,12 +141,35 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     }
   }, [sb, me.id]);
 
+  const loadBookings = useCallback(async (convId: string) => {
+    const { data } = await sb.from("bookings").select('id, service, "date", "time", name, phone, status')
+      .eq("conversation_id", convId).neq("status", "cancelled").order("date").order("time");
+    if (selectedRef.current !== convId) return;
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
+    setBookings(((data ?? []) as unknown as BookingCardRow[]).filter((b) => b.status === "ai_confirmed" || b.date >= today));
+  }, [sb]);
+
   const loadTags = useCallback(async () => {
     const { data } = await sb.from("tags").select("id, name, color, group, sort, active").order("sort").order("name");
     setTags((data ?? []) as Tag[]);
   }, [sb]);
 
   useEffect(() => { loadConvs(); }, [tagFilter, scope, loadConvs]);
+
+  // แถวที่ไม่มีสิทธิ์ไม่ส่ง realtime มาให้ จึงต้องถามซ้ำเอง
+  useEffect(() => {
+    if (me.canViewSensitive) return;
+    const load = () => sb.rpc("masked_sensitive_waiting").then(({ data }) => setMaskedWaiting((data ?? []) as { key: string; waiting_since: string | null }[]));
+    load();
+    const t = setInterval(load, 30_000);
+    return () => clearInterval(t);
+  }, [sb, me.canViewSensitive]);
+
+  // ลิงก์จากหน้านัดหมาย
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("c");
+    if (id) setSelectedId(id);
+  }, []);
 
   // จำค่าไว้ในเครื่อง อ่านหลัง mount เพราะฝั่ง server ไม่มี localStorage
   useEffect(() => {
@@ -175,7 +218,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   useEffect(() => {
     loadTags();
-    sb.from("staff").select("id, display_name, active").order("display_name")
+    sb.from("staff").select("id, display_name, active, role, can_view_sensitive").order("display_name")
       .then(({ data }) => setStaffList((data ?? []) as StaffOption[]));
     sb.from("quick_media").select("id, title, preview_path").order("created_at", { ascending: false }).then(async ({ data }) => {
       const rows = (data ?? []) as QuickMedia[];
@@ -190,6 +233,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => loadConvs())
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (p) => {
         const m = p.new as Message;
+        if (m.imported) return; // ข้อความเก่า ต่อท้ายแล้วลำดับจะผิด
         if (m.conversation_id === selectedRef.current) {
           setMessages((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
           if (m.direction === "in") {
@@ -212,6 +256,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         // ส่งรูปไม่สำเร็จ แถวที่สร้างไว้ก่อนส่งถูกลบ
         setMessages((prev) => prev.filter((x) => x.id !== (p.old as { id: string }).id));
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => {
+        if (selectedRef.current) loadBookings(selectedRef.current);
+      })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (p) => {
         const s = p.new as { id: string; conversation_id: string; options: SuggestionOption[]; needs_human: boolean; suggested_tags: string[] };
         if (s.conversation_id === selectedRef.current) {
@@ -229,20 +276,66 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     };
     window.addEventListener("focus", onFocus);
     return () => { sb.removeChannel(ch); clearInterval(t); window.removeEventListener("focus", onFocus); };
-  }, [sb, loadConvs, loadTags, markRead, ensureSuggestion]);
+  }, [sb, loadConvs, loadTags, loadBookings, markRead, ensureSuggestion]);
 
   // ---------- เลือกแชท ----------
   useEffect(() => {
     if (!selectedId) return;
     setClosing(false);
+    setLabOpen(false);
+    setBookings([]);
+    setCancelBookingId(null);
+    setRevealed(false);
+    setConfirmUntag(false);
+    setConfirmSplit(false);
+    setMessages([]);
     setText(""); setChosen(null); setSuggestion(null); setRawMode(false); setAttachment(null); setCaption("");
-    sb.from("messages").select("*").eq("conversation_id", selectedId).order("created_at").limit(300)
-      .then(({ data }) => setMessages((data ?? []) as Message[]));
     if (draftTimer.current) clearTimeout(draftTimer.current);
-    loadSuggestion(selectedId).then(() => ensureSuggestion(selectedId));
-    sb.from("conversations").update({ unread_count: 0 }).eq("id", selectedId).then(() => {});
-    markRead(selectedId);
-  }, [selectedId, sb, loadSuggestion, markRead, ensureSuggestion]);
+    let stale = false;
+    (async () => {
+      const { data: conv } = await sb.from("conversations").select("sensitive, archived").eq("id", selectedId).maybeSingle();
+      if (stale) return;
+      if (conv?.sensitive) {
+        // รอรับทราบข้อกำหนดก่อน ส่วนการเปิดผ่าน API เพื่อบันทึกประวัติ
+        if (!acked) return;
+        const res = await fetch(`/api/conversations/${selectedId}/messages`);
+        if (stale || !res.ok) return;
+        setMessages(((await res.json()) as { messages: Message[] }).messages);
+      } else {
+        // เอาล่าสุด 300 ข้อความ ประวัติที่นำเข้าต้องไม่ดันข้อความใหม่ตกหล่น
+        const { data } = await sb.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", { ascending: false }).limit(300);
+        if (stale) return;
+        setMessages(((data ?? []) as Message[]).reverse());
+      }
+      // แชทเก่าอ่านอย่างเดียว ไม่มีคำแนะนำหรือสถานะอ่านแล้ว
+      if (conv?.archived) return;
+      loadBookings(selectedId);
+      loadSuggestion(selectedId).then(() => ensureSuggestion(selectedId));
+      sb.from("conversations").update({ unread_count: 0 }).eq("id", selectedId).then(() => {});
+      markRead(selectedId);
+    })();
+    return () => { stale = true; };
+  }, [selectedId, acked, reloadTick, sb, loadSuggestion, loadBookings, markRead, ensureSuggestion]);
+
+  // เบลอกลับเมื่อไม่ขยับ หรือสลับไปหน้าต่างอื่น
+  const isSensitive = !!convs.find((c) => c.id === selectedId)?.sensitive || (openConv?.id === selectedId && !!openConv?.sensitive);
+  useEffect(() => {
+    if (!isSensitive || !revealed) return;
+    const hide = () => setRevealed(false);
+    let idle = setTimeout(hide, SENSITIVE_IDLE_MS);
+    const activity = () => { clearTimeout(idle); idle = setTimeout(hide, SENSITIVE_IDLE_MS); };
+    const onVisibility = () => { if (document.visibilityState !== "visible") hide(); };
+    const events = ["mousemove", "keydown", "pointerdown", "scroll", "touchstart"];
+    events.forEach((e) => window.addEventListener(e, activity, { passive: true, capture: true }));
+    window.addEventListener("blur", hide);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearTimeout(idle);
+      events.forEach((e) => window.removeEventListener(e, activity, { capture: true }));
+      window.removeEventListener("blur", hide);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [isSensitive, revealed]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -281,11 +374,21 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     const res = await fetch(`/api/conversations/${selectedId}/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, suggestionId: suggestion?.id ?? null, chosenIndex: chosen, skipTranslate: rawMode }),
+      body: JSON.stringify({ text, suggestionId: suggestion?.id ?? null, chosenIndex: chosen, skipTranslate: rawMode, cancelBookingId }),
     });
     setSending(false);
     if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "ส่งไม่สำเร็จ");
-    setText(""); setChosen(null); setSuggestion(null);
+    setText(""); setChosen(null); setSuggestion(null); setCancelBookingId(null);
+    if (cancelBookingId) loadBookings(selectedId);
+  }
+
+  async function draftReschedule(id: string) {
+    const res = await fetch(`/api/bookings/${id}/draft`, { method: "POST" });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return flash(j.error ?? "สร้างข้อความไม่สำเร็จ");
+    setText(j.text);
+    setChosen(null);
+    setCancelBookingId(id);
   }
 
   async function changeTag(tag: string, action: "add" | "remove") {
@@ -307,6 +410,37 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       body: JSON.stringify({ to }),
     });
     if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "เปลี่ยนผู้ดูแลไม่สำเร็จ");
+    loadConvs();
+  }
+
+  async function splitImported() {
+    if (!selectedId) return;
+    setConfirmSplit(false);
+    const res = await fetch(`/api/conversations/${selectedId}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "split" }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return flash(j.error ?? "แยกประวัติไม่สำเร็จ");
+    flash(`แยก ${j.moved} ข้อความไปแชทเก่าแล้ว`);
+    setReloadTick((t) => t + 1);
+    loadConvs();
+  }
+
+  async function acknowledgeSensitive() {
+    const res = await fetch("/api/account/sensitive-ack", { method: "POST" });
+    if (!res.ok) return flash("บันทึกไม่สำเร็จ");
+    setAcked(true);
+  }
+
+  function reveal() {
+    if (!selectedId) return;
+    setRevealed(true);
+    fetch(`/api/conversations/${selectedId}/sensitive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reveal: true }) }).catch(() => {});
+  }
+
+  async function setSensitive(on: boolean) {
+    if (!selectedId) return;
+    setConfirmUntag(false);
+    const res = await fetch(`/api/conversations/${selectedId}/sensitive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sensitive: on }) });
+    if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "บันทึกไม่สำเร็จ");
     loadConvs();
   }
 
@@ -369,6 +503,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   async function closeCase(tag?: string) {
     if (!selected) return;
+    if (selected.booking_pending) return flash("ลงนัดก่อน");
     const id = selected.id;
     setClosing(false);
     const res = await fetch(`/api/conversations/${id}/close`, {
@@ -387,6 +522,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       if (!(e.ctrlKey || e.metaKey) || !e.shiftKey || e.code !== "KeyE") return;
       e.preventDefault();
       if (selected?.status !== "open") return;
+      if (selected.booking_pending) return flash("ลงนัดก่อน");
       // กดครั้งแรกเปิดป๊อปอัป กดซ้ำ = ข้าม
       if (closing) closeCase();
       else setClosing(true);
@@ -411,7 +547,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
   const shown = lists[filter];
-  const statusTags = tags.filter((t) => t.group === "status" && t.active);
+  const statusTags = tags.filter((t) => t.group === "status" && t.active && t.name !== SENSITIVE_TAG);
+  const locked = !!selected?.sensitive && !acked;
+  const blurred = !!selected?.sensitive && !revealed;
+  const hasImported = messages.some((m) => m.imported);
 
   const dueMin = selected?.ai_due_at ? Math.max(0, Math.ceil((new Date(selected.ai_due_at).getTime() - Date.now()) / 60000)) : null;
   // กติกา 24 ชม. ของ Facebook/Instagram
@@ -437,7 +576,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             ทั้งหมด {counts.open > 0 && <b className="badge muted-badge">{counts.open}</b>}
           </button>
           <button role="tab" aria-selected={filter === "waiting"} className={filter === "waiting" ? "on" : ""} onClick={() => setFilter("waiting")}>
-            🔴 รอตอบ {counts.waiting > 0 && <b className="badge red">{counts.waiting}</b>}
+            🔴 รอตอบ {counts.waiting + maskedWaiting.length > 0 && <b className="badge red">{counts.waiting + maskedWaiting.length}</b>}
           </button>
           <button role="tab" aria-selected={filter === "closed"} className={filter === "closed" ? "on" : ""} onClick={() => setFilter("closed")}>✅ เสร็จแล้ว</button>
         </div>
@@ -458,7 +597,16 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           </div>
           {tagFilter.length > 1 && <div className="muted small">แสดงแชทที่มีครบทุกแท็กที่เลือก</div>}
         </details>
-        {shown.length === 0 && (search.trim() || tagFilter.length || scope === "mine" ? (
+        {filter === "waiting" && scope === "all" && maskedWaiting.map((m) => (
+          <div key={m.key} className="conv masked" aria-label="แชทลับรอตอบ">
+            <div className="avatar">🔒</div>
+            <div className="conv-body">
+              <div className="name">🔒 แชทลับ — รอตอบ</div>
+              <div className="chips"><WaitChip since={m.waiting_since} /></div>
+            </div>
+          </div>
+        ))}
+        {shown.length === 0 && !(filter === "waiting" && scope === "all" && maskedWaiting.length > 0) && (search.trim() || tagFilter.length || scope === "mine" ? (
           <div className="empty">ไม่พบแชทที่ตรงกับการค้นหาหรือแท็กที่เลือก</div>
         ) : filter === "waiting" ? (
           <div className="all-done">🎉 ตอบครบแล้ว</div>
@@ -468,17 +616,19 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         {shown.map((c) => (
           <button key={c.id} className={`conv ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""}`}
             onClick={() => setSelectedId(c.id)}>
-            <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />
+            {c.sensitive ? <div className="avatar">🔒</div> : <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />}
             <div className="conv-body">
               <div className="conv-top">
-                <span className="name">{c.contacts?.display_name || "ลูกค้า"}</span>
+                <span className={`name ${c.sensitive ? "sensitive-text" : ""}`}>{c.contacts?.display_name || "ลูกค้า"}</span>
                 <span className="muted small">{timeTh(c.last_message_at)}</span>
               </div>
-              <div className="conv-preview">{c.last_message_preview}</div>
+              <div className="conv-preview">{c.sensitive ? "🔒 ข้อความลับ" : c.last_message_preview}</div>
               <div className="chips">
                 <span className={`chip ch-${c.channels?.type}`}>{c.channels ? CHANNEL_LABEL[c.channels.type] : ""}</span>
                 {c.contacts && c.contacts.language !== "th" && <span className="chip">🌐 {LANGUAGE_NAME[c.contacts.language] ?? c.contacts.language}</span>}
                 <span className={`chip mode-${effectiveMode(c)}`}>AI: {AI_MODE_LABEL[effectiveMode(c)]}</span>
+                {c.archived && <span className="chip">LINE OA เดิม</span>}
+                {c.booking_pending && <span className="chip red booking-chip">📅 ยังไม่ลงนัด</span>}
                 {c.needs_human && <span className="chip red">ต้องให้คนตอบ</span>}
                 {filter === "open" && isWaitingForReply(c) && <span className="chip red">รอตอบ</span>}
                 {filter === "waiting" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
@@ -514,20 +664,30 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             <header className="chat-head">
               <button className="btn ghost small chat-back" aria-label="กลับไปรายการแชท" onClick={() => setSelectedId(null)}>←</button>
               <div className="chat-head-main">
-                <div className="name">{selected.contacts?.display_name || "ลูกค้า"}</div>
+                <div className={`name ${blurred ? "sensitive-text" : ""}`}>{selected.contacts?.display_name || "ลูกค้า"}</div>
                 <div className="muted small">
                   {selected.channels?.name}
                   {customerLang !== "th" && <> · ลูกค้าใช้ภาษา{LANGUAGE_NAME[customerLang] ?? customerLang} (ระบบแปลให้อัตโนมัติ)</>}
                 </div>
                 <div className="chips head-tags">
                   {selected.tags.map((t) => (
-                    <TagChip key={t} name={t} color={tagColor.get(t)} onRemove={() => changeTag(t, "remove")} />
+                    <TagChip key={t} name={t} color={tagColor.get(t)} onRemove={t === SENSITIVE_TAG ? undefined : () => changeTag(t, "remove")} />
                   ))}
                   <TagPicker tags={tags} current={selected.tags} onPick={(t) => changeTag(t, "add")} onCreate={isAdmin ? createTag : undefined} />
                 </div>
               </div>
+              {selected.archived ? (
+                <div className="head-actions"><span className="chip">LINE OA เดิม</span></div>
+              ) : (
               <div className="head-actions">
-                <AssigneeControl me={me} assignedTo={selected.assigned_to} staff={staffList} onChange={assign} />
+                <AssigneeControl me={me} assignedTo={selected.assigned_to} onChange={assign}
+                  staff={selected.sensitive ? staffList.filter((s) => s.role === "admin" || s.can_view_sensitive) : staffList} />
+                {!selected.sensitive && <button className="btn ghost small" onClick={() => setSensitive(true)}>🔒 ตั้งเป็นแชทลับ</button>}
+                {selected.sensitive && isAdmin && (
+                  <button className="btn ghost small" onClick={() => (confirmUntag ? setSensitive(false) : setConfirmUntag(true))}>
+                    {confirmUntag ? "ยืนยันเอาออกจากแชทลับ?" : "เอาออกจากแชทลับ"}
+                  </button>
+                )}
                 <label className="mode-select" title={AI_MODE_HINT[effectiveMode(selected)]}>
                   AI แชทนี้
                   <select value={selected.ai_mode ?? ""} disabled={!isAdmin} onChange={(e) => setConvMode((e.target.value || null) as AiMode | null)}>
@@ -537,7 +697,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 </label>
                 {selected.status === "open" ? (
                   <div className="close-anchor">
-                    <button className="btn done small" title="Ctrl+Shift+E" aria-expanded={closing} onClick={() => setClosing(!closing)}>✓ เสร็จแล้ว</button>
+                    <button className={`btn done small ${selected.booking_pending ? "blocked" : ""}`} title={selected.booking_pending ? "ลงนัดก่อน" : "Ctrl+Shift+E"}
+                      aria-disabled={!!selected.booking_pending} aria-expanded={closing}
+                      onClick={() => (selected.booking_pending ? flash("ลงนัดก่อน") : setClosing(!closing))}>✓ เสร็จแล้ว</button>
                     {closing && (
                       <CloseCasePopup tags={statusTags} current={selected.tags} hasDraft={!!text.trim() || !!attachment || !!caption.trim()}
                         onChoose={closeCase} onCancel={cancelClosing} />
@@ -546,7 +708,13 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 ) : (
                   <button className="btn ghost small" onClick={reopenCase}>เปิดใหม่</button>
                 )}
+                {hasImported && (
+                  <button className="btn ghost small" onClick={() => (confirmSplit ? splitImported() : setConfirmSplit(true))}>
+                    {confirmSplit ? "ยืนยันแยกประวัติ?" : "แยกประวัติที่นำเข้า"}
+                  </button>
+                )}
               </div>
+              )}
             </header>
 
             <details className="customer-panel">
@@ -562,6 +730,37 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               ))}
             </details>
 
+            {!selected.archived && !locked && (
+              <ArchiveMergeBar conversationId={selected.id} onError={flash}
+                onDone={() => { flash("รวมประวัติแล้ว"); setReloadTick((t) => t + 1); loadConvs(); }} />
+            )}
+            {selected.sensitive && (
+              <div className="sensitive-banner" role="alert">🔒 ข้อมูลลับผู้ป่วย — ห้ามพูดชื่อหรืออาการต่อหน้าผู้อื่น ห้ามถ่ายหน้าจอ ห้ามส่งต่อ</div>
+            )}
+            {locked && (
+              <div className="sensitive-ack card">
+                <label className="raw">
+                  <input type="checkbox" checked={ackChecked} onChange={(e) => setAckChecked(e.target.checked)} />
+                  รับทราบว่าข้อมูลนี้เป็นความลับผู้ป่วย จะไม่พูดชื่อหรืออาการต่อหน้าผู้อื่น ไม่ถ่ายหน้าจอ และไม่ส่งต่อ
+                </label>
+                <button className="btn primary small" disabled={!ackChecked} onClick={acknowledgeSensitive}>รับทราบ</button>
+              </div>
+            )}
+            {selected.sensitive && !locked && (
+              <div className="sensitive-reveal">
+                {revealed
+                  ? <button className="btn ghost small" onClick={() => setRevealed(false)}>ซ่อนข้อความ</button>
+                  : <button className="btn primary small" onClick={reveal}>แสดง</button>}
+                <span className="muted small">เบลอกลับเมื่อไม่ขยับ 60 วินาที หรือสลับหน้าต่าง</span>
+              </div>
+            )}
+            <div className={blurred ? "sensitive-blur" : ""}>
+              {bookings.map((b) => (
+                <BookingCard key={`${b.id}${b.date}${b.time}${b.status}`} booking={b} onError={flash} onReschedule={draftReschedule}
+                  onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
+              ))}
+            </div>
+
             {dueMin != null && (
               <div className="banner">⏱ ถ้าไม่มีใครตอบ AI จะตอบแทนในอีก ~{dueMin} นาที</div>
             )}
@@ -573,9 +772,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               <div className="banner red">⛔ เกิน 7 วันหลังลูกค้าทักล่าสุด {selected.channels?.type === "facebook" ? "Facebook" : "Instagram"} ไม่อนุญาตให้ส่ง ต้องรอลูกค้าทักมาก่อน</div>
             )}
 
-            <div className="messages" ref={listRef}>
+            <div className={`messages ${blurred ? "sensitive-blur" : ""}`} ref={listRef}>
               {messages.map((m) => (
-                <div key={m.id} className={`msg ${m.direction} ${m.sender_type}`}>
+                <div key={m.id} className={`msg ${m.direction} ${m.sender_type} ${m.imported ? "imported" : ""}`}>
                   <div className="bubble">
                     {m.media_type && <ChatImage message={m} />}
                     {(m.body_th ?? m.body) && <div>{m.body_th ?? m.body}</div>}
@@ -586,9 +785,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                     )}
                   </div>
                   <div className="meta">
-                    <span>{senderLabel(m, staffName)}{timeTh(m.created_at)}</span>
-                    {m.direction === "out" && <span>{m.read_by_customer_at ? "✓✓ อ่านแล้ว" : "✓ ส่งแล้ว"}</span>}
-                    {m.direction === "out" && !m.media_type && (
+                    {m.imported ? <span className="imported-tag">นำเข้าจาก LINE · {timeTh(m.created_at)}</span> : <span>{senderLabel(m, staffName)}{timeTh(m.created_at)}</span>}
+                    {m.direction === "out" && !m.imported && <span>{m.read_by_customer_at ? "✓✓ อ่านแล้ว" : "✓ ส่งแล้ว"}</span>}
+                    {m.direction === "out" && !m.media_type && !m.imported && (
                       <button className={`star ${m.starred ? "on" : ""}`} title="บันทึกเป็นคำตอบมาตรฐาน"
                         onClick={() => !m.starred && star(m)}>{m.starred ? "★" : "☆"}</button>
                     )}
@@ -597,8 +796,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               ))}
             </div>
 
+            {selected.archived ? (
+              <div className="archived-notice" role="status">แชทนำเข้าจาก LINE OA ส่งข้อความไม่ได้ รอลูกค้าทักมาใหม่</div>
+            ) : (
+            <>
             {/* ---------- คำแนะนำ ---------- */}
-            <div className="suggest">
+            <div className={`suggest ${blurred ? "sensitive-blur" : ""}`}>
               <div className="suggest-head">
                 <span>💡 คำตอบแนะนำ <span className="muted small">(Alt+1/2/3)</span></span>
                 {suggestion?.needs_human && <span className="chip red">⚠️ เรื่องอาการ/ยา/ร้องเรียน — โปรดตรวจก่อนส่ง</span>}
@@ -633,6 +836,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
             {/* ---------- ช่องพิมพ์ ---------- */}
             <div className="composer">
+              {labOpen && (
+                <LabPanel isAdmin={isAdmin} onClose={() => setLabOpen(false)}
+                  onInsert={(t) => { setText((prev) => (prev.trim() ? `${prev.trim()}\n${t}` : t)); setChosen(null); }} />
+              )}
               {quickMedia.length > 0 && (
                 <div className="quick-bar" aria-label="รูปที่ใช้บ่อย">
                   {quickMedia.map((q) => (
@@ -654,7 +861,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               )}
               <textarea
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => { setText(e.target.value); if (!e.target.value.trim()) setCancelBookingId(null); }}
                 onKeyDown={onKey}
                 onPaste={onPaste}
                 placeholder={customerLang !== "th" && !rawMode ? "พิมพ์ภาษาไทย ระบบจะแปลให้ลูกค้า… (Ctrl+Enter ส่ง)" : "พิมพ์ข้อความ… (Ctrl+Enter ส่ง)"}
@@ -663,8 +870,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 <div className="muted small">
                   <button className="btn ghost small attach-btn" title="แนบรูป (ลากวาง หรือ Ctrl+V ได้)" aria-label="แนบรูป"
                     onClick={() => fileInput.current?.click()}>📎</button>
+                  <button className="btn ghost small attach-btn" aria-expanded={labOpen} onClick={() => setLabOpen(!labOpen)}>💰 ราคาแล็บ</button>
                   <input ref={fileInput} type="file" accept="image/*,.heic,.heif" hidden
                     onChange={(e) => { attachFile(e.target.files?.[0]); e.target.value = ""; }} />
+                  {cancelBookingId && "📅 ส่งข้อความนี้แล้วนัดจะถูกยกเลิก "}
                   {chosen != null && (edited ? "✏️ แก้จากคำแนะนำ — ระบบจะจำสำนวนนี้" : "✅ ใช้คำแนะนำตามเดิม")}
                   {customerLang !== "th" && (
                     <label className="raw">
@@ -684,6 +893,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 )}
               </div>
             </div>
+            </>
+            )}
           </>
         )}
       </section>

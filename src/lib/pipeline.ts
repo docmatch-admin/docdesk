@@ -1,4 +1,5 @@
 import { embed } from "./ai";
+import { maskForLearning, saveConfirmedBooking } from "./booking-store";
 import { sendImageToChannel, sendToChannel } from "./channels";
 import { AUTO_CLOSE_EXEMPT_TAGS, CLEARED_ON_REOPEN_TAG, CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "./case-flow";
 import { lineMarkAsRead } from "./channels/line";
@@ -6,9 +7,11 @@ import { metaMarkSeen, metaMessagingType } from "./channels/meta";
 import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { scrubPII } from "./pii";
+import { matchSensitive, SENSITIVE_ACK_TEXT } from "./sensitive-rules";
+import { loadSensitiveKeywords, markConversationSensitive, notifySensitiveChat } from "./sensitive-store";
 import { markConversationReadWith } from "./read-receipts";
 import { awardStarPoints, recordStaffResponse } from "./score-store";
-import { classifyAck, hasUrgentSignal, isCustomerText } from "./suggest-rules";
+import { classifyAck, hasUrgentSignal, isCustomerText, shouldSkipSuggestion } from "./suggest-rules";
 import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
 import { CHAT_BUCKET, consumeUpload, downloadFile, loadRetentionDays, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
@@ -64,7 +67,7 @@ export async function storeIncoming(input: IncomingInput) {
   const { data: conv, error: cvErr } = await db
     .from("conversations")
     .upsert({ contact_id: contact.id, channel_id: channel.id }, { onConflict: "contact_id" })
-    .select("id, unread_count, status").single();
+    .select("id, unread_count, status, sensitive, waiting_since").single();
   if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
   const wasClosed = conv.status === "closed";
 
@@ -112,12 +115,26 @@ export async function storeIncoming(input: IncomingInput) {
       .catch((e) => console.error("clear tag on reopen failed", e));
   }
 
+  await applySensitiveRules(conv.id as string, [input.text, th ?? ""].join("\n"), !!conv.sensitive, !!conv.waiting_since);
+
   if (isCustomerText(input.text)) {
     // เกินเพดาน AI ไม่ได้ตรวจภาษาของข้อความนี้ language เป็นค่าเดิมของรายชื่อ จึงไม่นำมานับ
     await applyTagRules(conv.id as string, [input.text, th ?? ""].join("\n"), input.skipAi ? "th" : language);
   }
 
   return { conversationId: conv.id as string, messageId: msg.id as string, duplicate: false };
+}
+
+/** แชทลับ: ติดจากคำสำคัญ ต้องให้คนตอบเสมอ และแจ้งเฉพาะคนมีสิทธิ์เมื่อเริ่มชุดข้อความใหม่ พลาดต้องไม่ทำให้ข้อความลูกค้าหาย */
+async function applySensitiveRules(conversationId: string, text: string, wasSensitive: boolean, wasWaiting: boolean) {
+  try {
+    const justMarked = !wasSensitive && matchSensitive(text, await loadSensitiveKeywords())
+      && (await markConversationSensitive(conversationId, "คำสำคัญ"));
+    if (wasSensitive) await supabaseAdmin().from("conversations").update({ needs_human: true }).eq("id", conversationId);
+    if (justMarked || (wasSensitive && !wasWaiting)) await notifySensitiveChat();
+  } catch (e) {
+    console.error("sensitive rules failed", e);
+  }
 }
 
 /** กฎคำสำคัญ: ไม่ใช้ AI ทำงานทุกโหมด แท็กพลาดต้องไม่ทำให้ข้อความลูกค้าหาย */
@@ -173,7 +190,7 @@ export const aiTiming = { debounceMs: 8_000 };
 export async function processIncoming(conversationId: string, messageId: string, replyToken?: string) {
   const db = supabaseAdmin();
   const { data: conv } = await db
-    .from("conversations").select("id, ai_mode, channels(ai_mode)").eq("id", conversationId).single();
+    .from("conversations").select("id, ai_mode, sensitive, channels(ai_mode)").eq("id", conversationId).single();
   if (!conv) return;
 
   const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as { ai_mode: AiMode | null };
@@ -195,7 +212,10 @@ export async function processIncoming(conversationId: string, messageId: string,
   const latest = (recent ?? []).find((m) => isCustomerText(m.body as string));
   if (latest?.id !== messageId) return; // มีข้อความใหม่กว่า ให้รอบของข้อความนั้นทำแทน
 
-  const suggestion = await generateSuggestions(conversationId);
+  // แชทลับตอบรับด้วยเทมเพลต ไม่ต้องเรียก LLM คำแนะนำสร้างตอนเจ้าหน้าที่เปิดแชท
+  const suggestion = conv.sensitive
+    ? { id: null, options: [], needs_human: true, suggested_tags: [] as string[], skipped: undefined }
+    : await generateSuggestions(conversationId);
   if (suggestion.skipped) return;
 
   if (mode === "auto") await autoApplyTopicTags(conversationId, suggestion.suggested_tags);
@@ -223,6 +243,9 @@ export async function tryAutoSend(
   suggestionId: string | null,
   replyToken?: string,
 ): Promise<boolean> {
+  const { data: conv } = await supabaseAdmin().from("conversations").select("sensitive").eq("id", conversationId).maybeSingle();
+  if (conv?.sensitive) return sendSensitiveAck(conversationId, replyToken);
+
   const best = [...options].sort((a, b) => b.confidence - a.confidence)[0];
   if (needsHuman || !best || best.confidence < AUTO_SEND_MIN_CONFIDENCE) {
     await supabaseAdmin().from("conversations").update({ needs_human: true, ai_due_at: null }).eq("id", conversationId);
@@ -248,6 +271,34 @@ export async function tryAutoSend(
   return true;
 }
 
+/**
+ * แชทลับ AI ส่งได้แค่ข้อความตอบรับ ส่งซ้ำไม่ได้จนกว่าเจ้าหน้าที่จะตอบ
+ * ลูกค้าส่งหลายรอบระหว่างรอจะได้ไม่เห็นข้อความเดิมซ้ำ
+ */
+async function sendSensitiveAck(conversationId: string, replyToken?: string): Promise<boolean> {
+  const db = supabaseAdmin();
+  await db.from("conversations").update({ needs_human: true, ai_due_at: null }).eq("id", conversationId);
+  const { data: rows } = await db.from("messages").select("direction, sender_type, body, body_th")
+    .eq("conversation_id", conversationId).neq("imported", true).order("created_at", { ascending: false }).limit(50);
+  const recent = (rows ?? []) as { direction: string; sender_type: string; body: string; body_th: string | null }[];
+  const lastOut = recent.find((m) => m.direction === "out");
+  if (lastOut?.sender_type === "ai") return false;
+  const pending: string[] = [];
+  for (const m of recent) {
+    if (m.direction === "out") break;
+    pending.unshift(m.body_th || m.body);
+  }
+  if (!pending.length || shouldSkipSuggestion(pending.join("\n"), lastOut ? lastOut.body_th || lastOut.body : null)) return false;
+  try {
+    await sendReply({ conversationId, textTh: SENSITIVE_ACK_TEXT, senderType: "ai", replyToken });
+  } catch (e) {
+    console.error("sensitive ack failed", e);
+    return false;
+  }
+  await markConversationRead(conversationId);
+  return true;
+}
+
 /** แจ้งแพลตฟอร์มว่าคลินิกอ่านแล้ว ห้ามเรียกตอนแค่สร้างคำแนะนำ */
 export function markConversationRead(conversationId: string) {
   return markConversationReadWith(supabaseAdmin(), conversationId, { line: lineMarkAsRead, meta: metaMarkSeen });
@@ -265,6 +316,7 @@ export interface ReplyInput {
   chosenIndex?: number | null;
   replyToken?: string;
   skipTranslate?: boolean;      // เจ้าหน้าที่พิมพ์เป็นภาษาลูกค้าเองแล้ว
+  skipLearn?: boolean;          // ข้อความเฉพาะนัดนี้ ไม่นำไปเป็นตัวอย่างคำตอบ
 }
 
 export async function sendReply(input: ReplyInput) {
@@ -315,6 +367,10 @@ export async function sendReply(input: ReplyInput) {
     last_message_preview: preview(input.textTh),
   }).eq("id", input.conversationId);
 
+  if (input.suggestionId != null && input.chosenIndex != null) {
+    await applyChosenBooking(input.conversationId, input.suggestionId, input.chosenIndex, msg?.id ?? null);
+  }
+
   if (input.senderType === "staff") {
     if (input.senderId) {
       await claimIfUnassigned(input.conversationId, input.senderId);
@@ -326,12 +382,30 @@ export async function sendReply(input: ReplyInput) {
         repliedAt: (msg?.created_at as string | undefined) ?? new Date().toISOString(),
       });
     }
-    await learnFromStaffReply(input, msg?.id ?? null).catch((e) => console.error("learn failed", e));
+    if (!input.skipLearn) await learnFromStaffReply(input, msg?.id ?? null).catch((e) => console.error("learn failed", e));
   } else if (input.suggestionId != null && input.chosenIndex != null) {
     await db.from("suggestions").update({ chosen_index: input.chosenIndex, edited: false }).eq("id", input.suggestionId);
   }
 
   return { messageId: msg?.id ?? null, body };
+}
+
+/** ส่งข้อความจองแล้ว: ลูกค้าได้คำยืนยันไปแล้ว ถ้าบันทึกนัดพลาดต้องให้คนตามต่อ ห้ามทำให้การส่งล้ม */
+async function applyChosenBooking(conversationId: string, suggestionId: string, chosenIndex: number, messageId: string | null) {
+  const db = supabaseAdmin();
+  const { data } = await db.from("suggestions").select("options").eq("id", suggestionId).maybeSingle();
+  const booking = ((data?.options ?? []) as SuggestionOption[])[chosenIndex]?.booking;
+  if (!booking) return;
+  if (booking.action === "unknown_service") {
+    await db.from("conversations").update({ needs_human: true }).eq("id", conversationId);
+  }
+  if (booking.action !== "confirm") return;
+  try {
+    await saveConfirmedBooking(conversationId, booking, messageId);
+  } catch (e) {
+    console.error("save booking failed", e);
+    await db.from("conversations").update({ needs_human: true }).eq("id", conversationId);
+  }
 }
 
 /** เจ้าหน้าที่ตอบแชทที่ยังไม่มีผู้ดูแล: เป็นผู้ดูแลอัตโนมัติ พลาดแล้วต้องไม่ทำให้การส่งข้อความล้ม */
@@ -452,6 +526,8 @@ export async function sendMediaReply(input: MediaReplyInput) {
 async function learnFromStaffReply(input: ReplyInput, messageId: string | null) {
   const db = supabaseAdmin();
   let chosen: SuggestionOption | null = null;
+  const { data: convFlag } = await db.from("conversations").select("sensitive").eq("id", input.conversationId).maybeSingle();
+  const sensitive = !!convFlag?.sensitive;
 
   if (input.suggestionId) {
     const { data: s } = await db.from("suggestions").select("options").eq("id", input.suggestionId).single();
@@ -466,18 +542,22 @@ async function learnFromStaffReply(input: ReplyInput, messageId: string | null) 
       // เลือกคำตอบเดิมโดยไม่แก้ → ไม่ต้องเก็บซ้ำ
       if (!edited) return;
     }
+    // วันเวลาเฉพาะนัดนี้ ไม่ใช่สำนวนที่ควรเรียนรู้
+    if (chosen?.booking) return;
   }
+  // แชทลับไม่นำไปเรียนรู้
+  if (sensitive) return;
 
   // คำถามลูกค้าก่อนหน้าข้อความที่เพิ่งส่ง
   const { data: rows } = await db.from("messages")
     .select("id, direction, sender_type, body, body_th, created_at")
-    .eq("conversation_id", input.conversationId)
+    .eq("conversation_id", input.conversationId).neq("imported", true)
     .order("created_at", { ascending: false }).limit(15);
   const msgs = (rows ?? []).reverse().filter((m) => m.id !== messageId);
   const { text: question } = pendingCustomerText(msgs as never);
 
-  const q = scrubPII(question).trim();
-  const a = scrubPII(input.textTh).trim();
+  const q = scrubPII(await maskForLearning(input.conversationId, question)).trim();
+  const a = scrubPII(await maskForLearning(input.conversationId, input.textTh)).trim();
   if (q.length < 3 || a.length < 4) return;
 
   const embedding = await embed(q);
@@ -508,6 +588,10 @@ export async function starMessage(messageId: string, staffId: string) {
     }, staffId);
   }
 
+  // แชทลับกดดาวได้ตามปกติ แต่ไม่เป็นตัวอย่างคำตอบ
+  const { data: convFlag } = await db.from("conversations").select("sensitive").eq("id", m.conversation_id as string).maybeSingle();
+  if (convFlag?.sensitive) return;
+
   const { data: existing } = await db.from("reply_examples").select("id").eq("source_message_id", messageId).maybeSingle();
   if (existing) {
     await db.from("reply_examples").update({ starred: true, active: true }).eq("id", existing.id);
@@ -516,11 +600,12 @@ export async function starMessage(messageId: string, staffId: string) {
 
   const { data: before } = await db.from("messages")
     .select("id, direction, sender_type, body, body_th, created_at")
-    .eq("conversation_id", m.conversation_id).lt("created_at", m.created_at)
+    .eq("conversation_id", m.conversation_id).neq("imported", true).lt("created_at", m.created_at)
     .order("created_at", { ascending: false }).limit(10);
   const { text: question } = pendingCustomerText((before ?? []).reverse() as never);
-  const q = scrubPII(question).trim() || "(ไม่มีคำถาม)";
-  const a = scrubPII(m.body_th || m.body).trim();
+  const conversationId = m.conversation_id as string;
+  const q = scrubPII(await maskForLearning(conversationId, question)).trim() || "(ไม่มีคำถาม)";
+  const a = scrubPII(await maskForLearning(conversationId, (m.body_th || m.body) as string)).trim();
   await db.from("reply_examples").insert({
     question: q, answer: a, starred: true, source_message_id: messageId, created_by: staffId,
     embedding: JSON.stringify(await embed(q)),
@@ -538,7 +623,7 @@ export async function autoCloseQuietChats(now = Date.now()) {
   if (hours === 0) return 0;
   const cutoff = new Date(now - hours * 3_600_000).toISOString();
   const { data, error } = await db.from("conversations").update(CLOSE_PATCH)
-    .eq("status", "open").eq("last_direction", "out").eq("needs_human", false)
+    .eq("status", "open").eq("last_direction", "out").eq("needs_human", false).neq("booking_pending", true)
     .lt("last_message_at", cutoff)
     .or(`reopened_at.is.null,reopened_at.lt.${cutoff}`)
     .not("tags", "ov", `{${AUTO_CLOSE_EXEMPT_TAGS.join(",")}}`)

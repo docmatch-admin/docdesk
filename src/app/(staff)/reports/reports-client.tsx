@@ -1,5 +1,6 @@
 "use client";
 
+import { tagLabel } from "@/lib/sensitive-rules";
 import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import {
@@ -24,6 +25,7 @@ export function ReportsClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
+  const [sensitiveCount, setSensitiveCount] = useState<{ total: number; period: number } | null>(null);
 
   useEffect(() => {
     if (!from || !to || from > to) return;
@@ -35,6 +37,11 @@ export function ReportsClient() {
       setData((rows ?? []) as ReportRow[]);
       setLoading(false);
     });
+    // นับได้อย่างเดียว ไม่ดึงรายละเอียด
+    Promise.all([
+      sb.from("conversations").select("id", { count: "exact", head: true }).eq("sensitive", true),
+      sb.from("conversations").select("id", { count: "exact", head: true }).eq("sensitive", true).eq("archived", false).gte("sensitive_since", range.from).lt("sensitive_since", range.to),
+    ]).then(([all, inRange]) => { if (!stale) setSensitiveCount({ total: all.count ?? 0, period: inRange.count ?? 0 }); });
     return () => { stale = true; };
   }, [sb, unit, from, to]);
 
@@ -51,6 +58,7 @@ export function ReportsClient() {
   return (
     <div className="page">
       <h1>รายงานแท็ก</h1>
+      {sensitiveCount && <p className="muted small">🔒 แชทลับทั้งหมด {sensitiveCount.total} แชท · ใหม่ในช่วงนี้ {sensitiveCount.period} แชท</p>}
       <p className="muted">จำนวนแชทที่ถูกติดแท็กในแต่ละช่วงเวลา ตามเวลาไทย ไม่นับแท็กที่เจ้าหน้าที่เอาออกเอง ลูกค้าเดิมที่กลับมาเรื่องใหม่นับด้วย</p>
 
       <div className="report-filters">
@@ -63,7 +71,7 @@ export function ReportsClient() {
         <label>แท็กที่ส่งออก
           <select value={picked ?? ""} onChange={(e) => setPicked(e.target.value || null)}>
             <option value="">ทุกแท็ก</option>
-            {table.rows.map((r) => <option key={r.tag} value={r.tag}>{r.tag}</option>)}
+            {table.rows.map((r) => <option key={r.tag} value={r.tag}>{tagLabel(r.tag)}</option>)}
           </select>
         </label>
         <a className="btn ghost" href={exportUrl} download>⬇ ส่งออก CSV</a>
@@ -82,7 +90,7 @@ export function ReportsClient() {
             {table.rows.map((r) => (
               <button key={r.tag} className={`hbar-row ${selected?.tag === r.tag ? "on" : ""}`}
                 aria-pressed={selected?.tag === r.tag} onClick={() => setPicked(r.tag)}>
-                <span className="hbar-label" title={r.tag}>{r.tag}</span>
+                <span className="hbar-label" title={tagLabel(r.tag)}>{tagLabel(r.tag)}</span>
                 <span className="hbar-track">
                   <span className="hbar" style={{ width: `${(r.total / maxTotal) * 85}%` }} />
                   {r.total.toLocaleString("th-TH")}
@@ -112,7 +120,7 @@ export function ReportsClient() {
                 <tbody>
                   {table.rows.map((r) => (
                     <tr key={r.tag}>
-                      <td>{r.tag}</td>
+                      <td>{tagLabel(r.tag)}</td>
                       {r.counts.map((c, i) => <td key={table.buckets[i]} className={c ? "" : "zero"}>{c}</td>)}
                       <td><b>{r.total}</b></td>
                     </tr>

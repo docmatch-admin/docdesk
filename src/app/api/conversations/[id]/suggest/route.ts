@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth";
+import { denySensitiveChat, requireStaff } from "@/lib/auth";
 import { ensureSuggestions, generateSuggestions } from "@/lib/suggest";
 
 export const runtime = "nodejs";
@@ -7,9 +7,11 @@ export const maxDuration = 60;
 
 /** ?ensure=1 = เปิดแชท (สร้างเมื่อยังไม่มี) ไม่มี query = กดปุ่ม "แนะนำใหม่" (เรียก LLM เสมอ) */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { error } = await requireStaff();
+  const { canViewSensitive, error } = await requireStaff();
   if (error) return error;
   const { id } = await params;
+  const denied = await denySensitiveChat(id, canViewSensitive);
+  if (denied) return denied;
   const ensure = new URL(req.url).searchParams.get("ensure") === "1";
   try {
     return NextResponse.json(ensure ? await ensureSuggestions(id) : await generateSuggestions(id, { force: true }));

@@ -1,13 +1,19 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth";
+import { denySensitiveChat, requireStaff } from "@/lib/auth";
 import { starMessage } from "@/lib/pipeline";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { user, error } = await requireStaff();
+  const { user, canViewSensitive, error } = await requireStaff();
   if (error) return error;
   const { id } = await params;
+  const { data: m } = await supabaseAdmin().from("messages").select("conversation_id").eq("id", id).maybeSingle();
+  if (m) {
+    const denied = await denySensitiveChat(m.conversation_id as string, canViewSensitive);
+    if (denied) return denied;
+  }
   try {
     await starMessage(id, user.id);
     return NextResponse.json({ ok: true });

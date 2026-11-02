@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { MediaError, processImage, type ProcessedImage } from "./media";
 import { DEFAULT_RETENTION_DAYS, normalizeRetentionDays } from "./media-url";
 import { getSetting } from "./mode";
+import { DEFAULT_SENSITIVE_RETENTION_DAYS } from "./sensitive-rules";
 import { supabaseAdmin } from "./supabase/admin";
 
 export const CHAT_BUCKET = "chat-media";
@@ -113,9 +114,19 @@ export async function purgeExpiredMedia(now = Date.now()) {
   const days = await loadRetentionDays();
   const cutoff = new Date(now - days * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: rows } = await db.from("messages").select("id, media_path, media_preview_path")
+  const { data: general } = await db.from("messages").select("id, media_path, media_preview_path")
     .not("media_path", "is", null).lt("created_at", cutoff).limit(100);
-  if (!rows?.length) return 0;
+  // แชทลับเก็บสั้นกว่า ตั้งได้ในหน้าตั้งค่า
+  const { data: sensitiveChats } = await db.from("conversations").select("id").eq("sensitive", true);
+  const sensitiveIds = (sensitiveChats ?? []).map((c) => c.id as string);
+  const sensitiveDays = normalizeRetentionDays(await getSetting<unknown>("sensitive_media_retention_days", DEFAULT_SENSITIVE_RETENTION_DAYS));
+  const { data: sensitive } = sensitiveIds.length
+    ? await db.from("messages").select("id, media_path, media_preview_path")
+        .in("conversation_id", sensitiveIds).not("media_path", "is", null)
+        .lt("created_at", new Date(now - sensitiveDays * 86_400_000).toISOString()).limit(100)
+    : { data: [] };
+  const rows = [...new Map([...(general ?? []), ...(sensitive ?? [])].map((r) => [r.id, r])).values()];
+  if (!rows.length) return 0;
 
   const paths = rows.flatMap((r) => [r.media_path as string, r.media_preview_path as string].filter(Boolean));
   const { error } = await db.storage.from(CHAT_BUCKET).remove(paths);

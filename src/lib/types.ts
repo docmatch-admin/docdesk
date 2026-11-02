@@ -31,6 +31,15 @@ export interface SuggestionOption {
   ref_ids: string[];      // id ของ knowledge_items / reply_examples ที่ใช้
   confidence: number;     // 0..1
   note?: string;          // เช่น "ราคาในคำตอบเดิมไม่ตรงกับฐานข้อมูล ใช้ราคาใหม่แล้ว"
+  /** มีเมื่อเป็นข้อความจองจากเทมเพลต action = confirm จะบันทึกนัดตอนส่ง */
+  booking?: {
+    action: "confirm" | "ask_datetime" | "ask_service" | "offer_closed" | "offer_past" | "unavailable" | "unknown_service";
+    service: string | null;
+    date: string | null;
+    time: string | null;
+    name: string | null;
+    is_change: boolean;
+  };
 }
 
 export interface SuggestionResult {
@@ -61,6 +70,9 @@ export interface Conversation {
   waiting_since: string | null;
   closed_at: string | null;
   reopened_at: string | null;
+  booking_pending?: boolean;
+  sensitive?: boolean;
+  archived?: boolean;
   contacts?: { display_name: string | null; avatar_url: string | null; language: string };
   channels?: { type: ChannelType; name: string; ai_mode: AiMode | null };
 }
@@ -82,5 +94,6 @@ export interface Message {
   media_width: number | null;
   media_height: number | null;
   media_deleted_at: string | null;
+  imported?: boolean;
   created_at: string;
 }

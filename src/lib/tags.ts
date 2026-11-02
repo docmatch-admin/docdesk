@@ -1,3 +1,4 @@
+import { tagLabel } from "./sensitive-rules";
 import { CHANNEL_LABEL, type ChannelType } from "./types";
 
 export type TagGroup = "topic" | "status" | "customer";
@@ -144,7 +145,7 @@ export function buildTagCsv(rows: ExportRow[]): string {
     lines.push([
       r.display_name || "ลูกค้า",
       CHANNEL_LABEL[r.channel as ChannelType] ?? r.channel,
-      r.tag,
+      tagLabel(r.tag),
       bangkokDay(new Date(r.tagged_at)),
     ].map(csvCell).join(","));
   }

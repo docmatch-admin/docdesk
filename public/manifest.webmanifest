@@ -1,0 +1,8 @@
+{
+  "name": "DocDesk",
+  "short_name": "DocDesk",
+  "start_url": "/inbox",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4a63e0"
+}

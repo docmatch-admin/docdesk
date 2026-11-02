@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { pushPendingBookings } from "@/lib/booking-store";
 import { touchHeartbeat } from "@/lib/health";
 import { purgeExpiredMedia, purgeStaleUploads } from "@/lib/media-store";
 import { autoCloseQuietChats, runFallback } from "@/lib/pipeline";
@@ -27,7 +28,13 @@ async function handle(req: Request) {
   } catch (e) {
     console.error("auto close failed", e);
   }
-  return NextResponse.json({ ...result, mediaPurged, autoClosed });
+  let pushed = 0;
+  try {
+    pushed = await pushPendingBookings();
+  } catch (e) {
+    console.error("booking push failed", e);
+  }
+  return NextResponse.json({ ...result, mediaPurged, autoClosed, pushed });
 }
 
 export const GET = handle;

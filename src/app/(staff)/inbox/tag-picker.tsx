@@ -43,7 +43,7 @@ export function TagPicker({ tags, current, onPick, onCreate }: {
             }} />
           <div className="tag-pop-list">
             {(Object.keys(TAG_GROUP_LABEL) as TagGroup[]).map((g) => {
-              const inGroup = matches.filter((t) => t.group === g);
+              const inGroup = matches.filter((t) => t.group === g && t.name !== "STD");
               if (!inGroup.length) return null;
               return (
                 <div key={g}>

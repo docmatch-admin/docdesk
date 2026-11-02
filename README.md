@@ -64,6 +64,24 @@
 - **admin:** ทำได้ทุกอย่าง · **agent:** ตอบแชท ติดแท็ก กดดาว รับเคส และส่งต่อเคสของตัวเอง เพิ่มหรือปิดบัญชีได้ที่หน้า `/staff` บังคับทั้งหน้าเว็บ API และ RLS (`supabase/migrations/018_roles.sql`)
 - **คะแนน (`src/lib/scoring.ts`):** ตอบข้อความแรกของชุดที่ยังไม่ได้ตอบ นับเวลาเฉพาะเวลาทำการ ≤2 นาที 3 คะแนน, ≤5 นาที 2, ≤15 นาที 1 คำตอบสั้นกว่า 15 ตัวอักษรได้ครึ่งเดียว กดดาวข้อความเพื่อน +2 ให้คนส่ง กดเสร็จแล้ว +1 ให้คนตอบล่าสุด ตั้งเกณฑ์ได้ในหน้าตั้งค่า
 
+## แชทลับ
+แชทเรื่องเพศติด `conversations.sensitive` จากคำสำคัญในหน้าตั้งค่าหรือจาก AI ติดแล้วเอาออกได้เฉพาะ admin คนที่ไม่มี `staff.can_view_sensitive` อ่านไม่ได้ทั้ง RLS และ API (`denySensitiveChat`) เห็นแค่ `masked_sensitive_waiting()` ถ้าเพิ่มตารางที่มี `conversation_id` ต้องใช้ `can_read_conversation()` ใน policy และ API ใหม่ที่รับ id แชทต้องเรียก `denySensitiveChat` เพราะ service role ข้าม RLS
+
+## แชทเก่าจาก LINE OA
+ห้องที่จับคู่ลูกค้าไม่ได้เก็บเป็น `conversations.archived` มี `contacts.line_oa_chat_id` แยกจาก `external_id` อ่านได้ ส่งไม่ได้ รวมหรือแยกผ่าน `/api/conversations/[id]/archive` ตรรกะอยู่ที่ `src/lib/archive-store.ts`
+
+## นำเข้าประวัติ LINE
+หน้า `/imports` (admin) รับ `.jsonl` แบบแถวละห้อง (`_meta` ตามด้วย `{line_user_id, display_name, messages}`) หรือแถวละข้อความ `{room, room_id?, sender: customer|official, sent_at, text, type?, origin?}` แสดงสรุปก่อนยืนยัน นำเข้าทีละห้อง กันซ้ำด้วย hash ข้อความติด `imported` ไม่กระทบคิวและคะแนน ตรรกะอยู่ที่ `src/lib/line-import.ts` หน้า `/imports/paste` วางข้อความจาก chat.line.biz ทีละห้อง เลือกคู่คำถาม-คำตอบ แล้วบันทึกเป็น `source = manual_paste` โดยไม่เก็บข้อความดิบ ไม่มีสคริปต์เก็บข้อมูลจาก LINE และไม่ควรเพิ่ม
+
+## การจอง
+AI ดึงข้อมูลการจองจากแชท ส่วน `src/lib/booking-rules.ts` เป็นคนตัดสินและสร้างข้อความจากเทมเพลตในหน้าตั้งค่า ส่งคำยืนยันแล้วบันทึกลงตาราง `bookings` แชทจะค้างในรอตอบและกดเสร็จแล้วไม่ได้จนกว่าจะกด "ลงนัดแล้ว" แจ้งเตือนบนเครื่องใช้ Web Push ตั้ง `NEXT_PUBLIC_VAPID_PUBLIC_KEY` และ `VAPID_PRIVATE_KEY` (สร้างด้วย `npx web-push generate-vapid-keys`) ส่งผ่าน cron ทุกนาที
+
+## บัญชีพนักงาน
+เพิ่มพนักงานที่หน้า `/staff` ด้วยชื่อผู้ใช้ (ระบบแปลงเป็น `<username>@staff.docdesk.local`) รหัสชั่วคราวแสดงครั้งเดียวและพิมพ์เป็นใบ A6 ได้ ไม่ถูกเก็บในฐานข้อมูล ล็อกอินครั้งแรกต้องเปลี่ยนรหัสที่ `/change-password` ซิงก์ HR อยู่ใน `src/lib/hr-sync.ts` เปิดใช้เมื่อตั้ง `HR_SYNC_URL` และ `HR_SYNC_SECRET`
+
+## ราคาแล็บ
+แก้ราคาที่หน้า “ฐานข้อมูล & คำตอบ” → แท็บ **ราคาแล็บ** (admin) คำนวณยอดซื้อแยก เทียบแพ็กเกจ และใบเสนอราคา B2B ใน `src/lib/lab-pricing.ts` agent อ่านคอลัมน์ `cost` ไม่ได้ (`supabase/migrations/021_lab_prices.sql`) ถ้าเพิ่มคอลัมน์ใหม่ใน `lab_items` หรือ `lab_packages` ต้อง `grant select` ให้ `authenticated` เอง และห้ามเพิ่มต้นทุนใน `LAB_ITEM_COLUMNS` หรือ `LAB_PACKAGE_COLUMNS`
+
 ## ตรวจสุขภาพระบบ
 `GET /api/health` (ใช้ `CRON_SECRET`) ถูก pg_cron เรียกทุก 5 นาที ตั้งด้วย `supabase/manual/017_health_cron.sql` ผลแสดงเป็นไฟในหน้าตั้งค่า และแถบแดงทุกหน้า ถ้าตั้ง `RESEND_API_KEY` กับ `ALERT_EMAIL` จะส่งอีเมลไม่เกินชั่วโมงละครั้ง ถ้าเปลี่ยน `CRON_SECRET` ต้องรันไฟล์ใน `supabase/manual/` ใหม่ทั้ง 2 ไฟล์
 

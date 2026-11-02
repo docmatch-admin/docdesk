@@ -17,6 +17,14 @@ export async function embed(text: string): Promise<number[]> {
   return res.data[0].embedding;
 }
 
+/** embedding ทีละชุด เร็วกว่าและถูกกว่าการเรียกทีละข้อความตอนนำเข้า */
+export async function embedMany(texts: string[]): Promise<number[][]> {
+  if (!texts.length) return [];
+  const res = await openai().embeddings.create({ model: EMBED_MODEL, input: texts.map((t) => t.slice(0, 8000)) });
+  await recordLlmUsage(supabaseAdmin(), "embedding", EMBED_MODEL, res.usage?.prompt_tokens ?? 0, 0);
+  return [...res.data].sort((a, b) => a.index - b.index).map((d) => d.embedding);
+}
+
 /** เรียก LLM ให้ตอบเป็น JSON */
 export async function chatJSON<T>(system: string, user: string, temperature = 0.3): Promise<T> {
   const res = await openai().chat.completions.create({

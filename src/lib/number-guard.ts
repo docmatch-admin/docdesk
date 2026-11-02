@@ -18,6 +18,8 @@ export function buildNumberSources(input: {
   knowledge: { title: string; content: string }[];
   examples: { answer: string }[];
   msgs: { sender_type: string; body: string; body_th: string | null }[];
+  /** ข้อมูลอื่นที่เชื่อถือได้ เช่น ราคาแล็บและยอดที่ระบบคำนวณแล้ว */
+  extraTrusted?: string[];
 }): NumberSources {
   const textsFrom = (senderType: string) =>
     input.msgs.filter((m) => m.sender_type === senderType).flatMap((m) => [m.body, m.body_th ?? ""]);
@@ -26,6 +28,7 @@ export function buildNumberSources(input: {
       ...input.knowledge.map((k) => `${k.title} ${k.content}`),
       ...input.examples.map((e) => e.answer),
       ...textsFrom("staff"),
+      ...(input.extraTrusted ?? []),
     ],
     customer: textsFrom("customer"),
   };

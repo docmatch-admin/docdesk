@@ -8,13 +8,14 @@ export function nextOpenChat<T extends { id: string; status: string }>(list: T[]
   return ordered.find((c) => c.status === "open" && c.id !== currentId)?.id ?? null;
 }
 
-export function isWaitingForReply(c: { status: string; last_direction: string | null }): boolean {
-  return c.status === "open" && c.last_direction === "in";
+/** นัดที่ยังไม่ลงระบบค้างในรอตอบ แม้ข้อความล่าสุดเป็นของคลินิก */
+export function isWaitingForReply(c: { status: string; last_direction: string | null; booking_pending?: boolean }): boolean {
+  return c.status === "open" && (c.last_direction === "in" || !!c.booking_pending);
 }
 
 /** แท็บที่แชทนี้ปรากฏ */
 export type InboxTab = "open" | "waiting" | "closed";
-export function tabsOf(c: { status: string; last_direction: string | null }): InboxTab[] {
+export function tabsOf(c: { status: string; last_direction: string | null; booking_pending?: boolean }): InboxTab[] {
   if (c.status !== "open") return ["closed"];
   return isWaitingForReply(c) ? ["open", "waiting"] : ["open"];
 }

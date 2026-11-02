@@ -28,6 +28,7 @@ function fakeDb(tables) {
         eq(k, v) { filters.push((r) => get(r, k) === v); return builder; },
         is(k, v) { filters.push((r) => (r[k] ?? null) === v); return builder; },
         lte(k, v) { filters.push((r) => Date.parse(r[k]) <= Date.parse(v)); return builder; },
+        neq(k, v) { filters.push((r) => r[k] !== v); return builder; },
         order(k) { sort = k; return builder; },
         limit(n) { max = n; return builder; },
         single: async () => ({ data: rows()[0] ?? null }),

@@ -9,3 +9,7 @@ supabase/.temp
 
 .vercel
 .env*
+
+
+# ไฟล์ประวัติแชท อยู่บนเครื่องเท่านั้น
+/imports

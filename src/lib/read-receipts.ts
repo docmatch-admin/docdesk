@@ -84,6 +84,6 @@ export async function applyCustomerRead(db: SupabaseClient, conversationId: stri
   const { error } = await db.from("messages")
     .update({ read_by_customer_at: readAt.toISOString() })
     .eq("conversation_id", conversationId).eq("direction", "out")
-    .is("read_by_customer_at", null).lte("created_at", upTo);
+    .is("read_by_customer_at", null).lte("created_at", upTo).neq("imported", true);
   if (error) throw error;
 }

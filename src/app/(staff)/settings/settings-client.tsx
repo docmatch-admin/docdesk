@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { BOOKING_TEMPLATE_LABEL, DEFAULT_BOOKING_TEMPLATES, normalizeBookingTemplates, type BookingTemplates } from "@/lib/booking-rules";
 import { AUTO_CLOSE_EXEMPT_TAGS, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "@/lib/case-flow";
 import { DEFAULT_SCORE_RULES, normalizeScoreRules, type ScoreRules } from "@/lib/scoring";
+import { DEFAULT_SENSITIVE_KEYWORDS, DEFAULT_SENSITIVE_RETENTION_DAYS, normalizeSensitiveKeywords } from "@/lib/sensitive-rules";
 import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib/llm-usage";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { HealthPanel } from "./health-panel";
@@ -27,6 +29,9 @@ export function SettingsClient() {
   const [scoreRules, setScoreRules] = useState<ScoreRules>(DEFAULT_SCORE_RULES);
   const [retentionDays, setRetentionDays] = useState(90);
   const [autoCloseHours, setAutoCloseHours] = useState(DEFAULT_AUTO_CLOSE_HOURS);
+  const [sensitiveKeywords, setSensitiveKeywords] = useState(DEFAULT_SENSITIVE_KEYWORDS.join("\n"));
+  const [sensitiveDays, setSensitiveDays] = useState(DEFAULT_SENSITIVE_RETENTION_DAYS);
+  const [bookingTemplates, setBookingTemplates] = useState<BookingTemplates>(DEFAULT_BOOKING_TEMPLATES);
 
   useEffect(() => {
     sb.from("llm_usage_daily").select("*").gte("day", `${bangkokDate().slice(0, 7)}-01`)
@@ -40,6 +45,9 @@ export function SettingsClient() {
         if (r.key === "media_retention_days") setRetentionDays(Number(r.value));
         if (r.key === "score_rules") setScoreRules(normalizeScoreRules(r.value));
         if (r.key === "auto_close_hours") setAutoCloseHours(normalizeAutoCloseHours(r.value));
+        if (r.key === "booking_templates") setBookingTemplates(normalizeBookingTemplates(r.value));
+        if (r.key === "sensitive_keywords") setSensitiveKeywords(normalizeSensitiveKeywords(r.value).join("\n"));
+        if (r.key === "sensitive_media_retention_days") setSensitiveDays(Number(r.value));
       }
     });
     sb.from("channels").select("id, type, name, ai_mode, enabled").order("created_at")
@@ -56,6 +64,9 @@ export function SettingsClient() {
       { key: "media_retention_days", value: Math.max(1, Math.floor(retentionDays) || 90), updated_at: now },
       { key: "auto_close_hours", value: normalizeAutoCloseHours(autoCloseHours), updated_at: now },
       { key: "score_rules", value: normalizeScoreRules(scoreRules), updated_at: now },
+      { key: "booking_templates", value: normalizeBookingTemplates(bookingTemplates), updated_at: now },
+      { key: "sensitive_keywords", value: normalizeSensitiveKeywords(sensitiveKeywords.split("\n")), updated_at: now },
+      { key: "sensitive_media_retention_days", value: Math.max(1, Math.floor(sensitiveDays) || DEFAULT_SENSITIVE_RETENTION_DAYS), updated_at: now },
     ]);
     for (const c of channels) {
       await sb.from("channels").update({ ai_mode: c.ai_mode, enabled: c.enabled }).eq("id", c.id);
@@ -138,6 +149,27 @@ export function SettingsClient() {
         <h3>บุคลิกการตอบของ AI</h3>
         <label>ชื่อคลินิก<input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></label>
         <label>โทน/สำนวน<textarea rows={3} value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} /></label>
+      </section>
+
+      <section className="card">
+        <h3>🔒 แชทลับ</h3>
+        <p className="muted small">ข้อความลูกค้าที่มีคำเหล่านี้จะถูกตั้งเป็นแชทลับ ติดแล้วไม่หายเอง เอาออกได้เฉพาะ admin ในห้องแชท</p>
+        <label>คำสำคัญ บรรทัดละคำ
+          <textarea rows={8} value={sensitiveKeywords} onChange={(e) => setSensitiveKeywords(e.target.value)} />
+        </label>
+        <label className="inline">ลบรูปในแชทลับหลัง
+          <input type="number" min={1} value={sensitiveDays} onChange={(e) => setSensitiveDays(Number(e.target.value))} /> วัน
+        </label>
+      </section>
+
+      <section className="card">
+        <h3>ข้อความการจอง</h3>
+        <p className="muted small">ระบบแทนค่าในวงเล็บปีกกาให้ และแปลตามภาษาลูกค้าตอนส่ง เว้นว่างแล้วบันทึกจะกลับเป็นค่าเริ่มต้น</p>
+        {(Object.keys(BOOKING_TEMPLATE_LABEL) as (keyof BookingTemplates)[]).map((key) => (
+          <label key={key}>{BOOKING_TEMPLATE_LABEL[key]}
+            <textarea rows={2} value={bookingTemplates[key]} onChange={(e) => setBookingTemplates({ ...bookingTemplates, [key]: e.target.value })} />
+          </label>
+        ))}
       </section>
 
       <section className="card">

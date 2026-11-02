@@ -1,8 +1,18 @@
 import { chatJSON, embed } from "./ai";
+import {
+  bookingCalendar, bookingOption, decideBooking, findUnavailableRequest, hasBookingSignal, localToday, maskBookingPii,
+  resolveBookingDate, resolveBookingTime, type BookingRequest,
+} from "./booking-rules";
+import { activeBookings, loadBookingCatalog, loadBookingTemplates, loadBusinessHours, loadConversationBookings } from "./booking-store";
+import { LAB_RULES } from "./lab-pricing";
+import { loadLabContext } from "./lab-store";
 import { bangkokDate } from "./llm-usage";
 import { DEFAULT_CLINIC_PROFILE, getSetting, resolveAiMode } from "./mode";
 import { applyNumberGuard, buildNumberSources } from "./number-guard";
-import { applyClaimGuard, applyLengthGuard, pickStarredAnswer, pickStyleExamples, shouldSkipSuggestion, sortByStyle } from "./suggest-rules";
+import { scrubPII } from "./pii";
+import { applySensitiveGuard, SENSITIVE_PROMPT_RULES, SENSITIVE_TAG } from "./sensitive-rules";
+import { loadSensitiveKeywords, markConversationSensitive } from "./sensitive-store";
+import { applyClaimGuard, applyLengthGuard, hasUrgentSignal, pickStarredAnswer, pickStyleExamples, shouldSkipSuggestion, sortByStyle } from "./suggest-rules";
 import { supabaseAdmin } from "./supabase/admin";
 import { sanitizeSuggestedTags } from "./tags";
 import type { AiMode, ChannelType, SuggestionOption, SuggestionResult, SuggestionSource } from "./types";
@@ -74,13 +84,14 @@ export async function ensureSuggestions(conversationId: string, now = Date.now()
 }
 
 /** force = เจ้าหน้าที่กด "แนะนำใหม่": ข้ามกฎประหยัดทั้งหมดและเรียก LLM เสมอ */
-export async function generateSuggestions(conversationId: string, { force = false } = {}): Promise<SuggestionResult> {
+export async function generateSuggestions(conversationId: string, { force = false, now = Date.now() } = {}): Promise<SuggestionResult> {
   const db = supabaseAdmin();
 
   const { data: rows } = await db
     .from("messages")
     .select("id, direction, sender_type, body, body_th, created_at")
     .eq("conversation_id", conversationId)
+    .neq("imported", true) // ประวัติเก่าอาจมีราคาเก่า
     .order("created_at", { ascending: false })
     .limit(30);
   const msgs = ((rows ?? []) as MsgRow[]).reverse();
@@ -110,8 +121,13 @@ export async function generateSuggestions(conversationId: string, { force = fals
     }
   }
 
+  // ชื่อและเบอร์ของนัดเดิมห้ามส่งให้ AI เบอร์ทุกเบอร์ดึงด้วยโค้ดตอนบันทึกนัด AI จึงไม่ต้องเห็น
+  const bookings = await loadConversationBookings(conversationId);
+  const forAi = (text: string) => scrubPII(maskBookingPii(text, bookings));
+  const safeQuestion = forAi(question);
+
   // ---- ค้น 2 แหล่งด้วย vector search ----
-  const qEmbedding = await embed(question);
+  const qEmbedding = await embed(safeQuestion);
   const vec = JSON.stringify(qEmbedding);
   const [{ data: kRaw }, { data: eRaw }, { data: policy }] = await Promise.all([
     db.rpc("match_knowledge", { query_embedding: vec, match_count: 6 }),
@@ -124,7 +140,15 @@ export async function generateSuggestions(conversationId: string, { force = fals
   }
   const examples = ((eRaw ?? []) as ExampleHit[]).filter((e) => e.similarity >= EXAMPLE_MIN_SIM);
 
-  const starred = force ? null : pickStarredAnswer({ question, examples, knowledge, msgs });
+  const { data: convTags } = await db.from("conversations").select("tags, sensitive").eq("id", conversationId).maybeSingle();
+  const alreadySensitive = !!convTags?.sensitive;
+  const labContext = await loadLabContext(question, (convTags?.tags ?? []) as string[]);
+
+  // คำถามราคาแล็บต้องใช้ราคาล่าสุดจากตาราง คำตอบติดดาวอาจเป็นราคาเก่า
+  // คำขอจองต้องผ่านการตรวจวันเวลาทุกครั้ง
+  const hours = await loadBusinessHours();
+  const current = activeBookings(bookings, localToday(now, hours.tz || "Asia/Bangkok"))[0] ?? null;
+  const starred = force || labContext || current || alreadySensitive || hasBookingSignal(question) ? null : pickStarredAnswer({ question, examples, knowledge, msgs });
   if (starred) {
     const { data: saved } = await db
       .from("suggestions")
@@ -140,12 +164,14 @@ export async function generateSuggestions(conversationId: string, { force = fals
     .eq("active", true).eq("starred", true).limit(50);
   const clinicStyle = pickStyleExamples((starredRows ?? []) as { answer: string; starred: boolean }[]);
   const { data: tagRows } = await db.from("tags").select("name").eq("active", true).order("sort");
-  const tagNames = (tagRows ?? []).map((t) => t.name as string);
+  // แท็กลับคู่กับสถานะแชทลับ AI บอกผ่าน sensitive แทน
+  const tagNames = (tagRows ?? []).map((t) => t.name as string).filter((t) => t !== SENSITIVE_TAG);
+  const catalog = await loadBookingCatalog();
 
   // ---- แหล่งที่ 3: ประวัติของลูกค้าคนนี้ ----
   const history = msgs
     .slice(-20)
-    .map((m) => `[${thDate(m.created_at)}] ${m.direction === "in" ? "ลูกค้า" : m.sender_type === "ai" ? "AI" : "เจ้าหน้าที่"}: ${m.body_th || m.body || "[รูปภาพ]"}`)
+    .map((m) => `[${thDate(m.created_at)}] ${m.direction === "in" ? "ลูกค้า" : m.sender_type === "ai" ? "AI" : "เจ้าหน้าที่"}: ${forAi(m.body_th || m.body || "[รูปภาพ]")}`)
     .join("\n");
 
   const kBlock = knowledge.length
@@ -178,17 +204,27 @@ export async function generateSuggestions(conversationId: string, { force = fals
 - ref_ids: id ที่อ้างอิง (ไม่ต้องใส่ K: หรือ E:)
 - confidence 0–1: มั่นใจแค่ไหนว่าส่งได้เลยโดยไม่ต้องแก้
 - suggested_tags: แท็กของแชทนี้ไม่เกิน 3 แท็ก เลือกจากรายการแท็กที่ให้เท่านั้น ห้ามสร้างชื่อใหม่ ถ้าไม่มีที่ตรงให้เป็น []
+${labContext ? `${LAB_RULES}\n` : ""}- intent: "booking" เมื่อลูกค้าต้องการจองหรือเปลี่ยนเวลานัดตอนนี้ หรือกำลังตอบวันเวลาที่คลินิกถาม ถ้าแค่ถามข้อมูล เช่น ต้องนัดไหม เปิดกี่โมง ให้เป็น "other"
+- ลูกค้าขอยกเลิกนัด: intent "other" และ needs_human = true
+- sensitive: true เมื่อเป็นเรื่องโรคติดต่อทางเพศ การตรวจหรือรักษาเกี่ยวกับเพศสัมพันธ์ หรือความเสี่ยงทางเพศ
+${alreadySensitive ? `${SENSITIVE_PROMPT_RULES}\n` : ""}- booking: ดึงจากประวัติแชททั้งหมด ไม่ต้องขอชื่อหรือเบอร์ ห้ามเดาค่าที่ลูกค้าไม่ได้บอก ให้เป็น null
+  - service: ชื่อบริการที่ลูกค้าต้องการ ถ้าตรงกับรายการบริการให้ใช้ชื่อในรายการ ถ้าไม่มีในรายการให้ใช้คำของลูกค้า ห้ามเปลี่ยนเป็นบริการอื่น
+  - date: YYYY-MM-DD ปี ค.ศ. จากปฏิทินที่ให้ / time: HH:MM แบบ 24 ชั่วโมง เช่น บ่าย 3 = 15:00
+  - name: ชื่อที่ลูกค้าบอกเองในแชท ถ้าไม่ได้บอกให้เป็น null
+  - is_change: true เมื่อขอเปลี่ยนวันเวลาของนัดเดิม
+  - ไม่ต้องตัดสินว่ารับนัดได้ไหม ระบบตรวจเอง แม้บริการไม่มีหรือเวลาปิดก็ยังเป็น intent "booking" และไม่ต้องตั้ง needs_human เพราะเหตุนั้น
 
 ตัวอย่างสำนวนที่ดี ใช้เป็นแบบความยาวและน้ำเสียงเท่านั้น ห้ามนำราคา เวลา หรือเงื่อนไขในตัวอย่างไปตอบ ข้อเท็จจริงต้องมาจากข้อมูลที่ให้เท่านั้น:
 ${[...STYLE_FEW_SHOT, ...clinicStyle.map((e) => e.answer)].map((s) => `- "${s}"`).join("\n")}
 
 ตอบเป็น JSON:
 {"needs_human": boolean, "reason": "เหตุผลสั้นๆ ถ้า needs_human", "suggested_tags": ["..."],
+ "sensitive": false, "intent": "booking|other", "booking": {"service": "...", "date": "YYYY-MM-DD", "time": "HH:MM", "name": null, "is_change": false},
  "options": [{"text": "...", "source": "knowledge|example|history", "ref_ids": ["..."], "confidence": 0.0, "note": "ถ้ามี"}]}`;
 
   const user = `## ฐานข้อมูลคลินิก
 ${kBlock}
-
+${labContext ? `\n## ราคาแล็บ\n${labContext}\n` : ""}
 ## คำตอบเดิมของเจ้าหน้าที่ที่คล้ายกัน
 ${eBlock}
 
@@ -198,16 +234,36 @@ ${history}
 ## รายการแท็กที่เลือกได้
 ${tagNames.join(", ") || "(ไม่มี)"}
 
-## ข้อความลูกค้าที่ต้องตอบตอนนี้
-${question}`;
+## ปฏิทินสำหรับการจอง
+${bookingCalendar(now, hours.tz || "Asia/Bangkok")}
 
-  const out = await chatJSON<{ needs_human?: boolean; reason?: string; suggested_tags?: unknown; options?: Partial<SuggestionOption>[] }>(system, user, 0.4);
+## รายการบริการ
+${catalog.names.join(", ") || "(ไม่มี)"}
+
+## นัดปัจจุบันของลูกค้า
+${current ? `${current.service} ${current.date} ${current.time.slice(0, 5)}` : "(ไม่มี)"}
+
+## ข้อความลูกค้าที่ต้องตอบตอนนี้
+${safeQuestion}`;
+
+  const out = await chatJSON<{ needs_human?: boolean; reason?: string; suggested_tags?: unknown; sensitive?: boolean; intent?: string; booking?: BookingRequest; options?: Partial<SuggestionOption>[] }>(system, user, 0.4);
   const suggested_tags = sanitizeSuggestedTags(out.suggested_tags, tagNames);
 
   const validSources: SuggestionSource[] = ["knowledge", "example", "history"];
   const knownIds = new Set([...knowledge.map((k) => k.id), ...examples.map((e) => e.id)]);
-  const numberSources = buildNumberSources({ knowledge, examples, msgs });
-  const options: SuggestionOption[] = (out.options ?? [])
+  // คำตอบที่นำเข้ามาจากอดีต ใช้เป็นแบบสำนวนได้แต่ไม่ยืนยันตัวเลข
+  const { data: importedRows } = examples.length
+    ? await db.from("reply_examples").select("id").in("id", examples.map((e) => e.id)).in("source", ["line_import", "manual_paste"])
+    : { data: [] };
+  const importedIds = new Set(((importedRows ?? []) as { id: string }[]).map((e) => e.id));
+  // คำถามราคาแล็บไม่เชื่อตัวเลขจากคำตอบเดิม เพราะอาจเป็นราคาก่อนแก้ตาราง
+  const numberSources = buildNumberSources({
+    knowledge,
+    examples: labContext ? [] : examples.filter((e) => !importedIds.has(e.id)),
+    msgs,
+    extraTrusted: labContext ? [labContext] : [],
+  });
+  let options: SuggestionOption[] = (out.options ?? [])
     .filter((o) => typeof o.text === "string" && o.text.trim())
     .slice(0, 3)
     .map((o) => ({
@@ -221,7 +277,35 @@ ${question}`;
     .map((o) => applyClaimGuard(o, numberSources.trusted))
     .map((o) => applyLengthGuard(o, examples.filter((e) => e.starred).map((e) => e.answer)));
 
-  const needs_human = !!out.needs_human;
+  // การจองตอบจากเทมเพลตที่โค้ดตรวจแล้วเป็นตัวเลือกแรก
+  let needs_human = !!out.needs_human;
+  const sensitive = alreadySensitive || out.sensitive === true;
+  const unavailableAsked = sensitive ? null : findUnavailableRequest(safeQuestion, catalog);
+  const today = localToday(now, hours.tz || "Asia/Bangkok");
+  const bookingDate = resolveBookingDate(safeQuestion, out.booking?.date, today);
+  const bookingTime = resolveBookingTime(safeQuestion, out.booking?.time);
+  // พูดว่าจองพร้อมวันเวลาชัดเจน: AI จัดเป็นเรื่องอื่นได้เมื่อเวลาแปลก เช่น เวลาที่ผ่านไปแล้ว
+  const explicitRequest = /จอง|ขอนัด/.test(safeQuestion) && !!bookingDate && !!bookingTime;
+  // แชทลับไม่ใช้เทมเพลตจอง เพราะข้อความระบุชื่อบริการ
+  if (!sensitive && (out.intent === "booking" || unavailableAsked || explicitRequest)) {
+    const decision = decideBooking({
+      ...out.booking,
+      service: out.booking?.service || unavailableAsked,
+      date: bookingDate,
+      time: bookingTime,
+    }, { catalog, hours, now, current });
+    options = [bookingOption(decision, await loadBookingTemplates()), ...options].slice(0, 3);
+    // ปฏิเสธหรือเสนอเวลาอื่นไม่ได้รับปากอะไร ตอบได้เลย เว้นแต่มีเรื่องด่วน ไม่ใช้ hasSensitiveSignal เพราะติดคำว่าไข้ใน "วัคซีนไข้หวัดใหญ่"
+    const noCommitment = decision.action === "unavailable" || decision.action === "offer_closed" || decision.action === "offer_past";
+    if (noCommitment && !hasUrgentSignal(question)) needs_human = false;
+  }
+  if (sensitive) {
+    needs_human = true;
+    const keywords = await loadSensitiveKeywords();
+    options = options.map((o) => applySensitiveGuard(o, keywords));
+    if (!alreadySensitive) await markConversationSensitive(conversationId, "AI");
+  }
+
   const { data: saved } = await db
     .from("suggestions")
     .insert({ conversation_id: conversationId, trigger_message_id: lastId, options, needs_human, suggested_tags })

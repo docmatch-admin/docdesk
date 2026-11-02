@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/auth";
+import { denySensitiveChat, requireStaff } from "@/lib/auth";
 import { CLOSE_PATCH } from "@/lib/case-flow";
 import { setConversationTag } from "@/lib/pipeline";
 import { awardClosePoints } from "@/lib/score-store";
@@ -9,14 +9,17 @@ export const runtime = "nodejs";
 
 /** กดเสร็จแล้ว: ผ่าน server เพื่อให้คะแนนคนที่ตอบล่าสุดได้ */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { error } = await requireStaff();
+  const { canViewSensitive, error } = await requireStaff();
   if (error) return error;
   const { id } = await params;
+  const denied = await denySensitiveChat(id, canViewSensitive);
+  if (denied) return denied;
   const { tag } = (await req.json().catch(() => ({}))) as { tag?: string };
   const db = supabaseAdmin();
 
-  const { data: conv } = await db.from("conversations").select("status").eq("id", id).maybeSingle();
+  const { data: conv } = await db.from("conversations").select("status, booking_pending").eq("id", id).maybeSingle();
   if (!conv) return NextResponse.json({ error: "ไม่พบแชท" }, { status: 404 });
+  if (conv.booking_pending) return NextResponse.json({ error: "ลงนัดก่อน" }, { status: 409 });
 
   if (tag) {
     const { data: known } = await db.from("tags").select("id").eq("name", tag).maybeSingle();

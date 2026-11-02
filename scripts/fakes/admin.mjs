@@ -10,6 +10,10 @@ export function resetDb(tables) {
   state.matchExamples = [];
   state.matchKnowledge = [];
   state.files = {};
+  state.authUsers = [];
+  state.revoked = [];
+  state.passwordChanges = [];
+  state.updateUserError = null;
 }
 
 function bucket(name) {
@@ -65,6 +69,12 @@ function withRelations(name, row) {
   };
 }
 
+function refreshBookingPending() {
+  for (const conv of state.tables.conversations ?? []) {
+    conv.booking_pending = (state.tables.bookings ?? []).some((b) => b.conversation_id === conv.id && b.status === "ai_confirmed");
+  }
+}
+
 function query(name) {
   const filters = [];
   let op = "select", payload = null, conflict = null, sort = null, max = Infinity;
@@ -76,6 +86,17 @@ function query(name) {
   };
   const run = () => {
     const table = (state.tables[name] ??= []);
+    // upsert หลายแถวพร้อม ignoreDuplicates: คืนเฉพาะแถวใหม่ เหมือน PostgREST
+    if (op === "upsert" && Array.isArray(payload)) {
+      const added = [];
+      for (const item of payload) {
+        if (table.some((r) => r[conflict] === item[conflict])) continue;
+        const row = { id: `${name}-${++seq}`, created_at: nextTime(), ...item };
+        table.push(row);
+        added.push(row);
+      }
+      return added;
+    }
     if (op === "insert" || op === "upsert") {
       const keys = conflict?.split(",");
       const found = keys && table.find((r) => keys.every((k) => r[k] === payload[k]));
@@ -83,6 +104,7 @@ function query(name) {
       const row = { id: `${name}-${++seq}`, created_at: nextTime(), ...payload };
       table.push(row);
       if (name === "messages") refreshQueue(row.conversation_id);
+      if (name === "bookings") refreshBookingPending();
       return [row];
     }
     const hit = rows();
@@ -92,6 +114,7 @@ function query(name) {
         Object.assign(r, payload);
         if (name === "conversations") trackStatus(r, before);
       });
+      if (name === "bookings") refreshBookingPending();
     }
     if (op === "delete") {
       state.tables[name] = table.filter((r) => !hit.includes(r));
@@ -171,12 +194,31 @@ function setAssignee(fn, { p_conversation, p_to, p_by }) {
   return p_to;
 }
 
+const authAdmin = {
+  async createUser({ email, password }) {
+    if (state.authUsers.some((u) => u.email === email)) return { data: {}, error: { code: "email_exists" } };
+    const user = { id: `user-${state.authUsers.length + 1}`, email, password };
+    state.authUsers.push(user);
+    return { data: { user }, error: null };
+  },
+  async updateUserById(id, patch) {
+    let user = state.authUsers.find((u) => u.id === id);
+    if (!user) state.authUsers.push((user = { id }));
+    Object.assign(user, patch);
+    return { data: { user }, error: null };
+  },
+  async deleteUser(id) { state.authUsers = state.authUsers.filter((u) => u.id !== id); return { error: null }; },
+  async listUsers() { return { data: { users: state.authUsers } }; },
+};
+
 const client = {
   from: query,
+  auth: { admin: authAdmin },
   storage: { from: bucket },
   async rpc(fn, args) {
     if (fn === "set_conversation_tag") return { data: setTag(args), error: null };
     if (fn === "set_assignee" || fn === "assign_if_unassigned") return { data: setAssignee(fn, args), error: null };
+    if (fn === "revoke_staff_sessions") { state.revoked.push(args.p_user); return { error: null }; }
     if (fn === "match_examples") return { data: state.matchExamples };
     if (fn === "match_knowledge") return { data: state.matchKnowledge };
     return { data: null };

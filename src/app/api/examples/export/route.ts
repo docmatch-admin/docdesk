@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "@/lib/mode";
 import { scrubPII } from "@/lib/pii";
+import { matchSensitive } from "@/lib/sensitive-rules";
+import { loadSensitiveKeywords } from "@/lib/sensitive-store";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -32,9 +34,11 @@ export async function GET(req: Request) {
   const { data, error: e } = await q;
   if (e) return NextResponse.json({ error: e.message }, { status: 500 });
 
+  const keywords = await loadSensitiveKeywords();
   const seen = new Set<string>();
   const lines: string[] = [];
   for (const r of data ?? []) {
+    if (matchSensitive(`${r.question}\n${r.answer}`, keywords)) continue;
     const question = scrubPII(r.question).trim();
     const answer = scrubPII(r.answer).trim();
     if (!question || question === "(ไม่มีคำถาม)" || !answer) continue;

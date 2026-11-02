@@ -8,6 +8,8 @@ import { titleWithCount } from "@/lib/case-flow";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 const REPEAT_MS = 60_000;
+/** นัดที่ยังไม่ลงระบบเตือนทุกเครื่อง ไม่ขึ้นกับผู้ดูแล จนกว่าจะกดลงนัด */
+const BOOKING_REPEAT_MS = 3 * 60_000;
 /** ต้องประเมินซ้ำเอง เพราะแชทของคนอื่นจะมาแจ้งเราเมื่อครบเวลา โดยไม่มีข้อมูลเปลี่ยน */
 const EVALUATE_MS = 30_000;
 const MUTE_KEY = "docdesk_alert_muted";
@@ -39,6 +41,8 @@ export function WaitingAlert({ meId }: { meId: string }) {
   const pathname = usePathname();
   const [count, setCount] = useState(0);
   const [waiting, setWaiting] = useState<WaitingChat[]>([]);
+  const [bookingPending, setBookingPending] = useState(0);
+  const previousBookings = useRef(0);
   const [hours, setHours] = useState<BusinessHoursConfig>({ tz: "Asia/Bangkok", days: {} });
   const [now, setNow] = useState(() => Date.now());
   const [muted, setMuted] = useState(false);
@@ -49,10 +53,12 @@ export function WaitingAlert({ meId }: { meId: string }) {
 
   useEffect(() => {
     const load = async () => {
-      const { data, count: n } = await sb.from("conversations").select("assigned_to, waiting_since, last_inbound_at", { count: "exact" })
-        .eq("status", "open").eq("last_direction", "in").limit(500);
+      const { data, count: n } = await sb.from("conversations").select("assigned_to, waiting_since, last_inbound_at, last_direction, booking_pending", { count: "exact" })
+        .eq("status", "open").or("last_direction.eq.in,booking_pending.eq.true").limit(500);
       if (n !== null) setCount(n);
-      setWaiting((data ?? []) as WaitingChat[]);
+      const rows = (data ?? []) as (WaitingChat & { last_direction: string | null; booking_pending: boolean })[];
+      setWaiting(rows.filter((c) => c.last_direction === "in"));
+      setBookingPending(rows.filter((c) => c.booking_pending).length);
     };
     load();
     sb.from("settings").select("value").eq("key", "business_hours").maybeSingle()
@@ -106,6 +112,15 @@ export function WaitingAlert({ meId }: { meId: string }) {
     const repeat = setInterval(play, REPEAT_MS);
     return () => clearInterval(repeat);
   }, [alertCount, muted]);
+
+  useEffect(() => {
+    const play = () => { if (audio.current?.state === "running") beep(audio.current); };
+    if (!muted && bookingPending > previousBookings.current) play();
+    previousBookings.current = bookingPending;
+    if (muted || bookingPending === 0) return;
+    const repeat = setInterval(play, BOOKING_REPEAT_MS);
+    return () => clearInterval(repeat);
+  }, [bookingPending, muted]);
 
   function toggle() {
     const next = !muted;
