@@ -124,6 +124,36 @@ export async function generateSuggestions(conversationId: string, { force = fals
     }
   }
 
+  // ข้อมูลที่ไม่ขึ้นกับคำถามดึงพร้อมกันทีเดียว ทุกคำสั่งคือ round trip ไป Supabase การรอทีละตัวทำให้ร่างช้าหลายวินาที
+  const customerText = msgs.filter((m) => m.direction === "in").map((m) => m.body_th || m.body).join("\n");
+  const symptomSignal = hasSymptomSignal(question) || !!findRedFlag(customerText);
+  const noRows = { data: [] as KnowledgeHit[] };
+  const sharedP = Promise.all([
+    db.from("knowledge_items").select("id, category, title, content, updated_at").eq("active", true).in("category", ALWAYS_INCLUDED_CATEGORIES),
+    // ระบุคอลัมน์เสมอ ที่นี่ใช้ service role ซึ่งอ่านต้นทุนได้
+    db.from("knowledge_items").select("website_slug, title, content").eq("source", "website").eq("active", true),
+    db.from("lab_items").select("code, name_en, name_th, price").eq("active", true),
+    db.from("lab_packages").select("name, price").eq("active", true),
+    // เรื่องอาการ: แนวทางที่แพทย์อนุมัติแล้วและสิทธิการรักษาส่งให้ AI เสมอ ร่างไม่ส่ง
+    symptomSignal
+      ? db.from("knowledge_items").select("id, category, title, content, updated_at")
+        .eq("active", true).eq("review_status", "approved").in("category", [SYMPTOM_GUIDE_CATEGORY, "สิทธิการรักษา"])
+      : Promise.resolve(noRows),
+    db.from("conversations").select("tags, sensitive").eq("id", conversationId).maybeSingle(),
+    // คำขอจองต้องผ่านการตรวจวันเวลาทุกครั้ง
+    loadBusinessHours(),
+    getSetting<{ name: string; tone: string }>("clinic_profile", DEFAULT_CLINIC_PROFILE),
+    // คำตอบมาตรฐานของคลินิกเป็นตัวอย่างสำนวน ไม่นำเข้าแหล่งยืนยันตัวเลข
+    db.from("reply_examples").select("answer, starred").eq("active", true).eq("starred", true).limit(50),
+    db.from("tags").select("name").eq("active", true).order("sort"),
+    loadBookingCatalog(),
+  ]);
+  // คำถามราคาแล็บต้องใช้ราคาล่าสุดจากตาราง เริ่มทันทีที่รู้แท็กของแชท ไม่ต้องรอ embedding
+  const labContextP = sharedP.then(([, , , , , { data: tagged }]) => loadLabContext(question, (tagged?.tags ?? []) as string[]));
+  // ถ้าขั้นอื่นล้มก่อนถึงจุดรอ ไม่ให้กลายเป็น unhandled rejection ตอนรอจริงยังโยน error เหมือนเดิม
+  sharedP.catch(() => {});
+  labContextP.catch(() => {});
+
   // ชื่อและเบอร์ของนัดเดิมห้ามส่งให้ AI เบอร์ทุกเบอร์ดึงด้วยโค้ดตอนบันทึกนัด AI จึงไม่ต้องเห็น
   const bookings = await loadConversationBookings(conversationId);
   const forAi = (text: string) => scrubPII(maskBookingPii(text, bookings));
@@ -132,18 +162,16 @@ export async function generateSuggestions(conversationId: string, { force = fals
   // ---- ค้น 2 แหล่งด้วย vector search ----
   const qEmbedding = await embed(safeQuestion);
   const vec = JSON.stringify(qEmbedding);
-  const [{ data: kRaw }, { data: eRaw }, { data: policy }] = await Promise.all([
+  const [{ data: kRaw }, { data: eRaw }, [
+    { data: policy }, { data: websiteRows }, { data: labRows }, { data: packageRows }, { data: guideRows },
+    { data: convTags }, hours, profile, { data: starredRows }, { data: tagRows }, catalog,
+  ], labContext] = await Promise.all([
     db.rpc("match_knowledge", { query_embedding: vec, match_count: 6 }),
     db.rpc("match_examples", { query_embedding: vec, match_count: 5 }),
-    db.from("knowledge_items").select("id, category, title, content, updated_at").eq("active", true).in("category", ALWAYS_INCLUDED_CATEGORIES),
+    sharedP,
+    labContextP,
   ]);
   const knowledge = ((kRaw ?? []) as KnowledgeHit[]).filter((k) => k.similarity >= KNOWLEDGE_MIN_SIM);
-  // ระบุคอลัมน์เสมอ ที่นี่ใช้ service role ซึ่งอ่านต้นทุนได้
-  const [{ data: websiteRows }, { data: labRows }, { data: packageRows }] = await Promise.all([
-    db.from("knowledge_items").select("website_slug, title, content").eq("source", "website").eq("active", true),
-    db.from("lab_items").select("code, name_en, name_th, price").eq("active", true),
-    db.from("lab_packages").select("name, price").eq("active", true),
-  ]);
   const priceEntries = buildPriceEntries(
     (websiteRows ?? []) as WebsitePriceRow[],
     (labRows ?? []) as { code: string; name_en: string; name_th: string; price: number | null }[],
@@ -153,13 +181,6 @@ export async function generateSuggestions(conversationId: string, { force = fals
     if (!knowledge.some((k) => k.id === p.id)) knowledge.push({ ...p, similarity: 1 });
   }
   // คำตอบเก่าที่ราคาขัดกับข้อมูลปัจจุบัน ไม่ให้ AI เห็นเลย กันลอกราคาเก่า
-  // เรื่องอาการ: แนวทางที่แพทย์อนุมัติแล้วและสิทธิการรักษาส่งให้ AI เสมอ ร่างไม่ส่ง
-  const customerText = msgs.filter((m) => m.direction === "in").map((m) => m.body_th || m.body).join("\n");
-  const symptomSignal = hasSymptomSignal(question) || !!findRedFlag(customerText);
-  const { data: guideRows } = symptomSignal
-    ? await db.from("knowledge_items").select("id, category, title, content, updated_at")
-      .eq("active", true).eq("review_status", "approved").in("category", [SYMPTOM_GUIDE_CATEGORY, "สิทธิการรักษา"])
-    : { data: [] };
   for (const g of (guideRows ?? []) as KnowledgeHit[]) {
     if (!knowledge.some((k) => k.id === g.id)) knowledge.push({ ...g, similarity: 1 });
   }
@@ -169,13 +190,9 @@ export async function generateSuggestions(conversationId: string, { force = fals
     .filter((e) => e.similarity >= EXAMPLE_MIN_SIM)
     .filter((e) => !findPriceConflicts(e.answer, e.question, priceEntries).length);
 
-  const { data: convTags } = await db.from("conversations").select("tags, sensitive").eq("id", conversationId).maybeSingle();
   const alreadySensitive = !!convTags?.sensitive;
-  const labContext = await loadLabContext(question, (convTags?.tags ?? []) as string[]);
 
-  // คำถามราคาแล็บต้องใช้ราคาล่าสุดจากตาราง คำตอบติดดาวอาจเป็นราคาเก่า
-  // คำขอจองต้องผ่านการตรวจวันเวลาทุกครั้ง
-  const hours = await loadBusinessHours();
+  // คำตอบติดดาวอาจเป็นราคาเก่า คำถามราคาแล็บ นัด แชทลับ และอาการ จึงต้องผ่าน LLM
   const current = activeBookings(bookings, localToday(now, hours.tz || "Asia/Bangkok"))[0] ?? null;
   const starred = force || labContext || current || alreadySensitive || symptomSignal || hasBookingSignal(question) ? null : pickStarredAnswer({ question, examples, knowledge, msgs, priceEntries });
   if (starred) {
@@ -187,15 +204,9 @@ export async function generateSuggestions(conversationId: string, { force = fals
     return { id: saved?.id ?? null, options: [starred], needs_human: false };
   }
 
-  const profile = await getSetting<{ name: string; tone: string }>("clinic_profile", DEFAULT_CLINIC_PROFILE);
-  // คำตอบมาตรฐานของคลินิกเป็นตัวอย่างสำนวน ไม่นำเข้าแหล่งยืนยันตัวเลข
-  const { data: starredRows } = await db.from("reply_examples").select("answer, starred")
-    .eq("active", true).eq("starred", true).limit(50);
   const clinicStyle = pickStyleExamples((starredRows ?? []) as { answer: string; starred: boolean }[]);
-  const { data: tagRows } = await db.from("tags").select("name").eq("active", true).order("sort");
   // แท็กลับคู่กับสถานะแชทลับ AI บอกผ่าน sensitive แทน
   const tagNames = (tagRows ?? []).map((t) => t.name as string).filter((t) => t !== SENSITIVE_TAG);
-  const catalog = await loadBookingCatalog();
 
   // ---- แหล่งที่ 3: ประวัติของลูกค้าคนนี้ ----
   const history = msgs
@@ -281,15 +292,17 @@ ${current ? `${current.service} ${current.date} ${current.time.slice(0, 5)}` : "
 ## ข้อความลูกค้าที่ต้องตอบตอนนี้
 ${safeQuestion}`;
 
+  // คำตอบที่นำเข้ามาจากอดีต ใช้เป็นแบบสำนวนได้แต่ไม่ยืนยันตัวเลข ดึงไว้ระหว่างรอ LLM
+  const importedP = examples.length
+    ? Promise.resolve(db.from("reply_examples").select("id").in("id", examples.map((e) => e.id)).in("source", ["line_import", "manual_paste"]))
+    : Promise.resolve({ data: [] as { id: string }[] });
+  importedP.catch(() => {});
   const out = await chatJSON<{ needs_human?: boolean; reason?: string; suggested_tags?: unknown; sensitive?: boolean; intent?: string; red_flag?: boolean; booking?: BookingRequest; options?: Partial<SuggestionOption>[] }>(system, user, 0.4);
   const suggested_tags = sanitizeSuggestedTags(out.suggested_tags, tagNames);
 
   const validSources: SuggestionSource[] = ["knowledge", "example", "history"];
   const knownIds = new Set([...knowledge.map((k) => k.id), ...examples.map((e) => e.id)]);
-  // คำตอบที่นำเข้ามาจากอดีต ใช้เป็นแบบสำนวนได้แต่ไม่ยืนยันตัวเลข
-  const { data: importedRows } = examples.length
-    ? await db.from("reply_examples").select("id").in("id", examples.map((e) => e.id)).in("source", ["line_import", "manual_paste"])
-    : { data: [] };
+  const { data: importedRows } = await importedP;
   const importedIds = new Set(((importedRows ?? []) as { id: string }[]).map((e) => e.id));
   // คำถามราคาแล็บไม่เชื่อตัวเลขจากคำตอบเดิม เพราะอาจเป็นราคาก่อนแก้ตาราง
   const numberSources = buildNumberSources({
@@ -360,15 +373,13 @@ ${safeQuestion}`;
     if (!alreadySensitive) await markConversationSensitive(conversationId, "AI");
   }
 
-  const { data: saved } = await db
-    .from("suggestions")
-    .insert({ conversation_id: conversationId, trigger_message_id: lastId, options, needs_human, suggested_tags })
-    .select("id")
-    .single();
-
-  if (needs_human) {
-    await db.from("conversations").update({ needs_human: true }).eq("id", conversationId);
-  }
+  const [{ data: saved }] = await Promise.all([
+    db.from("suggestions")
+      .insert({ conversation_id: conversationId, trigger_message_id: lastId, options, needs_human, suggested_tags })
+      .select("id")
+      .single(),
+    needs_human ? db.from("conversations").update({ needs_human: true }).eq("id", conversationId) : null,
+  ]);
 
   return { id: saved?.id ?? null, options, needs_human, reason: out.reason, suggested_tags };
 }
