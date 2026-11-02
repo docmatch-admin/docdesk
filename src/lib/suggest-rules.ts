@@ -115,6 +115,30 @@ export function applyClaimGuard<T extends { text: string; confidence: number; no
   };
 }
 
+/** บอกลูกค้าให้ติดต่อทางช่องทางเดียวกับที่คุยอยู่ ไม่นับ "ทางไลน์นี้" ซึ่งหมายถึงแชทนี้ */
+const SAME_CHANNEL_PATTERNS: Record<string, RegExp> = {
+  line: /(ทาง|ผ่าน|แอด|ติดต่อ)\s*(LINE|ไลน์)(?!\s*นี้)/i,
+  facebook: /(ทาง|ผ่าน|ติดต่อ)\s*(Facebook|เฟซบุ๊ก|เฟสบุ๊ค|เฟส|Messenger|อินบ็อกซ์|inbox)(?!\s*นี้)/i,
+  instagram: /(ทาง|ผ่าน|ติดต่อ)\s*(Instagram|ไอจี|IG)(?!\s*นี้)/i,
+};
+
+/** ลูกค้าคุยทางช่องทางนี้อยู่แล้ว ให้ไอดีหรือบอกให้ติดต่อทางเดิมไม่มีประโยชน์: ไม่ให้ AI ส่งเอง และเตือนเจ้าหน้าที่ */
+export function applySameChannelGuard<T extends { text: string; confidence: number; note?: string }>(
+  option: T, channel: { type: string; name: string } | null,
+): T {
+  if (!channel) return option;
+  const lower = option.text.toLowerCase();
+  const handles = channel.name.match(/@[\w.-]+/g) ?? [];
+  const hit = handles.some((h) => lower.includes(h.toLowerCase())) || !!SAME_CHANNEL_PATTERNS[channel.type]?.test(option.text);
+  if (!hit) return option;
+  const warning = `บอกให้ติดต่อทาง ${channel.name} ซึ่งลูกค้าคุยอยู่แล้ว`;
+  return {
+    ...option,
+    confidence: Math.min(option.confidence, UNVERIFIED_CLAIM_MAX_CONFIDENCE),
+    note: option.note ? `${option.note} · ${warning}` : warning,
+  };
+}
+
 interface StyleExample { answer: string; starred: boolean }
 
 /** เรียงคำตอบเดิมให้ AI เห็นแบบที่ควรเลียนก่อน: สั้นและติดดาว, สั้น, ติดดาว, ที่เหลือ แล้วสั้นก่อนในแต่ละกลุ่ม */

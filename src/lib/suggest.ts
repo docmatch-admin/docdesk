@@ -13,7 +13,7 @@ import { applyPriceConflictGuard, buildPriceEntries, findPriceConflicts, noPrice
 import { scrubPII } from "./pii";
 import { applySensitiveGuard, SENSITIVE_PROMPT_RULES, SENSITIVE_TAG } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive } from "./sensitive-store";
-import { applyClaimGuard, applyLengthGuard, hasUrgentSignal, pickStarredAnswer, pickStyleExamples, shouldSkipSuggestion, sortByStyle } from "./suggest-rules";
+import { applyClaimGuard, applyLengthGuard, applySameChannelGuard, hasUrgentSignal, pickStarredAnswer, pickStyleExamples, shouldSkipSuggestion, sortByStyle } from "./suggest-rules";
 import { supabaseAdmin } from "./supabase/admin";
 import { applySymptomGuards, findRedFlag, hasEnoughSymptomInfo, hasSymptomSignal, SYMPTOM_GUIDE_CATEGORY, symptomPromptRules, todayHoursText } from "./symptom-rules";
 import { sanitizeSuggestedTags } from "./tags";
@@ -139,7 +139,7 @@ export async function generateSuggestions(conversationId: string, { force = fals
       ? db.from("knowledge_items").select("id, category, title, content, updated_at")
         .eq("active", true).eq("review_status", "approved").in("category", [SYMPTOM_GUIDE_CATEGORY, "สิทธิการรักษา"])
       : Promise.resolve(noRows),
-    db.from("conversations").select("tags, sensitive").eq("id", conversationId).maybeSingle(),
+    db.from("conversations").select("tags, sensitive, channels(type, name)").eq("id", conversationId).maybeSingle(),
     // คำขอจองต้องผ่านการตรวจวันเวลาทุกครั้ง
     loadBusinessHours(),
     getSetting<{ name: string; tone: string }>("clinic_profile", DEFAULT_CLINIC_PROFILE),
@@ -191,6 +191,9 @@ export async function generateSuggestions(conversationId: string, { force = fals
     .filter((e) => !findPriceConflicts(e.answer, e.question, priceEntries).length);
 
   const alreadySensitive = !!convTags?.sensitive;
+  const channelRaw = (convTags as { channels?: unknown } | null)?.channels;
+  const channelRow = (Array.isArray(channelRaw) ? channelRaw[0] : channelRaw) as { type: ChannelType; name?: string | null } | null | undefined;
+  const convChannel = channelRow?.name ? { type: channelRow.type, name: channelRow.name } : null;
 
   // คำตอบติดดาวอาจเป็นราคาเก่า คำถามราคาแล็บ นัด แชทลับ และอาการ จึงต้องผ่าน LLM
   const current = activeBookings(bookings, localToday(now, hours.tz || "Asia/Bangkok"))[0] ?? null;
@@ -238,6 +241,8 @@ export async function generateSuggestions(conversationId: string, { force = fals
 ${symptomPromptRules(approvedGuides.length > 0)}
 - ผลแล็บ หรือการใช้ยา/ขนาดยาที่แพทย์สั่ง: needs_human = true ห้ามแปลผลหรือแนะนำยาเอง
 - ลูกค้าขอคุยกับคน/ไม่พอใจ/ร้องเรียน: needs_human = true
+${convChannel ? `- ลูกค้าคุยกับคลินิกผ่าน ${convChannel.name} อยู่แล้ว ห้ามบอกให้ติดต่อ ส่งข้อมูล หรือขอใบเสนอราคาผ่านช่องทางนี้ และห้ามให้ไอดีหรือลิงก์ของช่องทางนี้ ให้บอกว่าส่งในแชทนี้ได้เลย\n` : ""}- ตอบข้อความล่าสุดของลูกค้าเป็นหลัก ถ้าลูกค้าบอกว่าขอคิดก่อน ขอปรึกษาก่อน หรือขอบคุณเพื่อจบการคุย ให้ตอบรับสั้นๆ อย่างสุภาพ ไม่ต้องตอบคำถามก่อนหน้าซ้ำ
+- [รูปภาพ] ในประวัติคือรูปที่ลูกค้าส่ง คุณมองไม่เห็นเนื้อหารูป ห้ามเดาว่าในรูปมีอะไร ถ้าคำตอบต้องใช้ข้อมูลในรูปให้ needs_human = true
 - ทุกตัวเลือกต้องเป็นภาษาแชท 1–2 ประโยค ยาวสุด 3 บรรทัด ห้ามใช้ bullet หัวข้อ หรือตัวหนา ห้ามทวนคำถาม ห้ามขึ้นต้นด้วยการขอบคุณที่สอบถาม ถามกลับได้ครั้งละ 1 คำถาม
 - ต้องให้อย่างน้อย 2 ตัวเลือก เรียงตามนี้: (1) สั้นที่สุด ตอบแค่ที่ถาม แต่ต้องครบเงื่อนไขในข้อมูล เช่น วันที่เริ่มใช้ (2) คำตอบเดียวกับข้อ 1 แล้วเพิ่มรายละเอียดจากข้อมูลที่ลูกค้าน่าจะถามต่อ (3) ถามกลับ 1 คำถาม เฉพาะเมื่อข้อมูลไม่พอ เขียนเป็นภาษาไทยเสมอ (ระบบจะแปลให้ลูกค้าเอง)
 - ทุกตัวเลือกต้องตอบคำถามได้ด้วยตัวเอง ห้ามลงท้ายด้วยการเชิญชวนให้ถามเพิ่ม
@@ -325,6 +330,7 @@ ${safeQuestion}`;
     .map((o) => applyNumberGuard(o, numberSources))
     .map((o) => applyPriceConflictGuard(o, question, priceEntries))
     .map((o) => applyClaimGuard(o, numberSources.trusted))
+    .map((o) => applySameChannelGuard(o, convChannel))
     .map((o) => applyLengthGuard(o, examples.filter((e) => e.starred).map((e) => e.answer)));
 
   // บริการไม่มีราคา: ตัวเลือกแรกเป็นข้อความจากเว็บ ไม่ขึ้นกับ AI

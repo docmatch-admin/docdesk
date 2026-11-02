@@ -9,7 +9,7 @@ const { nextTime, resetDb, state } = await import(fake("admin"));
 const { aiTiming, processIncoming, storeIncoming } = await import("../src/lib/pipeline.ts");
 const { AUTO_SEND_MIN_CONFIDENCE, generateSuggestions } = await import("../src/lib/suggest.ts");
 const {
-  applyClaimGuard, applyLengthGuard, LONG_ANSWER_MAX_CONFIDENCE, MAX_ANSWER_CHARS, pickStyleExamples, sortByStyle,
+  applyClaimGuard, applyLengthGuard, applySameChannelGuard, LONG_ANSWER_MAX_CONFIDENCE, MAX_ANSWER_CHARS, pickStyleExamples, sortByStyle,
 } = await import("../src/lib/suggest-rules.ts");
 const { DEFAULT_CLINIC_PROFILE } = await import("../src/lib/mode.ts");
 const { fromThai } = await import("../src/lib/translate.ts");
@@ -259,4 +259,33 @@ test("fromThai: ขอภาษาแชทสั้นๆ แต่ต้อง
 test("fromThai: ภาษาไทยไม่เรียก LLM", async () => {
   assert.equal(await fromThai("สวัสดีค่ะ", "th"), "สวัสดีค่ะ");
   assert.equal(calls.chat, 0);
+});
+
+// ---- ช่องทางเดียวกับที่ลูกค้าคุยอยู่ ----
+const LINE_CH = { type: "line", name: "LINE @p49clinic" };
+test("ตัวกันช่องทางเดิม: ให้ไอดีหรือบอกให้ติดต่อทางไลน์ถูกลด แต่ 'ทางไลน์นี้' และช่องทางอื่นไม่ถูกลด", () => {
+  const flagged = applySameChannelGuard(opt("ขอใบเสนอราคาได้ทาง LINE @p49clinic ค่ะ", 0.9), LINE_CH);
+  assert.ok(flagged.confidence <= 0.5);
+  assert.match(flagged.note, /คุยอยู่แล้ว/);
+  assert.ok(applySameChannelGuard(opt("แอดไลน์คลินิกได้เลยค่ะ", 0.9), LINE_CH).confidence <= 0.5);
+  const thisChat = opt("ส่งรายการทางไลน์นี้ได้เลยค่ะ", 0.9);
+  assert.equal(applySameChannelGuard(thisChat, LINE_CH), thisChat);
+  const web = opt("ขอใบเสนอราคาได้ทาง LINE @p49clinic ค่ะ", 0.9);
+  assert.equal(applySameChannelGuard(web, { type: "web", name: "เว็บไซต์ happiwellclinic.com" }), web);
+});
+
+test("แชท LINE: พรอมต์บอกช่องทางและกฎข้อความล่าสุด/รูป คำตอบที่ให้ไอดีไลน์ส่งเองไม่ได้", async () => {
+  setup("assist", {
+    channels: [{ id: "ln", type: "line", name: "LINE @p49clinic", ai_mode: null, enabled: true, created_at: nextTime() }],
+    contacts: [{ id: "ct", channel_id: "ln", external_id: "U1", display_name: "ลูกค้าจำลอง", language: "th" }],
+    conversations: [{ id: "cv", contact_id: "ct", channel_id: "ln", status: "open", tags: [] }],
+    messages: [{ id: "m1", conversation_id: "cv", direction: "in", sender_type: "customer", body: "ตรวจ 7 รายการเท่าไหร่คะ", body_th: null, imported: false, created_at: nextTime() }],
+  });
+  replies.next = llmReply([opt("ขอใบเสนอราคาได้ทาง LINE @p49clinic ค่ะ", 0.9), opt("ส่งรายการในแชทนี้ได้เลยค่ะ", 0.9)]);
+  const r = await generateSuggestions("cv", { force: true });
+  assert.match(calls.lastPrompt, /ผ่าน LINE @p49clinic อยู่แล้ว/);
+  assert.match(calls.lastPrompt, /ตอบข้อความล่าสุดของลูกค้าเป็นหลัก/);
+  assert.match(calls.lastPrompt, /มองไม่เห็นเนื้อหารูป/);
+  assert.ok(r.options[0].confidence < AUTO_SEND_MIN_CONFIDENCE);
+  assert.equal(r.options[1].confidence, 0.9);
 });
