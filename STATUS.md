@@ -7,7 +7,7 @@ Production ใช้งานได้ที่ https://docdesk-tau.vercel.app �
 
 | ส่วน | สถานะ |
 |---|---|
-| Supabase | `ncsgcplnuoiebadqdywx` (ชื่อ `DocDesk's Project`, region ซิดนีย์) migration `001`, `002`, `004`–`029` ขึ้นแล้ว |
+| Supabase | `kbhhmjyipvnuyyveexpj` (ชื่อ `DocDesk SG`, region สิงคโปร์ ap-southeast-1) migration `001`, `002`, `004`–`031` ขึ้นแล้ว ย้ายจาก `ncsgcplnuoiebadqdywx` (ซิดนีย์) เมื่อ 3 พ.ย. 2569 ตัวเก่า pause ไว้ ยังไม่ลบ |
 | Vercel | project `docdesk` ใน team `doc-match` |
 | เจ้าหน้าที่ | ปิด sign-up แล้ว, `docmatch49@gmail.com` เป็น admin ชื่อ `Admin` มีบัญชีทดสอบ agent `test1`, `test2` (ลบหรือปิดเมื่อทดสอบเสร็จ) |
 | โหมด AI ทั้งระบบ | `off` ตามค่าที่ตั้งอยู่ตอนนี้ (AI ยังร่างคำแนะนำเมื่อเปิดแชท แต่ไม่ส่งเอง) |
@@ -266,7 +266,7 @@ Production ใช้งานได้ที่ https://docdesk-tau.vercel.app �
 4. ตั้งวงเงินรายเดือนใน OpenAI
 
 ### ต้องตัดสินใจ
-- **Region:** Supabase อยู่ซิดนีย์ ถ้าต้องการสิงคโปร์ต้องสร้าง project ใหม่และย้ายข้อมูล ยิ่งช้ายิ่งย้ายยาก ตอนนี้มีรูปใน Storage ที่ต้องย้ายเพิ่มด้วย
+- **Supabase ตัวเก่า (ซิดนีย์):** pause ไว้ ลบได้เมื่อมั่นใจว่าตัวสิงคโปร์ใช้งานปกติ องค์กร DocDesk เป็นแผนฟรี เปิดโปรเจกต์ฟรีพร้อมกันได้ 2 ตัวต่อบัญชี
 - **แผน Vercel:** team `doc-match` ใช้แผน Hobby ซึ่งออกแบบมาสำหรับการใช้งานที่ไม่ใช่เชิงพาณิชย์ ควรตรวจเงื่อนไขก่อนใช้กับคลินิกจริง
 - **PDPA:** แชทและรูปอาจมีข้อมูลสุขภาพ README แนะนำให้แจ้งการเก็บข้อมูลในข้อความทักทายหรือนโยบายความเป็นส่วนตัว widget ยังไม่มีข้อความนี้
 
