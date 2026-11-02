@@ -95,5 +95,7 @@ export interface Message {
   media_height: number | null;
   media_deleted_at: string | null;
   imported?: boolean;
+  /** ผู้ส่งนอก DocDesk เช่น Meta Business Suite */
+  imported_sender_name?: string | null;
   created_at: string;
 }

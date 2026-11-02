@@ -10,8 +10,11 @@ const COUNT_UNITS = ["เข็ม", "คน", "ท่าน", "ครั้ง"
 export type NumberKind = "time" | "price" | "count" | "other";
 export interface NumberToken { value: string; kind: NumberKind }
 
-/** แหล่งตัวเลข: trusted = ฐานข้อมูล/คำตอบเจ้าหน้าที่, customer = ข้อความลูกค้า (เชื่อเฉพาะหน่วยนับ) */
-export interface NumberSources { trusted: string[]; customer: string[] }
+/**
+ * แหล่งตัวเลข: trusted = ฐานข้อมูล/คำตอบเจ้าหน้าที่, customer = ข้อความลูกค้า (เชื่อเฉพาะหน่วยนับ)
+ * priceTrusted = แหล่งเดียวที่ยืนยันราคาได้ คำตอบเก่าและแชทอาจมีราคาเก่า
+ */
+export interface NumberSources { trusted: string[]; customer: string[]; priceTrusted?: string[] }
 
 /** ไม่รวมข้อความที่ AI เคยส่ง และคำถามใน reply_examples ซึ่งเป็นคำพูดลูกค้า */
 export function buildNumberSources(input: {
@@ -31,6 +34,7 @@ export function buildNumberSources(input: {
       ...(input.extraTrusted ?? []),
     ],
     customer: textsFrom("customer"),
+    priceTrusted: [...input.knowledge.map((k) => `${k.title} ${k.content}`), ...(input.extraTrusted ?? [])],
   };
 }
 
@@ -75,11 +79,12 @@ export function extractNumbers(text: string): NumberToken[] {
  */
 export function findUnverifiedNumbers(text: string, sources: NumberSources): string[] {
   const trusted = new Set(sources.trusted.flatMap(extractNumbers).map((t) => t.value));
+  const priceTrusted = new Set((sources.priceTrusted ?? sources.trusted).flatMap(extractNumbers).map((t) => t.value));
   const customerCounts = new Set(
     sources.customer.flatMap(extractNumbers).filter((t) => t.kind === "count").map((t) => t.value),
   );
   const unverified = extractNumbers(text)
-    .filter((t) => !trusted.has(t.value))
+    .filter((t) => !(t.kind === "price" ? priceTrusted : trusted).has(t.value))
     .filter((t) => t.kind === "time" || t.kind === "price" || !customerCounts.has(t.value))
     .map((t) => t.value);
   return [...new Set(unverified)];

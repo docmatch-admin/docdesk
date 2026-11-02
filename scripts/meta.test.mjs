@@ -84,3 +84,19 @@ test("กติกาเวลา 24 ชม. / 7 วัน", () => {
   assert.throws(() => metaMessagingType(new Date(now - 8 * 24 * H), "staff", now), MetaWindowError);
   assert.throws(() => metaMessagingType(null, "staff", now), MetaWindowError);
 });
+
+// ---- ชื่อลูกค้าเมื่อดึงโปรไฟล์ไม่ได้ ----
+test("ดึงโปรไฟล์ไม่ได้: ใช้ชื่อ ลูกค้า Facebook ไม่ throw", async () => {
+  const { getMetaProfile } = await import("../src/lib/channels/meta.ts");
+  const real = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: { code: 10 } }), { status: 400 });
+    assert.deepEqual(await getMetaProfile("facebook", "1"), { name: "ลูกค้า Facebook" });
+    globalThis.fetch = async () => { throw new Error("network"); };
+    assert.deepEqual(await getMetaProfile("facebook", "1"), { name: "ลูกค้า Facebook" });
+    globalThis.fetch = async () => new Response(JSON.stringify({ first_name: "ก", last_name: "ข" }), { status: 200 });
+    assert.equal((await getMetaProfile("facebook", "1")).name, "ก ข");
+  } finally {
+    globalThis.fetch = real;
+  }
+});

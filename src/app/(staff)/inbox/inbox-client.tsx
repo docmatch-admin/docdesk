@@ -36,7 +36,6 @@ interface AssignmentEntry { id: number; from_staff: string | null; to_staff: str
 interface QuickMedia { id: string; title: string; preview_path: string; previewUrl?: string }
 interface Attachment { file?: File; quick?: QuickMedia; previewUrl: string; name: string }
 
-const SCOPE_KEY = "docdesk_inbox_scope";
 const SIGNED_URL_SECONDS = 600;
 /** แชทลับเบลอกลับเมื่อไม่ขยับนานเท่านี้ */
 const SENSITIVE_IDLE_MS = 60_000;
@@ -119,7 +118,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       let query = sb.from("conversations").select(columns, { count: "exact" }).eq("status", status);
       if (status === "open") query = query.eq("archived", false);
       if (matched) query = query.in("id", matched);
-      if (scopeRef.current === "mine") query = query.eq("assigned_to", me.id);
+      // ของฉัน = ที่ฉันดูแล และที่ยังไม่มีใครดูแล ไม่อย่างนั้นลูกค้าใหม่จะไม่มีใครเห็น
+      if (scopeRef.current === "mine") query = query.or(`assigned_to.eq.${me.id},assigned_to.is.null`);
       return tagFilterRef.current.length ? query.contains("tags", tagFilterRef.current) : query;
     };
     const [waiting, open_, closed] = await Promise.all([
@@ -171,16 +171,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     if (id) setSelectedId(id);
   }, []);
 
-  // จำค่าไว้ในเครื่อง อ่านหลัง mount เพราะฝั่ง server ไม่มี localStorage
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(SCOPE_KEY) === "mine") setScope("mine");
-    } catch { /* ใช้ค่าเริ่มต้น */ }
-  }, []);
-
+  // เริ่มที่ทุกคนเสมอ ไม่จำค่าเดิม เพราะลืมว่าเลือกของฉันไว้แล้วจะไม่เห็นแชทของคนอื่นที่รออยู่
   function changeScope(next: "all" | "mine") {
     setScope(next);
-    try { localStorage.setItem(SCOPE_KEY, next); } catch { /* จำไม่ได้ก็ใช้แค่รอบนี้ */ }
   }
 
   useEffect(() => {
@@ -939,6 +932,7 @@ function ChatImage({ message: m }: { message: Message }) {
 function senderLabel(m: Message, names: Map<string, string>): string {
   if (m.direction !== "out") return "";
   if (m.sender_type === "ai") return "🤖 AI · ";
+  if (m.imported_sender_name) return `${m.sender_type === "system" ? "⚙️ " : ""}${m.imported_sender_name} · `;
   return `${(m.sender_id && names.get(m.sender_id)) || "เจ้าหน้าที่"} · `;
 }
 

@@ -4,11 +4,11 @@ import {
 } from "./booking-rules";
 import { getSetting, isWithinBusinessHours, type BusinessHours } from "./mode";
 import { supabaseAdmin } from "./supabase/admin";
+import { HIDDEN_LINE_PREFIX, UNAVAILABLE_TITLE } from "./website-sync";
 import type { SuggestionOption } from "./types";
 
-const UNAVAILABLE_TITLE = "บริการที่ยังไม่มี";
 /** หมวดนี้ไม่ใช่บริการ เช่น เวลาทำการหรือนโยบาย จึงไม่นำมาจับชื่อบริการ */
-const NON_SERVICE_CATEGORIES = ["ข้อมูลคลินิก", "นโยบายการตอบ"];
+const NON_SERVICE_CATEGORIES = ["ข้อมูลคลินิก", "นโยบายการตอบ", "แนวทางซักอาการ"];
 
 export const loadBookingTemplates = async (): Promise<BookingTemplates> =>
   normalizeBookingTemplates(await getSetting<unknown>("booking_templates", DEFAULT_BOOKING_TEMPLATES));
@@ -25,6 +25,7 @@ export async function loadBookingCatalog(): Promise<BookingCatalog> {
   ]);
   const rows = (knowledge ?? []) as { category: string; title: string; content: string }[];
   const services = rows.filter((k) => !NON_SERVICE_CATEGORIES.includes(k.category) && k.title !== UNAVAILABLE_TITLE);
+  const unavailableLines = (rows.find((k) => k.title === UNAVAILABLE_TITLE)?.content ?? "").split("\n");
   return {
     names: [
       ...services.map((k) => k.title),
@@ -32,7 +33,8 @@ export async function loadBookingCatalog(): Promise<BookingCatalog> {
       ...((packages ?? []) as { name: string }[]).map((p) => p.name),
     ].filter(Boolean),
     contents: services.map((k) => k.content),
-    unavailableText: rows.find((k) => k.title === UNAVAILABLE_TITLE)?.content ?? "",
+    unavailableText: unavailableLines.filter((l) => !l.startsWith(HIDDEN_LINE_PREFIX)).join("\n"),
+    hiddenServices: unavailableLines.filter((l) => l.startsWith(HIDDEN_LINE_PREFIX)).map((l) => l.slice(HIDDEN_LINE_PREFIX.length)),
   };
 }
 

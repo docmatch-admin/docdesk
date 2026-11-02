@@ -27,7 +27,7 @@ export function recordStaffResponse(input: { conversationId: string; replyId: st
     const [{ data: conv }, { data: rows }, hours, rules] = await Promise.all([
       db.from("conversations").select("closed_at").eq("id", input.conversationId).maybeSingle(),
       db.from("messages").select("id, direction, body, created_at")
-        .eq("conversation_id", input.conversationId).neq("imported", true).order("created_at", { ascending: false }).limit(50),
+        .eq("conversation_id", input.conversationId).neq("imported", true).neq("sender_type", "system").order("created_at", { ascending: false }).limit(50),
       getSetting<BusinessHoursConfig>("business_hours", { tz: "Asia/Bangkok", days: {} }),
       loadScoreRules(),
     ]);

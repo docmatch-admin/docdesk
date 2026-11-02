@@ -10,6 +10,15 @@ const pageToken = () => process.env.META_PAGE_ACCESS_TOKEN!;
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** แอป DocDesk ใน Meta: echo จากแอปนี้คือข้อความที่ DocDesk ส่งเอง */
+export const DOCDESK_META_APP_ID = () => process.env.META_APP_ID || "1140939055044630";
+
+/** Meta ตอบ message_id ของแต่ละข้อความ ใช้กัน echo ซ้ำ ถ้าอ่านไม่ได้ไม่ถือว่าส่งล้ม */
+async function sentMid(res: Response): Promise<string | null> {
+  const j = (await res.json().catch(() => null)) as { message_id?: string } | null;
+  return j?.message_id ?? null;
+}
+
 /** ตรวจ X-Hub-Signature-256 = "sha256=" + HMAC(app secret, raw body) */
 export function verifyMetaSignature(rawBody: string, header: string | null): boolean {
   const secret = process.env.META_APP_SECRET;
@@ -20,18 +29,42 @@ export function verifyMetaSignature(rawBody: string, header: string | null): boo
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
+/** ชื่อชั่วคราวเมื่อดึงโปรไฟล์ไม่ได้ เช่น แอปยังไม่มีสิทธิ์ ข้อความต้องเข้าระบบได้เสมอ */
+export const META_FALLBACK_NAME = { facebook: "ลูกค้า Facebook", instagram: "ลูกค้า Instagram" } as const;
+
 export async function getMetaProfile(
   kind: "facebook" | "instagram",
   userId: string,
 ): Promise<{ name?: string; avatar?: string }> {
+  const fallback = { name: META_FALLBACK_NAME[kind] };
   const fields = kind === "facebook" ? "first_name,last_name,profile_pic" : "name,username,profile_pic";
-  const res = await fetch(`${GRAPH()}/${userId}?fields=${fields}&access_token=${pageToken()}`);
-  if (!res.ok) return {};
-  const p = (await res.json()) as Record<string, string | undefined>;
-  const name = kind === "facebook"
-    ? [p.first_name, p.last_name].filter(Boolean).join(" ")
-    : p.name || (p.username ? `@${p.username}` : undefined);
-  return { name: name || undefined, avatar: p.profile_pic };
+  try {
+    const res = await fetch(`${GRAPH()}/${userId}?fields=${fields}&access_token=${pageToken()}`, { signal: AbortSignal.timeout(5_000) });
+    if (!res.ok) return fallback;
+    const p = (await res.json()) as Record<string, string | undefined>;
+    const name = kind === "facebook"
+      ? [p.first_name, p.last_name].filter(Boolean).join(" ")
+      : p.name || (p.username ? `@${p.username}` : undefined);
+    return { name: name || fallback.name, avatar: p.profile_pic };
+  } catch (e) {
+    // ไม่ log ตัว error เพราะข้อความอาจมี URL ที่มี token
+    console.error("meta profile failed", e instanceof Error ? e.name : "error");
+    return fallback;
+  }
+}
+
+/** ตรวจ Page token ด้วย debug_token ไม่ใช้ /me เพราะต้องมีสิทธิ์ pages_read_engagement */
+export async function debugPageToken(): Promise<{ ok: boolean; detail: string }> {
+  const token = process.env.META_PAGE_ACCESS_TOKEN;
+  if (!token) return { ok: false, detail: "ยังไม่ได้ตั้ง META_PAGE_ACCESS_TOKEN" };
+  const t = encodeURIComponent(token);
+  const res = await fetch(`${GRAPH()}/debug_token?input_token=${t}&access_token=${t}`, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) return { ok: false, detail: `Meta ตอบ ${res.status}` };
+  const { data } = (await res.json()) as { data?: { type?: string; is_valid?: boolean; profile_id?: string; expires_at?: number } };
+  if (!data?.is_valid) return { ok: false, detail: "token ใช้ไม่ได้แล้ว" };
+  if (data.type !== "PAGE") return { ok: false, detail: `ไม่ใช่ Page token (${data.type ?? "ไม่ทราบ"})` };
+  const expiry = data.expires_at ? `หมดอายุ ${new Date(data.expires_at * 1000).toISOString().slice(0, 10)}` : "ไม่หมดอายุ";
+  return { ok: true, detail: `Page ${data.profile_id ?? "-"} ${expiry}` };
 }
 
 /** แบ่งข้อความยาว: Messenger ≤ 2000 ตัวอักษร, Instagram ≤ 1000 bytes */
@@ -84,8 +117,9 @@ export async function metaSend(
   recipientId: string,
   text: string,
   opts: { lastInboundAt: Date | null; senderType: "staff" | "ai" },
-) {
+): Promise<string[]> {
   const type = metaMessagingType(opts.lastInboundAt, opts.senderType);
+  const mids: string[] = [];
   for (const part of splitForMeta(kind, text)) {
     const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
       method: "POST",
@@ -101,7 +135,10 @@ export async function metaSend(
       }
       throw new Error(`Meta send failed ${res.status}: ${body}`);
     }
+    const mid = await sentMid(res);
+    if (mid) mids.push(mid);
   }
+  return mids;
 }
 
 /** ส่งรูปตามกติกาเวลาเดียวกับข้อความ caption ไปเป็นข้อความถัดไปเพราะ attachment ไม่มี caption */
@@ -111,7 +148,7 @@ export async function metaSendImage(
   imageUrl: string,
   caption: string,
   opts: { lastInboundAt: Date | null; senderType: "staff" | "ai" },
-) {
+): Promise<string[]> {
   const type = metaMessagingType(opts.lastInboundAt, opts.senderType);
   const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
     method: "POST",
@@ -123,7 +160,9 @@ export async function metaSendImage(
     }),
   });
   if (!res.ok) throw new Error(`Meta send image failed ${res.status}: ${await res.text()}`);
-  if (caption.trim()) await metaSend(kind, recipientId, caption, opts);
+  const mid = await sentMid(res);
+  const captionMids = caption.trim() ? await metaSend(kind, recipientId, caption, opts) : [];
+  return [...(mid ? [mid] : []), ...captionMids];
 }
 
 /** แจ้ง Facebook/Instagram ว่าเพจอ่านแล้ว */
@@ -162,6 +201,8 @@ interface MetaWebhookBody {
         mid: string;
         text?: string;
         is_echo?: boolean;
+        app_id?: number | string;
+        metadata?: string;
         attachments?: { type: string; payload?: { url?: string } }[];
       };
     }[];
@@ -200,6 +241,56 @@ export function parseMetaWebhook(body: MetaWebhookBody): MetaIncoming[] {
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// echo: ข้อความที่เพจส่งออก ทั้งจาก DocDesk, คนตอบใน Meta Business Suite และข้อความอัตโนมัติของเพจ
+// ---------------------------------------------------------------------------
+export interface MetaEcho {
+  kind: "facebook" | "instagram";
+  /** ลูกค้าคือผู้รับ ไม่ใช่ผู้ส่ง */
+  customerId: string;
+  messageId: string;
+  text: string;
+  appId: string | null;
+  metadata: string | null;
+  sentAt: string;
+}
+
+export function parseMetaEchoes(body: MetaWebhookBody): MetaEcho[] {
+  const kind = body.object === "page" ? "facebook" : body.object === "instagram" ? "instagram" : null;
+  if (!kind) return [];
+  const out: MetaEcho[] = [];
+  for (const entry of body.entry ?? []) {
+    for (const ev of entry.messaging ?? []) {
+      const m = ev.message;
+      const customerId = ev.recipient?.id;
+      if (!m?.is_echo || !m.mid || !customerId || customerId === entry.id) continue;
+      const attachment = m.attachments?.[0]?.type;
+      const text = m.text ?? (attachment ? `[ส่ง${ATTACHMENT_TH[attachment] ?? attachment}จากเพจ]` : "");
+      if (!text) continue;
+      out.push({
+        kind, customerId, messageId: m.mid, text,
+        appId: m.app_id == null ? null : String(m.app_id),
+        metadata: m.metadata?.trim() || null,
+        sentAt: new Date(ev.timestamp ?? Date.now()).toISOString(),
+      });
+    }
+  }
+  return out;
+}
+
+export type EchoKind = "own" | "auto" | "staff";
+
+/**
+ * own = DocDesk ส่งเอง (กันกรณี echo มาก่อนบันทึก mid)
+ * auto = ข้อความอัตโนมัติของเพจ: มี metadata หรือมาจากแอปที่ตั้งไว้ใน meta_auto_reply_app_ids
+ * staff = คนตอบนอก DocDesk
+ */
+export function classifyMetaEcho(echo: Pick<MetaEcho, "appId" | "metadata">, autoReplyAppIds: string[]): EchoKind {
+  if (echo.appId === DOCDESK_META_APP_ID()) return "own";
+  if (echo.metadata || (echo.appId && autoReplyAppIds.includes(echo.appId))) return "auto";
+  return "staff";
 }
 
 export interface MetaRead {

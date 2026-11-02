@@ -1,9 +1,9 @@
 import { after, NextResponse } from "next/server";
-import { getMetaProfile, parseMetaReads, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
+import { getMetaProfile, META_FALLBACK_NAME, parseMetaEchoes, parseMetaReads, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
 import { logSystemError } from "@/lib/health";
 import { downloadLimited } from "@/lib/media";
 import { ingestInboundImage } from "@/lib/media-store";
-import { processIncoming, storeIncoming } from "@/lib/pipeline";
+import { processIncoming, storeIncoming, storeMetaEcho } from "@/lib/pipeline";
 import { applyCustomerRead, findConversationId } from "@/lib/read-receipts";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -36,7 +36,8 @@ export async function POST(req: Request) {
     const { data: known } = await supabaseAdmin().from("contacts")
       .select("id, display_name, channels!inner(type)")
       .eq("external_id", m.senderId).eq("channels.type", m.kind).maybeSingle();
-    const profile = known?.display_name ? {} : await getMetaProfile(m.kind, m.senderId);
+    // ชื่อชั่วคราวลองดึงใหม่ เผื่อได้สิทธิ์อ่านโปรไฟล์ภายหลัง
+    const profile = known?.display_name && known.display_name !== META_FALLBACK_NAME[m.kind] ? {} : await getMetaProfile(m.kind, m.senderId);
 
     const stored = await storeIncoming({
       channelType: m.kind,
@@ -61,6 +62,19 @@ export async function POST(req: Request) {
   } catch (e) {
     await logSystemError("webhook:meta", e);
     throw e;
+  }
+
+  // ข้อความที่เพจส่งออก (message_echoes) พลาดรายการเดียวต้องไม่ทำให้รายการอื่นหาย
+  for (const echo of parseMetaEchoes(body)) {
+    try {
+      const { data: known } = await supabaseAdmin().from("contacts")
+        .select("id, channels!inner(type)").eq("external_id", echo.customerId).eq("channels.type", echo.kind).maybeSingle();
+      const name = known ? undefined : (await getMetaProfile(echo.kind, echo.customerId)).name;
+      await storeMetaEcho(echo, name);
+    } catch (e) {
+      console.error("meta echo failed", e);
+      await logSystemError("webhook:meta", e);
+    }
   }
 
   // ลูกค้าอ่านข้อความแล้ว

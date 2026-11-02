@@ -67,13 +67,13 @@ test("AI เคยตอบเลขผิดในประวัติแล�
   assert.match(out.note, /9:00, 17:00, 4900/);
 });
 
-test("buildNumberSources: นับคำตอบและข้อความเจ้าหน้าที่ แต่ไม่นับคำถามใน reply_examples", () => {
+test("buildNumberSources: เวลาจากเจ้าหน้าที่ยืนยันได้ ราคาจากคำตอบเก่ายืนยันไม่ได้", () => {
   const sources = buildNumberSources({
     knowledge: [],
     examples: [{ question: "ได้ยินว่า 777 บาทใช่ไหม", answer: "ราคา 390 บาทค่ะ" }],
     msgs: [{ sender_type: "staff", body: "Open at 14:30", body_th: "เปิด 14.30 น. ค่ะ" }],
   });
-  assert.deepEqual(findUnverifiedNumbers("ราคา 390 บาท เปิด 14:30 น. ค่ะ", sources), []);
+  assert.deepEqual(findUnverifiedNumbers("ราคา 390 บาท เปิด 14:30 น. ค่ะ", sources), ["390"]);
   assert.deepEqual(findUnverifiedNumbers("ราคา 777 บาทค่ะ", sources), ["777"]);
 });
 

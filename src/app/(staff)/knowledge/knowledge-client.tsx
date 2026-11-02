@@ -5,10 +5,13 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { LabPricesPanel } from "./lab-prices-panel";
 
-interface Item { id: string; category: string; title: string; content: string; active: boolean; updated_at: string }
+interface Item { id: string; category: string; title: string; content: string; active: boolean; updated_at: string; source: string; review_status: string }
+const GUIDE_CATEGORY = "แนวทางซักอาการ";
+interface SyncStatus { last_success_at: string | null; error: string | null; needs_confirm?: boolean; count?: number }
 interface Example { id: string; question: string; answer: string; starred: boolean; use_count: number; active: boolean; created_at: string; source?: string; import_batch_id?: string | null }
 
 const dateTh = (iso: string) => new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });
+const timeTh = (iso: string) => new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
 const EMPTY = { id: "", category: "", title: "", content: "" };
 
 export function KnowledgeClient() {
@@ -24,10 +27,12 @@ export function KnowledgeClient() {
   const [onlyImported, setOnlyImported] = useState(false);
   const [confirmHide, setConfirmHide] = useState(false);
   const [imported, setImported] = useState<Example[]>([]);
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     const [{ data: k }, { data: e }] = await Promise.all([
-      sb.from("knowledge_items").select("id, category, title, content, active, updated_at").order("category").order("title"),
+      sb.from("knowledge_items").select("id, category, title, content, active, updated_at, source, review_status").order("category").order("title"),
       sb.from("reply_examples").select("id, question, answer, starred, use_count, active, created_at")
         .order("starred", { ascending: false }).order("use_count", { ascending: false }).order("created_at", { ascending: false }).limit(500),
     ]);
@@ -37,6 +42,8 @@ export function KnowledgeClient() {
     const { data: i } = await sb.from("reply_examples").select("id, question, answer, starred, use_count, active, created_at, source, import_batch_id")
       .in("source", ["line_import", "manual_paste"]).order("created_at", { ascending: false }).limit(500);
     setImported((i ?? []) as Example[]);
+    const { data: s } = await sb.from("settings").select("value").eq("key", "website_sync").maybeSingle();
+    setSync((s?.value as SyncStatus | undefined) ?? null);
   }, [sb]);
   useEffect(() => { load(); }, [load]);
 
@@ -52,6 +59,13 @@ export function KnowledgeClient() {
     if (!res.ok) return setMsg((await res.json()).error ?? "บันทึกไม่สำเร็จ");
     setForm(EMPTY);
     setMsg("บันทึกแล้ว AI จะใช้ข้อมูลนี้ทันที");
+    load();
+  }
+
+  async function syncNow(force = false) {
+    setSyncing(true);
+    await fetch("/api/knowledge/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) });
+    setSyncing(false);
     load();
   }
 
@@ -83,6 +97,19 @@ export function KnowledgeClient() {
         <input className="search" placeholder="ค้นหา…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
+      {tab === "kb" && (
+        <div className="card row between">
+          <div className="small">
+            {sync?.last_success_at ? <>ซิงก์ราคาจากเว็บล่าสุด {timeTh(sync.last_success_at)} ({sync.count ?? 0} บริการ)</> : "ยังไม่เคยซิงก์ราคาจากเว็บ"}
+            {sync?.error && <div className="chip red">{sync.error}</div>}
+          </div>
+          <div className="row">
+            {sync?.needs_confirm && <button className="btn ghost small" disabled={syncing} onClick={() => syncNow(true)}>ยืนยันปิดบริการที่หายจากเว็บ</button>}
+            <button className="btn ghost small" disabled={syncing} onClick={() => syncNow()}>{syncing ? "กำลังซิงก์…" : "ซิงก์ราคาจากเว็บตอนนี้"}</button>
+          </div>
+        </div>
+      )}
+
       {tab === "lab" ? <LabPricesPanel /> : tab === "media" ? <QuickMediaPanel /> : tab === "kb" ? (
         <div className="kb-grid">
           <form className="card form" onSubmit={save}>
@@ -106,13 +133,25 @@ export function KnowledgeClient() {
             {kb.map((i) => (
               <div key={i.id} className={`card kb-item ${i.active ? "" : "off"}`}>
                 <div className="row between">
-                  <div><span className="chip">{i.category}</span> <b>{i.title}</b></div>
-                  <div className="row">
-                    <button className="btn ghost small" onClick={() => setForm({ id: i.id, category: i.category, title: i.title, content: i.content })}>แก้ไข</button>
-                    <button className="btn ghost small" onClick={async () => {
-                      await sb.from("knowledge_items").update({ active: !i.active }).eq("id", i.id); load();
-                    }}>{i.active ? "ปิดใช้" : "เปิดใช้"}</button>
+                  <div>
+                    <span className="chip">{i.category}</span> <b>{i.title}</b>
+                    {i.category === GUIDE_CATEGORY && <> <span className="chip red">ต้องให้แพทย์ตรวจทาน</span> <span className="chip">{i.review_status === "approved" ? "✅ แพทย์อนุมัติแล้ว" : "ร่าง AI ยังไม่ใช้"}</span></>}
                   </div>
+                  {i.source === "website" ? <span className="chip">จากเว็บ — แก้ที่หลังบ้านเว็บ</span> : (
+                    <div className="row">
+                      {i.category === GUIDE_CATEGORY && i.review_status !== "approved" && (
+                        <button className="btn ghost small" onClick={async () => {
+                          const res = await fetch("/api/knowledge/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: i.id }) });
+                          setMsg(res.ok ? "บันทึกว่าแพทย์อนุมัติแล้ว AI จะใช้แนวทางนี้" : "บันทึกไม่สำเร็จ");
+                          load();
+                        }}>แพทย์อนุมัติแล้ว</button>
+                      )}
+                      <button className="btn ghost small" onClick={() => setForm({ id: i.id, category: i.category, title: i.title, content: i.content })}>แก้ไข</button>
+                      <button className="btn ghost small" onClick={async () => {
+                        await sb.from("knowledge_items").update({ active: !i.active }).eq("id", i.id); load();
+                      }}>{i.active ? "ปิดใช้" : "เปิดใช้"}</button>
+                    </div>
+                  )}
                 </div>
                 <div className="pre">{i.content}</div>
                 <div className="muted small">อัปเดต {dateTh(i.updated_at)}</div>

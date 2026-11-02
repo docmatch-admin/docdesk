@@ -55,10 +55,10 @@ export function packageValue(pkg: LabPackage, items: LabItem[]): PackageValue {
 // ---------------------------------------------------------------------------
 // จับชื่อรายการจากข้อความลูกค้า
 // ---------------------------------------------------------------------------
-const ITEM_ALIASES: Record<string, string[]> = {
+export const ITEM_ALIASES: Record<string, string[]> = {
   HIV: ["hiv", "เอชไอวี"],
   LIPID: ["ไขมัน", "คอเลสเตอรอล", "cholesterol", "ldl", "hdl", "triglyceride"],
-  FBS: ["น้ำตาลในเลือด", "fbs"],
+  FBS: ["น้ำตาลในเลือด", "fbs", "น้ำตาล"],
   HBA1C: ["น้ำตาลสะสม", "hba1c"],
   CR: ["creatinine", "ครีเอตินิน"],
   LFT: ["lft", "ค่าตับ"],

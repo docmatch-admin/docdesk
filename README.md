@@ -64,6 +64,9 @@
 - **admin:** ทำได้ทุกอย่าง · **agent:** ตอบแชท ติดแท็ก กดดาว รับเคส และส่งต่อเคสของตัวเอง เพิ่มหรือปิดบัญชีได้ที่หน้า `/staff` บังคับทั้งหน้าเว็บ API และ RLS (`supabase/migrations/018_roles.sql`)
 - **คะแนน (`src/lib/scoring.ts`):** ตอบข้อความแรกของชุดที่ยังไม่ได้ตอบ นับเวลาเฉพาะเวลาทำการ ≤2 นาที 3 คะแนน, ≤5 นาที 2, ≤15 นาที 1 คำตอบสั้นกว่า 15 ตัวอักษรได้ครึ่งเดียว กดดาวข้อความเพื่อน +2 ให้คนส่ง กดเสร็จแล้ว +1 ให้คนตอบล่าสุด ตั้งเกณฑ์ได้ในหน้าตั้งค่า
 
+## ราคาจากเว็บ
+ตั้ง `WEBSITE_SUPABASE_URL` และ `WEBSITE_SUPABASE_KEY` (publishable key อ่านอย่างเดียว) `src/lib/website-sync.ts` อ่าน `hw_programs` ที่เผยแพร่แล้วเก็บเป็น `knowledge_items` แบบ `source = website` ชั่วโมงละครั้งผ่าน cron หรือปุ่มในหน้าฐานข้อมูล แถวเหล่านี้แก้ในระบบไม่ได้ `src/lib/price-catalog.ts` ตรวจว่าราคาในคำตอบตรงกับบริการนั้น
+
 ## แชทลับ
 แชทเรื่องเพศติด `conversations.sensitive` จากคำสำคัญในหน้าตั้งค่าหรือจาก AI ติดแล้วเอาออกได้เฉพาะ admin คนที่ไม่มี `staff.can_view_sensitive` อ่านไม่ได้ทั้ง RLS และ API (`denySensitiveChat`) เห็นแค่ `masked_sensitive_waiting()` ถ้าเพิ่มตารางที่มี `conversation_id` ต้องใช้ `can_read_conversation()` ใน policy และ API ใหม่ที่รับ id แชทต้องเรียก `denySensitiveChat` เพราะ service role ข้าม RLS
 

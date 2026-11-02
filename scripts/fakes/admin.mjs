@@ -42,7 +42,8 @@ function bucket(name) {
 function refreshQueue(conversationId) {
   const conv = state.tables.conversations?.find((c) => c.id === conversationId);
   if (!conv) return;
-  const msgs = state.tables.messages.filter((m) => m.conversation_id === conversationId)
+  // ข้อความระบบไม่นับเป็นการตอบ เหมือน migration 030
+  const msgs = state.tables.messages.filter((m) => m.conversation_id === conversationId && m.sender_type !== "system")
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
   const latest = (dir) => [...msgs].reverse().find((m) => m.direction === dir)?.created_at ?? null;
   conv.last_direction = msgs.at(-1)?.direction ?? null;

@@ -1,3 +1,4 @@
+import { findPriceConflicts, type PriceEntry } from "./price-catalog";
 import { buildNumberSources, findUnverifiedNumbers } from "./number-guard";
 import type { SuggestionOption } from "./types";
 
@@ -36,6 +37,13 @@ export const isAttachmentPlaceholder = (body: string) => /^\s*\[(ลูกค้
 
 /** มีข้อความที่ลูกค้าพิมพ์จริง: รูปหรือไฟล์แนบที่ตามหลังมาต้องไม่ยกเลิกการร่างคำตอบของข้อความนั้น */
 export const isCustomerText = (body: string) => !!body.trim() && !isAttachmentPlaceholder(body);
+
+/** คำขอบคุณหรือสติกเกอร์ล้วน: ไม่ต้องเปิดแชทที่เสร็จแล้วกลับมา ข้อความอื่นรวมรูปต้องเปิดเสมอ */
+export function isThanksOrSticker(text: string, isImage = false): boolean {
+  if (isImage) return false;
+  const lines = text.split("\n").filter((l) => l.trim());
+  return lines.length > 0 && lines.every((l) => /^\s*\[ลูกค้าส่ง\s*sticker/i.test(l) || classifyAck(l) === "thanks");
+}
 
 const asksQuestion =(text: string) => /[?？]|ไหม|มั้ย|หรือเปล่า|รึเปล่า|หรือไม่|คะ\s*$/.test(text);
 
@@ -140,6 +148,7 @@ export function pickStarredAnswer(input: {
   examples: StarredHit[];
   knowledge: { title: string; content: string }[];
   msgs: ChatMsg[];
+  priceEntries?: PriceEntry[];
 }): SuggestionOption | null {
   const hit = input.examples
     .filter((e) => e.starred && e.similarity >= STARRED_MIN_SIMILARITY)
@@ -155,6 +164,7 @@ export function pickStarredAnswer(input: {
 
   const sources = buildNumberSources({ knowledge: input.knowledge, examples: [], msgs: input.msgs });
   if (findUnverifiedNumbers(hit.answer, sources).length) return null;
+  if (findPriceConflicts(hit.answer, input.question, input.priceEntries ?? []).length) return null;
 
   return { text: hit.answer, source: "example", ref_ids: [hit.id], confidence: STARRED_CONFIDENCE };
 }

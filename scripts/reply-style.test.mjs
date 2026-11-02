@@ -108,7 +108,7 @@ test("คำตอบดาวยาว ไม่ผ่าน LLM: ไม่ถ�
 
 test("LLM ยกคำตอบดาวยาวมาตรงๆ: ไม่ถูกลด ส่วนคำตอบยาวที่แต่งเองถูกลด", async () => {
   const answer = text(250);
-  const s = await incoming("ราคาคุณภาพของบริการปวด");
+  const s = await incoming("ราคาคุณภาพของบริการ");
   state.matchExamples = [{ id: "e", question: "ถาม", answer, starred: true, use_count: 0, created_at: "2026-01-01T00:00:00Z", similarity: 0.6 }];
   replies.next = llmReply([opt(answer, 0.9, { source: "example" }), opt(text(260), 0.9)]);
   const r = await generateSuggestions(s.conversationId, { force: true });

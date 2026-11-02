@@ -169,3 +169,47 @@ test("แถบแดง: ตัวตรวจไม่ทำงานเกิ
   assert.deepEqual(healthProblems([row(true)], NOW + HEALTH_STALE_MS), []);
   assert.deepEqual(healthProblems([row(true)], NOW + HEALTH_STALE_MS + 1), ["ตัวตรวจสุขภาพระบบไม่ได้ทำงาน"]);
 });
+
+// ---- Facebook Page token ----
+function metaFetch(data, status = 200) {
+  const base = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("/debug_token?")) {
+      line.metaUrl = String(url);
+      return new Response(JSON.stringify({ data }), { status });
+    }
+    return base(url);
+  };
+}
+const withMeta = async (fn) => {
+  process.env.META_PAGE_ACCESS_TOKEN = "page-secret";
+  try { return await fn(); } finally { delete process.env.META_PAGE_ACCESS_TOKEN; }
+};
+
+test("ยังไม่ตั้ง Page token: ไม่ตรวจ ไม่ขึ้นแดง", async () => {
+  delete process.env.META_PAGE_ACCESS_TOKEN;
+  assert.equal((await run()).meta_token, undefined);
+});
+
+test("Page token ใช้ได้: ผ่าน ใช้ debug_token ไม่ใช่ /me และไม่มี token ในผล", () => withMeta(async () => {
+  metaFetch({ type: "PAGE", is_valid: true, profile_id: "878132745372668", expires_at: 0 });
+  const r = await run();
+  assert.equal(r.meta_token.ok, true);
+  assert.match(r.meta_token.detail, /878132745372668/);
+  assert.doesNotMatch(JSON.stringify(state.tables.system_health), /page-secret/);
+  assert.match(line.metaUrl, /\/debug_token\?input_token=page-secret&access_token=page-secret/);
+  assert.doesNotMatch(line.metaUrl, /\/me\b/);
+}));
+
+for (const [name, data, status, re] of [
+  ["ใช้ไม่ได้", { type: "PAGE", is_valid: false }, 200, /ใช้ไม่ได้/],
+  ["เป็น User token", { type: "USER", is_valid: true }, 200, /USER/],
+  ["Meta ตอบ 400", {}, 400, /400/],
+]) {
+  test(`Page token ${name}: แดง`, () => withMeta(async () => {
+    metaFetch(data, status);
+    const r = await run();
+    assert.equal(r.meta_token.ok, false);
+    assert.match(r.meta_token.detail, re);
+  }));
+}

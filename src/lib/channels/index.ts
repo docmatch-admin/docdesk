@@ -10,14 +10,14 @@ export interface SendOptions {
   senderType?: "staff" | "ai";
 }
 
-/** ส่งรูป: web ไม่ต้องทำอะไร widget ดึงจากฐานข้อมูลเอง */
+/** ส่งรูป: web ไม่ต้องทำอะไร widget ดึงจากฐานข้อมูลเอง Facebook/Instagram คืน message id ที่ใช้กัน echo ซ้ำ */
 export async function sendImageToChannel(
   type: ChannelType,
   externalId: string,
   urls: { main: string; preview: string },
   caption: string,
   opts: SendOptions = {},
-) {
+): Promise<string[] | void> {
   switch (type) {
     case "line":
       return lineSendImage(externalId, urls.main, urls.preview, caption, opts.replyToken);
@@ -39,7 +39,7 @@ export async function sendImageToChannel(
  * - web: ไม่ต้องทำอะไร widget ดึงข้อความจากฐานข้อมูลเอง
  * - whatsapp: เพิ่มในเฟสถัดไป
  */
-export async function sendToChannel(type: ChannelType, externalId: string, text: string, opts: SendOptions = {}) {
+export async function sendToChannel(type: ChannelType, externalId: string, text: string, opts: SendOptions = {}): Promise<string[] | void> {
   switch (type) {
     case "line":
       return lineSend(externalId, text, opts.replyToken);

@@ -1,4 +1,5 @@
 import { EMBED_MODEL, openai } from "./ai";
+import { debugPageToken } from "./channels/meta";
 import { HEALTH_LABEL, type HealthRow } from "./health-rules";
 import { supabaseAdmin } from "./supabase/admin";
 
@@ -123,6 +124,8 @@ export async function runHealthChecks(origin: string, now = Date.now()): Promise
     ["line_webhook", () => checkLineWebhook(origin)],
     ["cron_fallback", () => checkCron(now)],
     ["webhook_errors", () => checkWebhookErrors(now)],
+    // ยังไม่ได้เชื่อม Facebook ไม่ต้องขึ้นแดง
+    ...(process.env.META_PAGE_ACCESS_TOKEN ? [["meta_token", debugPageToken] as [string, () => Promise<CheckResult>]] : []),
   ];
   const checked_at = new Date(now).toISOString();
   const rows: HealthRow[] = await Promise.all(checks.map(async ([check_name, run]) => ({ check_name, checked_at, ...(await guarded(run)) })));

@@ -8,6 +8,7 @@ import { DEFAULT_SENSITIVE_KEYWORDS, DEFAULT_SENSITIVE_RETENTION_DAYS, normalize
 import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib/llm-usage";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { HealthPanel } from "./health-panel";
+import { PriceAlerts } from "./price-alerts";
 import { TagSettings } from "./tag-settings";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
 
@@ -84,6 +85,7 @@ export function SettingsClient() {
       <h1>ตั้งค่า AI</h1>
 
       <HealthPanel />
+      <PriceAlerts />
 
       <section className="card">
         <h3>โหมด AI ทั้งระบบ</h3>

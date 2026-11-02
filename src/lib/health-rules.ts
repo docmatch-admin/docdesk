@@ -4,6 +4,7 @@ export const HEALTH_LABEL: Record<string, string> = {
   openai: "OpenAI",
   line_token: "LINE token",
   line_webhook: "LINE webhook ชี้มาที่ DocDesk",
+  meta_token: "Facebook Page token",
   cron_fallback: "Cron รันล่าสุดไม่เกิน 5 นาที",
   webhook_errors: "ไม่มี error ใน webhook 1 ชั่วโมงล่าสุด",
 };

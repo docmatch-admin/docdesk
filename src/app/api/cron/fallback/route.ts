@@ -3,6 +3,7 @@ import { pushPendingBookings } from "@/lib/booking-store";
 import { touchHeartbeat } from "@/lib/health";
 import { purgeExpiredMedia, purgeStaleUploads } from "@/lib/media-store";
 import { autoCloseQuietChats, runFallback } from "@/lib/pipeline";
+import { syncWebsiteIfDue } from "@/lib/website-sync";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -34,7 +35,13 @@ async function handle(req: Request) {
   } catch (e) {
     console.error("booking push failed", e);
   }
-  return NextResponse.json({ ...result, mediaPurged, autoClosed, pushed });
+  let websiteSynced = false;
+  try {
+    websiteSynced = await syncWebsiteIfDue();
+  } catch (e) {
+    console.error("website sync failed", e);
+  }
+  return NextResponse.json({ ...result, mediaPurged, autoClosed, pushed, websiteSynced });
 }
 
 export const GET = handle;

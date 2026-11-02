@@ -5,6 +5,11 @@ import { supabaseAdmin } from "./supabase/admin";
 
 const preview = (s: string) => s.replace(/\s+/g, " ").slice(0, 120);
 
+export const sameDisplayName = (a: string | null | undefined, b: string | null | undefined) => {
+  const norm = (s: string | null | undefined) => (s ?? "").normalize("NFC").replace(/\s+/g, " ").trim().toLowerCase();
+  return !!norm(a) && norm(a) === norm(b);
+};
+
 async function lineChannelId(): Promise<string | null> {
   const { data } = await supabaseAdmin().from("channels").select("id").eq("type", "line").order("created_at").limit(1).maybeSingle();
   return (data?.id as string | undefined) ?? null;
@@ -59,8 +64,10 @@ export async function findArchiveCandidates(conversationId: string, canViewSensi
   const name = (contact?.display_name as string | null)?.trim();
   if (!name) return [];
 
-  const { data: sameName } = await db.from("contacts").select("id").eq("channel_id", channelId).eq("display_name", name).neq("id", conv.contact_id as string);
-  const ids = ((sameName ?? []) as { id: string }[]).map((c) => c.id);
+  // ชื่อจากไฟล์นำเข้ากับชื่อจาก LINE อาจต่างกันที่ช่องว่างหรือตัวพิมพ์ เทียบแบบปรับแล้ว
+  const { data: others } = await db.from("contacts").select("id, display_name").eq("channel_id", channelId).neq("id", conv.contact_id as string);
+  const ids = ((others ?? []) as { id: string; display_name: string | null }[])
+    .filter((c) => sameDisplayName(c.display_name, name)).map((c) => c.id);
   if (!ids.length) return [];
   const { data: chats } = await db.from("conversations").select("id, sensitive").in("contact_id", ids).eq("archived", true);
   const { data: dismissed } = await db.from("archive_merge_dismissed").select("archived_conversation_id").eq("conversation_id", conversationId);

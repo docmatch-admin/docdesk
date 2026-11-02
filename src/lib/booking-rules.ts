@@ -182,6 +182,8 @@ export interface BookingCatalog {
   contents: string[];
   /** เนื้อหาของรายการ "บริการที่ยังไม่มี" */
   unavailableText: string;
+  /** ชื่อเต็มของบริการที่ปิดบนเว็บ แยกจากข้อความด้านบนเพราะจับทีละคำแล้ว "วัคซีน" จะตรงกับวัคซีนทุกตัว */
+  hiddenServices?: string[];
 }
 
 const squash = (s: string) => s.toLowerCase().replace(/\s+/g, "");
@@ -192,6 +194,7 @@ export function matchService(service: string, catalog: BookingCatalog): "known" 
   if (!wanted) return "unknown";
   const names = catalog.names.map(squash).filter(Boolean);
   if (names.includes(wanted)) return "known";
+  if ((catalog.hiddenServices ?? []).map(squash).includes(wanted)) return "unavailable";
 
   const unavailable = squash(catalog.unavailableText);
   const words = service.toLowerCase().split(/\s+/).filter((w) => w.length >= MIN_MATCH);
@@ -283,6 +286,8 @@ export function bookingOption(d: BookingDecision, t: BookingTemplates): Suggesti
 /** ลูกค้าขอจองบริการที่ระบุว่ายังไม่มี คืนคำที่พบ AI อาจตอบว่าไม่ใช่การจองหรือส่งให้คน ทั้งที่ควรตอบได้เลย */
 export function findUnavailableRequest(text: string, catalog: BookingCatalog): string | null {
   if (!/จอง|นัด|book|appointment/i.test(text)) return null;
+  const hidden = (catalog.hiddenServices ?? []).find((name) => squash(text).includes(squash(name)));
+  if (hidden) return hidden;
   const words = catalog.unavailableText.split(/\s+/).filter((w) => w.length >= MIN_MATCH && !/ยังไม่มี|^และ/.test(w));
   const hay = text.toLowerCase();
   return words.find((w) => hay.includes(w.toLowerCase())) ?? null;

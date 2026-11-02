@@ -3,7 +3,7 @@ import { maskForLearning, saveConfirmedBooking } from "./booking-store";
 import { sendImageToChannel, sendToChannel } from "./channels";
 import { AUTO_CLOSE_EXEMPT_TAGS, CLEARED_ON_REOPEN_TAG, CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "./case-flow";
 import { lineMarkAsRead } from "./channels/line";
-import { metaMarkSeen, metaMessagingType } from "./channels/meta";
+import { classifyMetaEcho, metaMarkSeen, metaMessagingType, type MetaEcho } from "./channels/meta";
 import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { scrubPII } from "./pii";
@@ -11,7 +11,7 @@ import { matchSensitive, SENSITIVE_ACK_TEXT } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive, notifySensitiveChat } from "./sensitive-store";
 import { markConversationReadWith } from "./read-receipts";
 import { awardStarPoints, recordStaffResponse } from "./score-store";
-import { classifyAck, hasUrgentSignal, isCustomerText, shouldSkipSuggestion } from "./suggest-rules";
+import { classifyAck, hasUrgentSignal, isCustomerText, isThanksOrSticker, shouldSkipSuggestion } from "./suggest-rules";
 import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
 import { CHAT_BUCKET, consumeUpload, downloadFile, loadRetentionDays, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
@@ -67,9 +67,11 @@ export async function storeIncoming(input: IncomingInput) {
   const { data: conv, error: cvErr } = await db
     .from("conversations")
     .upsert({ contact_id: contact.id, channel_id: channel.id }, { onConflict: "contact_id" })
-    .select("id, unread_count, status, sensitive, waiting_since").single();
+    .select("id, unread_count, status, sensitive, waiting_since, archived").single();
   if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
   const wasClosed = conv.status === "closed";
+  // แชทที่เสร็จแล้วกลับมารอตอบทุกข้อความ ยกเว้นคำขอบคุณหรือสติกเกอร์ล้วน
+  const stayClosed = wasClosed && !conv.archived && isThanksOrSticker(input.text, input.isImage);
 
   const imageOnly = !!input.isImage && !input.text.trim();
   const { language, th } = input.skipAi || imageOnly
@@ -98,7 +100,9 @@ export async function storeIncoming(input: IncomingInput) {
   await Promise.all([
     db.from("contacts").update({ language }).eq("id", contact.id),
     db.from("conversations").update({
-      status: "open",
+      ...(stayClosed ? {} : { status: "open" }),
+      // แชทเก่าที่ได้ข้อความจริงจาก webhook คือแชทปกติแล้ว ต้องพิมพ์ตอบได้
+      ...(conv.archived ? { archived: false } : {}),
       unread_count: (conv.unread_count ?? 0) + 1,
       last_message_at: new Date().toISOString(),
       last_message_preview: preview(th ?? input.text) || "[รูปภาพ]",
@@ -110,7 +114,7 @@ export async function storeIncoming(input: IncomingInput) {
   ]);
 
   // ลูกค้าทักกลับมาหลังปิดเคส: การนัดเดิมอาจจบไปแล้ว ถ้าแชทยังเปิดอยู่ไม่แตะ เพราะเจ้าหน้าที่อาจเพิ่งติดเอง
-  if (wasClosed) {
+  if (wasClosed && !stayClosed) {
     await setConversationTag(conv.id as string, CLEARED_ON_REOPEN_TAG, "remove", "rule")
       .catch((e) => console.error("clear tag on reopen failed", e));
   }
@@ -279,7 +283,7 @@ async function sendSensitiveAck(conversationId: string, replyToken?: string): Pr
   const db = supabaseAdmin();
   await db.from("conversations").update({ needs_human: true, ai_due_at: null }).eq("id", conversationId);
   const { data: rows } = await db.from("messages").select("direction, sender_type, body, body_th")
-    .eq("conversation_id", conversationId).neq("imported", true).order("created_at", { ascending: false }).limit(50);
+    .eq("conversation_id", conversationId).neq("imported", true).neq("sender_type", "system").order("created_at", { ascending: false }).limit(50);
   const recent = (rows ?? []) as { direction: string; sender_type: string; body: string; body_th: string | null }[];
   const lastOut = recent.find((m) => m.direction === "out");
   if (lastOut?.sender_type === "ai") return false;
@@ -344,7 +348,7 @@ export async function sendReply(input: ReplyInput) {
   const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
   // watermark ของ Meta คือเวลาที่ Meta ได้รับข้อความ ถ้าใช้เวลาหลังส่งเสร็จ ข้อความล่าสุดจะดูเหมือนส่งหลัง watermark และไม่ขึ้นว่าอ่านแล้ว
   const sentAt = new Date().toISOString();
-  await sendToChannel(channel.type, contact.external_id, body, {
+  const mids = await sendToChannel(channel.type, contact.external_id, body, {
     replyToken, lastInboundAt, senderType: input.senderType,
   });
 
@@ -356,7 +360,8 @@ export async function sendReply(input: ReplyInput) {
     body,
     body_th: language === "th" ? null : input.textTh,
     language,
-    ...(isMeta ? { created_at: sentAt } : {}),
+    // echo ของข้อความนี้จะถูกข้ามเพราะ mid ตรงกัน
+    ...(isMeta ? { created_at: sentAt, external_id: mids?.[0] ?? null } : {}),
   }).select("id, created_at").single();
 
   await db.from("conversations").update({
@@ -491,10 +496,11 @@ export async function sendMediaReply(input: MediaReplyInput) {
   try {
     const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
     const ttlDays = await loadRetentionDays();
-    await sendImageToChannel(channel.type, contact.external_id, {
+    const mids = await sendImageToChannel(channel.type, contact.external_id, {
       main: buildOutMediaUrl(input.origin, messageId, "main", { ttlDays }),
       preview: buildOutMediaUrl(input.origin, messageId, "preview", { ttlDays }),
     }, caption, { replyToken, lastInboundAt, senderType: "staff" });
+    if (mids?.[0]) await db.from("messages").update({ external_id: mids[0] }).eq("id", messageId);
   } catch (e) {
     await db.from("messages").delete().eq("id", messageId);
     await removeFiles(CHAT_BUCKET, [media.path, media.previewPath]);
@@ -551,7 +557,7 @@ async function learnFromStaffReply(input: ReplyInput, messageId: string | null) 
   // คำถามลูกค้าก่อนหน้าข้อความที่เพิ่งส่ง
   const { data: rows } = await db.from("messages")
     .select("id, direction, sender_type, body, body_th, created_at")
-    .eq("conversation_id", input.conversationId).neq("imported", true)
+    .eq("conversation_id", input.conversationId).neq("imported", true).neq("sender_type", "system")
     .order("created_at", { ascending: false }).limit(15);
   const msgs = (rows ?? []).reverse().filter((m) => m.id !== messageId);
   const { text: question } = pendingCustomerText(msgs as never);
@@ -568,6 +574,86 @@ async function learnFromStaffReply(input: ReplyInput, messageId: string | null) 
     source_message_id: messageId,
     created_by: input.senderId ?? null,
   });
+}
+
+// ---------------------------------------------------------------------------
+// echo จาก Meta: ข้อความที่เพจส่งนอก DocDesk
+// ---------------------------------------------------------------------------
+export const META_ECHO_STAFF_NAME = "Meta Business Suite";
+export const META_ECHO_AUTO_NAME = "ตอบกลับอัตโนมัติของเพจ";
+
+/** จด app_id ที่เห็นใน echo ใช้ตั้ง meta_auto_reply_app_ids เพราะ Meta ไม่ได้ระบุ id ของข้อความอัตโนมัติไว้ชัด */
+async function noteEchoApp(appId: string | null, kind: string, at: string) {
+  const seen = await getSetting<Record<string, { kind: string; count: number; last_at: string }>>("meta_echo_app_ids", {});
+  const key = appId ?? "none";
+  seen[key] = { kind, count: (seen[key]?.count ?? 0) + 1, last_at: at };
+  await supabaseAdmin().from("settings").upsert({ key: "meta_echo_app_ids", value: seen }, { onConflict: "key" });
+}
+
+/**
+ * echo ของเพจ:
+ * - DocDesk ส่งเอง: ข้าม (mid ตรง หรือ app_id เป็นแอป DocDesk)
+ * - คนตอบใน Meta Business Suite: ข้อความขาออกของเจ้าหน้าที่ ออกจากรอตอบ ไม่คิดคะแนน และเรียนรู้ยกเว้นแชทลับ
+ * - ข้อความอัตโนมัติ: ข้อความระบบ แชทยังรอตอบ
+ */
+export async function storeMetaEcho(echo: MetaEcho, displayName?: string): Promise<{ stored: "staff" | "auto" | null }> {
+  const db = supabaseAdmin();
+  const receivedAt = new Date().toISOString();
+  const kind = classifyMetaEcho(echo, await getSetting<string[]>("meta_auto_reply_app_ids", []));
+  await noteEchoApp(echo.appId, kind, receivedAt).catch((e) => console.error("note echo app failed", e));
+  if (kind === "own") return { stored: null };
+  const { data: dup } = await db.from("messages").select("id").eq("external_id", echo.messageId).maybeSingle();
+  if (dup) return { stored: null };
+
+  const { data: channel } = await db.from("channels").select("id").eq("type", echo.kind).eq("enabled", true)
+    .order("created_at").limit(1).maybeSingle();
+  if (!channel) throw new Error(`ไม่พบช่องทาง ${echo.kind} ที่เปิดใช้งาน`);
+  // ไม่ upsert ชื่อ เพราะจะทับชื่อจริงของลูกค้าเดิม
+  let { data: contact } = await db.from("contacts").select("id, language")
+    .eq("channel_id", channel.id).eq("external_id", echo.customerId).maybeSingle();
+  if (!contact) {
+    const { data, error } = await db.from("contacts").insert({ channel_id: channel.id, external_id: echo.customerId, display_name: displayName ?? null })
+      .select("id, language").single();
+    if (error || !data) throw error ?? new Error("contact insert failed");
+    contact = data;
+  }
+  const { data: conv, error: cvErr } = await db.from("conversations")
+    .upsert({ contact_id: contact.id, channel_id: channel.id }, { onConflict: "contact_id" })
+    .select("id").single();
+  if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
+
+  const { data: msg, error } = await db.from("messages").insert({
+    conversation_id: conv.id,
+    direction: "out",
+    sender_type: kind === "auto" ? "system" : "staff",
+    sender_id: null,
+    body: echo.text,
+    language: (contact.language as string | null) || "th",
+    external_id: echo.messageId,
+    imported_sender_name: kind === "auto" ? META_ECHO_AUTO_NAME : META_ECHO_STAFF_NAME,
+    // ใช้เวลาที่รับ เหมือนข้อความเข้า เวลาจาก Meta คลาดกับเวลาที่เราบันทึกข้อความลูกค้า คำตอบอาจเรียงก่อนคำถาม
+    created_at: receivedAt,
+  }).select("id").single();
+  // Meta ส่ง echo ซ้ำพร้อมกันได้ ชนกันแปลว่าบันทึกไปแล้ว
+  if (error) {
+    if (error.code === "23505") return { stored: null };
+    throw error;
+  }
+  if (kind === "auto") return { stored: "auto" };
+
+  await db.from("conversations").update({
+    unread_count: 0,
+    ai_due_at: null,
+    needs_human: false,
+    last_message_at: receivedAt,
+    last_message_preview: preview(echo.text),
+  }).eq("id", conv.id);
+  // ไม่มีเจ้าหน้าที่ใน DocDesk ให้ผูก จึงไม่คิดคะแนน learnFromStaffReply ข้ามแชทลับเอง
+  if (!/^\[ส่ง.*จากเพจ\]$/.test(echo.text)) {
+    await learnFromStaffReply({ conversationId: conv.id as string, textTh: echo.text, senderType: "staff" }, msg?.id ?? null)
+      .catch((e) => console.error("learn failed", e));
+  }
+  return { stored: "staff" };
 }
 
 /** กดดาว: บันทึกข้อความนี้เป็นคำตอบมาตรฐาน */
@@ -645,8 +731,9 @@ export async function runFallback() {
     // ล้างก่อน กันรันซ้ำ
     await db.from("conversations").update({ ai_due_at: null }).eq("id", c.id);
 
+    // ข้อความอัตโนมัติของเพจไม่ใช่การตอบ
     const { data: last } = await db.from("messages").select("direction")
-      .eq("conversation_id", c.id).order("created_at", { ascending: false }).limit(1).single();
+      .eq("conversation_id", c.id).neq("sender_type", "system").order("created_at", { ascending: false }).limit(1).single();
     if (!last || last.direction === "out") continue; // มีคนตอบไปแล้ว
 
     const s = await generateSuggestions(c.id);
