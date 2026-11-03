@@ -11,7 +11,7 @@ import { matchSensitive, SENSITIVE_ACK_TEXT } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive, notifySensitiveChat } from "./sensitive-store";
 import { markConversationReadWith } from "./read-receipts";
 import { awardStarPoints, recordStaffResponse } from "./score-store";
-import { classifyAck, classifyClosingMessage, endsConversation, hasUrgentSignal, isCustomerText, isThanksOrSticker, shouldSkipSuggestion } from "./suggest-rules";
+import { classifyAck, classifyClosingMessage, endsConversation, hasUrgentSignal, isCustomerText, isStaffQuestion, isThanksOrSticker, shouldSkipSuggestion } from "./suggest-rules";
 import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
 import { CHAT_BUCKET, consumeUpload, downloadFile, loadRetentionDays, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
@@ -386,7 +386,8 @@ export async function sendReply(input: ReplyInput) {
   await db.from("conversations").update({
     unread_count: 0,
     ai_due_at: null,
-    ...(input.senderType === "staff" ? { needs_human: false } : {}),
+    // เจ้าหน้าที่ถามลูกค้าในแชทที่เสร็จแล้ว: กลับมาอยู่ในทั้งหมด (ไม่เข้ารอตอบ ลูกค้าเงียบนานจะถูกย้ายกลับเอง) ตอบรับเฉยๆ อยู่ที่เดิม
+    ...(input.senderType === "staff" ? { needs_human: false, ...(isStaffQuestion(input.textTh) ? { status: "open" } : {}) } : {}),
     last_message_at: new Date().toISOString(),
     last_message_preview: preview(input.textTh),
   }).eq("id", input.conversationId);
@@ -530,6 +531,7 @@ export async function sendMediaReply(input: MediaReplyInput) {
     unread_count: 0,
     ai_due_at: null,
     needs_human: false,
+    ...(isStaffQuestion(captionTh) ? { status: "open" } : {}),
     last_message_at: new Date().toISOString(),
     last_message_preview: preview(`[รูปภาพ] ${captionTh}`),
   }).eq("id", input.conversationId);
@@ -664,6 +666,8 @@ export async function storeMetaEcho(echo: MetaEcho, displayName?: string): Promi
     unread_count: 0,
     ai_due_at: null,
     needs_human: false,
+    // ถามจาก Meta Business Suite ในแชทที่เสร็จแล้ว: กลับมาอยู่ในทั้งหมดเหมือนถามจาก DocDesk
+    ...(isStaffQuestion(echo.text) ? { status: "open" } : {}),
     last_message_at: receivedAt,
     last_message_preview: preview(echo.text),
   }).eq("id", conv.id);

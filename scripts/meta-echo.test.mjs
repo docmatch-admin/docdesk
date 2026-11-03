@@ -218,3 +218,36 @@ test("webhook: echo ที่ล้มไม่ทำให้รายการ
   assert.match(src, /for \(const echo of parseMetaEchoes\(body\)\) \{\s*try \{/);
   assert.ok(calls.chat === 0);
 });
+
+// ---- เจ้าหน้าที่ทักแชทที่เสร็จแล้ว ----
+const { tabsOf } = await import("../src/lib/case-flow.ts");
+const { isStaffQuestion } = await import("../src/lib/suggest-rules.ts");
+const closeChat = (id) => Object.assign(conv(id), { status: "closed", closed_at: nextTime(), last_direction: "out", waiting_since: null });
+
+test("isStaffQuestion: คำถามนับ, นะคะ/ค่ะ ไม่นับ", () => {
+  for (const q of ["สะดวกมาวันไหนคะ", "สนใจจองไหมคะ", "ได้รับผลตรวจหรือยังคะ", "ตรวจกี่รายการคะ", "พรุ่งนี้ 10 โมงสะดวกคะ", "OK?"]) assert.equal(isStaffQuestion(q), true, q);
+  for (const t of ["ยินดีค่ะ", "ขอบคุณนะคะ", "ได้เลยค่ะ", "รับทราบนะคะ 😊", "เปิด 8 โมงค่ะ"]) assert.equal(isStaffQuestion(t), false, t);
+});
+
+test("ส่งจาก DocDesk ในแชทที่เสร็จแล้ว: ถามกลับมาอยู่ในทั้งหมด ไม่เข้ารอตอบ / ตอบรับเฉยๆ ยังเสร็จแล้ว", async () => {
+  const id = await customerAsks();
+  await sendReply({ conversationId: id, textTh: "เข็มละ 390 บาทค่ะ", senderType: "staff", senderId: "s1", skipLearn: true });
+  closeChat(id);
+  await sendReply({ conversationId: id, textTh: "ยินดีค่ะ", senderType: "staff", senderId: "s1", skipLearn: true });
+  assert.equal(conv(id).status, "closed");
+  await sendReply({ conversationId: id, textTh: "สะดวกมาฉีดวันไหนคะ", senderType: "staff", senderId: "s1", skipLearn: true });
+  assert.equal(conv(id).status, "open");
+  conv(id).last_direction = "out";
+  assert.deepEqual(tabsOf(conv(id)), ["open"]);
+});
+
+test("ตอบจาก Meta Business Suite ในแชทที่เสร็จแล้ว: ถามกลับมา / ตอบรับและข้อความอัตโนมัติของเพจ ยังเสร็จแล้ว", async () => {
+  const id = await customerAsks();
+  closeChat(id);
+  await storeMetaEcho(echoOf({ mid: "m_auto_1", text: "สนใจบริการไหนคะ", metadata: "automated_response" }));
+  assert.equal(conv(id).status, "closed", "ข้อความอัตโนมัติไม่ใช่คนทัก");
+  await storeMetaEcho(echoOf({ mid: "m_mbs_8", text: "ขอบคุณนะคะ" }));
+  assert.equal(conv(id).status, "closed");
+  await storeMetaEcho(echoOf({ mid: "m_mbs_9", text: "สะดวกมาวันไหนคะ" }));
+  assert.equal(conv(id).status, "open");
+});

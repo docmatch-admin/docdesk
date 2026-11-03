@@ -61,6 +61,9 @@ const GOODBYE = [
   /^\s*(บาย|bye|ลาก่อน|แค่นี้)/i,
 ];
 
+/** ข้อความของเจ้าหน้าที่เป็นคำถามที่รอลูกค้าตอบ: "คะ" ท้ายประโยคนับ แต่ "นะคะ" ไม่นับ เช่น ขอบคุณนะคะ */
+export const isStaffQuestion = (text: string) => CUSTOMER_QUESTION.test(text) || /ไหน/.test(text) || /(?<!นะ)คะ\s*$/.test(text.trim());
+
 export type ClosingKind = "thanks" | "affirm" | "goodbye";
 
 /** ข้อความที่จบการคุยได้: ขอบคุณ, ตอบรับ/อีโมจิ/สติกเกอร์, หรือบอกลา ทุกบรรทัดต้องเป็นแบบนี้และไม่มีคำถาม */
