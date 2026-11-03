@@ -68,11 +68,18 @@ test("เจ้าหน้าที่ตอบ: ออกจากรอตอ
   assert.deepEqual(tabs(), ALL);
 });
 
-test("ลูกค้าทักอีกหลังตอบ: กลับเข้ารอตอบ", async () => {
+test("ลูกค้าถามต่อหลังตอบ: กลับเข้ารอตอบ", async () => {
+  const s = await customer();
+  await staffReply(s.conversationId);
+  await customer("แล้ววันเสาร์เปิดไหมคะ");
+  assert.deepEqual(tabs(), WAITING);
+});
+
+test("ลูกค้าขอบคุณหลังตอบ: ย้ายไปเสร็จแล้ว ไม่เข้ารอตอบ", async () => {
   const s = await customer();
   await staffReply(s.conversationId);
   await customer("ขอบคุณค่ะ");
-  assert.deepEqual(tabs(), WAITING);
+  assert.equal(conv().status, "closed");
 });
 
 test("เปิดอ่านอย่างเดียว: ยังอยู่ในรอตอบ", async () => {

@@ -47,6 +47,49 @@ export function isThanksOrSticker(text: string, isImage = false): boolean {
 
 const asksQuestion =(text: string) => /[?？]|ไหม|มั้ย|หรือเปล่า|รึเปล่า|หรือไม่|คะ\s*$/.test(text);
 
+const STICKER_LINE = /^\s*\[ลูกค้าส่ง\s*(sticker|สติกเกอร์)/i;
+/** LINE แปลงอีโมติคอนเป็นคำในวงเล็บ เช่น (ชอบ) (love) */
+const LINE_EMOTICON = /\([^()\n]{1,15}\)/g;
+/** คำถามของลูกค้า: ไม่ใช้ "คะ" ท้ายประโยค เพราะลูกค้าพิมพ์ "นะคะ" ตอนบอกลาด้วย */
+const CUSTOMER_QUESTION = /[?？]|ไหม|มั้ย|หรือเปล่า|รึเปล่า|หรือยัง|กี่|อะไร|ยังไง|อย่างไร|เท่าไหร่|เท่าไร|ที่ไหน|เมื่อไหร่|เมื่อไร|ทำไม/;
+const GOODBYE = [
+  // เดี๋ยวขอปรึกษาที่ทำงานก่อน, ไว้ขอคิดดูอีกที (ไม่รับ "ขอถามก่อน" "ขอดูรูปก่อน" ซึ่งแปลว่ากำลังจะถามต่อ)
+  /(เดี๋ยว|เดียว|ไว้)\s*(ขอ\s*)?(ไป\s*)?(ปรึกษา|คิด|ถาม|ดู|เช็ค|เช็ก|ตัดสินใจ)[^\n]*(ก่อน|อีกที|อีกครั้ง)/,
+  /ขอ\s*(ปรึกษา|คิด|ตัดสินใจ)[^\n]*(ก่อน|อีกที|อีกครั้ง)/,
+  // ไว้จะติดต่อมาใหม่, แล้วจะแจ้งกลับ, เดี๋ยวทักมาอีกที
+  /(ไว้|แล้ว|เดี๋ยว|เดียว)\s*(จะ\s*)?(ติดต่อ|ทัก|แจ้ง|โทร)\s*(มา|กลับ|ไป)?\s*(ใหม่|อีกที|อีกครั้ง|กลับ)/,
+  /^\s*(บาย|bye|ลาก่อน|แค่นี้)/i,
+];
+
+export type ClosingKind = "thanks" | "affirm" | "goodbye";
+
+/** ข้อความที่จบการคุยได้: ขอบคุณ, ตอบรับ/อีโมจิ/สติกเกอร์, หรือบอกลา ทุกบรรทัดต้องเป็นแบบนี้และไม่มีคำถาม */
+export function classifyClosingMessage(text: string, isImage = false): ClosingKind | null {
+  if (isImage) return null;
+  const lines = text.split("\n").filter((l) => l.trim());
+  if (!lines.length) return null;
+  const kinds: ClosingKind[] = [];
+  for (const line of lines) {
+    if (STICKER_LINE.test(line)) { kinds.push("affirm"); continue; }
+    const clean = line.replace(LINE_EMOTICON, " ");
+    if (!clean.trim()) { kinds.push("affirm"); continue; }
+    const ack = classifyAck(clean);
+    if (ack) { kinds.push(ack); continue; }
+    if (!CUSTOMER_QUESTION.test(clean) && GOODBYE.some((r) => r.test(clean))) { kinds.push("goodbye"); continue; }
+    return null;
+  }
+  return kinds.includes("goodbye") ? "goodbye" : kinds.includes("thanks") ? "thanks" : "affirm";
+}
+
+/**
+ * ลูกค้าจบการคุยหลังเราตอบแล้ว ไม่ต้องตอบต่อ
+ * "โอเค" หรือสติกเกอร์หลังเราถาม เช่น สะดวกบ่ายสองไหมคะ คือคำตอบที่ต้องตอบต่อ
+ */
+export function endsConversation(kind: ClosingKind | null, lastMessage: { direction: string; text: string } | null): boolean {
+  if (!kind || lastMessage?.direction !== "out") return false;
+  return kind !== "affirm" || !asksQuestion(lastMessage.text);
+}
+
 /** ไม่ต้องร่างคำตอบ: ทุกบรรทัดเป็นคำขอบคุณ/รับทราบ/อีโมจิ หรือไฟล์แนบที่ AI อ่านไม่ได้ */
 export function shouldSkipSuggestion(pendingText: string, lastOutText: string | null): boolean {
   const lines = pendingText.split("\n").filter((l) => l.trim());

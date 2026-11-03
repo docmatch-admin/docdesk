@@ -40,7 +40,7 @@ test("แชทที่เสร็จแล้ว: ข้อความให
   assert.deepEqual(tabsOf(c), ["open", "waiting"]);
 });
 
-for (const text of ["ขอบคุณค่ะ", "ขอบคุณมากนะคะ 🙏", "[ลูกค้าส่ง sticker — เปิดดูใน LINE OA]", "ขอบคุณค่ะ\n[ลูกค้าส่ง sticker — เปิดดูใน LINE OA]"]) {
+for (const text of ["ขอบคุณค่ะ", "ขอบคุณมากนะคะ 🙏", "โอเคค่ะ", "ไว้จะติดต่อมาใหม่ค่ะ", "[ลูกค้าส่ง sticker — เปิดดูใน LINE OA]", "ขอบคุณค่ะ\n[ลูกค้าส่ง sticker — เปิดดูใน LINE OA]"]) {
   test(`แชทที่เสร็จแล้ว: "${text.replace("\n", " + ")}" ไม่เปิดกลับมา`, async () => {
     const id = await closedChat();
     await say(text);
@@ -50,7 +50,7 @@ for (const text of ["ขอบคุณค่ะ", "ขอบคุณมาก�
 
 for (const [label, text, extra] of [
   ["คำขอบคุณพร้อมคำถาม", "ขอบคุณค่ะ แล้ววันเสาร์เปิดไหมคะ", {}],
-  ["ตอบรับ", "โอเคค่ะ", {}],
+  ["ตอบรับพร้อมคำถาม", "โอเคค่ะ แล้วต้องงดอาหารไหมคะ", {}],
   ["รูป", "", { isImage: true }],
   ["วิดีโอ", "[ลูกค้าส่ง video — เปิดดูใน LINE OA]", {}],
 ]) {
@@ -60,6 +60,13 @@ for (const [label, text, extra] of [
     assert.equal(conv(id).status, "open");
   });
 }
+
+test("แชทที่เสร็จแล้ว: ตอบรับหลังเราถาม เปิดกลับมา เพราะต้องตอบต่อ", async () => {
+  const id = await closedChat();
+  state.tables.messages.push({ id: `q${Math.random()}`, conversation_id: id, direction: "out", sender_type: "staff", body: "สะดวกพรุ่งนี้ 10 โมงไหมคะ", created_at: nextTime() });
+  await say("โอเคค่ะ");
+  assert.equal(conv(id).status, "open");
+});
 
 test("isThanksOrSticker", () => {
   assert.equal(isThanksOrSticker("ขอบคุณค่ะ"), true);

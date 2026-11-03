@@ -11,7 +11,7 @@ import { matchSensitive, SENSITIVE_ACK_TEXT } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive, notifySensitiveChat } from "./sensitive-store";
 import { markConversationReadWith } from "./read-receipts";
 import { awardStarPoints, recordStaffResponse } from "./score-store";
-import { classifyAck, hasUrgentSignal, isCustomerText, isThanksOrSticker, shouldSkipSuggestion } from "./suggest-rules";
+import { classifyAck, classifyClosingMessage, endsConversation, hasUrgentSignal, isCustomerText, isThanksOrSticker, shouldSkipSuggestion } from "./suggest-rules";
 import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
 import { CHAT_BUCKET, consumeUpload, downloadFile, loadRetentionDays, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
@@ -72,11 +72,23 @@ export async function storeIncoming(input: IncomingInput) {
   const { data: conv, error: cvErr } = await db
     .from("conversations")
     .upsert({ contact_id: contact.id, channel_id: channel.id }, { onConflict: "contact_id" })
-    .select("id, unread_count, status, sensitive, waiting_since, archived").single();
+    .select("id, unread_count, status, sensitive, waiting_since, archived, tags, needs_human, booking_pending").single();
   if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
   const wasClosed = conv.status === "closed";
-  // แชทที่เสร็จแล้วกลับมารอตอบทุกข้อความ ยกเว้นคำขอบคุณหรือสติกเกอร์ล้วน
-  const stayClosed = wasClosed && !conv.archived && isThanksOrSticker(input.text, input.isImage);
+  // ลูกค้าตอบรับ ขอบคุณ หรือบอกลา หลังเราตอบแล้ว: ไม่ต้องตอบต่อ
+  const closingKind = conv.archived ? null : classifyClosingMessage(input.text, input.isImage);
+  let endsChat = false;
+  if (closingKind) {
+    const { data: last } = await db.from("messages").select("direction, body, body_th")
+      .eq("conversation_id", conv.id).neq("sender_type", "system")
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    endsChat = endsConversation(closingKind, last ? { direction: last.direction as string, text: (last.body_th || last.body || "") as string } : null);
+  }
+  // แชทที่เสร็จแล้วกลับมารอตอบทุกข้อความ ยกเว้นคำขอบคุณ สติกเกอร์ หรือข้อความจบการคุย
+  const stayClosed = wasClosed && !conv.archived && (isThanksOrSticker(input.text, input.isImage) || endsChat);
+  // แชทที่เปิดอยู่ปิดเลย ยกเว้นงานค้าง (รอลงนัด, ต้องให้คนตอบ, แท็กตามต่อ/รอนัด) เหมือนการย้ายอัตโนมัติ
+  const closeNow = !wasClosed && endsChat && !conv.booking_pending && !conv.needs_human
+    && !((conv.tags ?? []) as string[]).some((t) => AUTO_CLOSE_EXEMPT_TAGS.includes(t));
 
   const imageOnly = !!input.isImage && !input.text.trim();
   const { language, th } = input.skipAi || imageOnly
@@ -105,7 +117,7 @@ export async function storeIncoming(input: IncomingInput) {
   await Promise.all([
     db.from("contacts").update({ language }).eq("id", contact.id),
     db.from("conversations").update({
-      ...(stayClosed ? {} : { status: "open" }),
+      ...(stayClosed ? {} : closeNow ? CLOSE_PATCH : { status: "open" }),
       // แชทเก่าที่ได้ข้อความจริงจาก webhook คือแชทปกติแล้ว ต้องพิมพ์ตอบได้
       ...(conv.archived ? { archived: false } : {}),
       unread_count: (conv.unread_count ?? 0) + 1,
@@ -199,8 +211,10 @@ export const aiTiming = { debounceMs: 8_000 };
 export async function processIncoming(conversationId: string, messageId: string, replyToken?: string) {
   const db = supabaseAdmin();
   const { data: conv } = await db
-    .from("conversations").select("id, ai_mode, sensitive, channels(ai_mode)").eq("id", conversationId).single();
+    .from("conversations").select("id, ai_mode, sensitive, status, channels(ai_mode)").eq("id", conversationId).single();
   if (!conv) return;
+  // ยังปิดอยู่ = ลูกค้าแค่ตอบรับหรือบอกลา ไม่ต้องร่างหรือตอบ
+  if (conv.status === "closed") return;
 
   const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as { ai_mode: AiMode | null };
   const mode = await resolveAiMode(conv as { ai_mode: AiMode | null }, channel ?? { ai_mode: null });
