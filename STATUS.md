@@ -7,7 +7,7 @@ Production ใช้งานได้ที่ https://docdesk-tau.vercel.app �
 
 | ส่วน | สถานะ |
 |---|---|
-| Supabase | `kbhhmjyipvnuyyveexpj` (ชื่อ `DocDesk SG`, region สิงคโปร์ ap-southeast-1) migration `001`, `002`, `004`–`032` ขึ้นแล้ว ย้ายจาก `ncsgcplnuoiebadqdywx` (ซิดนีย์) เมื่อ 3 พ.ย. 2569 ตัวเก่า pause ไว้ ยังไม่ลบ |
+| Supabase | `kbhhmjyipvnuyyveexpj` (ชื่อ `DocDesk SG`, region สิงคโปร์ ap-southeast-1) migration `001`, `002`, `004`–`033` ขึ้นแล้ว ย้ายจาก `ncsgcplnuoiebadqdywx` (ซิดนีย์) เมื่อ 3 พ.ย. 2569 ตัวเก่า pause ไว้ ยังไม่ลบ |
 | Vercel | project `docdesk` ใน team `doc-match` |
 | เจ้าหน้าที่ | ปิด sign-up แล้ว, `docmatch49@gmail.com` เป็น admin ชื่อ `Admin` มีบัญชีทดสอบ agent `test1`, `test2` (ลบหรือปิดเมื่อทดสอบเสร็จ) |
 | โหมด AI ทั้งระบบ | `off` ตามค่าที่ตั้งอยู่ตอนนี้ (AI ยังร่างคำแนะนำเมื่อเปิดแชท แต่ไม่ส่งเอง) |
