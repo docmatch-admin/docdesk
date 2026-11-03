@@ -256,6 +256,10 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .all-done { display: flex; align-items: center; justify-content: center; min-height: 60vh; font-size: 20px; font-weight: 600; color: var(--ink); }
 .chat-back { display: none; flex-shrink: 0; font-size: 18px; }
 .chat-head-main { flex: 1; min-width: 0; }
+.name-edit { display: flex; gap: 6px; align-items: center; max-width: 420px; }
+.name-edit input { padding: 4px 8px; }
+.name-edit-btn { border: 0; background: none; cursor: pointer; padding: 0 4px; margin-left: 4px; font-size: 13px; opacity: .45; }
+.name-edit-btn:hover, .name-edit-btn:focus-visible { opacity: 1; }
 
 @media (max-width: 899px) {
   .conv-list { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }

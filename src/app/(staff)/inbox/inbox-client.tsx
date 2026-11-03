@@ -51,6 +51,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const [counts, setCounts] = useState({ waiting: 0, open: 0 });
   const [reloadTick, setReloadTick] = useState(0);
   const [confirmSplit, setConfirmSplit] = useState(false);
+  /** null = ไม่ได้แก้ชื่อ */
+  const [editingName, setEditingName] = useState<string | null>(null);
   const [scope, setScope] = useState<"all" | "mine">("all");
   const scopeRef = useRef<"all" | "mine">("all");
   scopeRef.current = scope;
@@ -406,6 +408,20 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     loadConvs();
   }
 
+  useEffect(() => setEditingName(null), [selectedId]);
+
+  async function saveContactName() {
+    if (!selectedId || editingName == null) return;
+    const res = await fetch(`/api/conversations/${selectedId}/contact`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName: editingName }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return flash(j.error ?? "แก้ชื่อไม่สำเร็จ");
+    setEditingName(null);
+    flash("แก้ชื่อลูกค้าแล้ว");
+    loadConvs();
+  }
+
   async function splitImported() {
     if (!selectedId) return;
     setConfirmSplit(false);
@@ -659,7 +675,23 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             <header className="chat-head">
               <button className="btn ghost small chat-back" aria-label="กลับไปรายการแชท" onClick={() => setSelectedId(null)}>←</button>
               <div className="chat-head-main">
-                <div className={`name ${blurred ? "sensitive-text" : ""}`}>{selected.contacts?.display_name || "ลูกค้า"}</div>
+                {editingName != null ? (
+                  <form className="name-edit" onSubmit={(e) => { e.preventDefault(); saveContactName(); }}>
+                    <input autoFocus value={editingName} maxLength={80} aria-label="ชื่อลูกค้า"
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Escape") setEditingName(null); }} />
+                    <button className="btn small" type="submit">บันทึก</button>
+                    <button className="btn ghost small" type="button" onClick={() => setEditingName(null)}>ยกเลิก</button>
+                  </form>
+                ) : (
+                  <div className={`name ${blurred ? "sensitive-text" : ""}`}>
+                    {selected.contacts?.display_name || "ลูกค้า"}
+                    {!blurred && (
+                      <button className="name-edit-btn" type="button" title="แก้ชื่อลูกค้า" aria-label="แก้ชื่อลูกค้า"
+                        onClick={() => setEditingName(selected.contacts?.display_name ?? "")}>✏️</button>
+                    )}
+                  </div>
+                )}
                 <div className="muted small">
                   {selected.channels?.name}
                   {customerLang !== "th" && <> · ลูกค้าใช้ภาษา{LANGUAGE_NAME[customerLang] ?? customerLang} (ระบบแปลให้อัตโนมัติ)</>}

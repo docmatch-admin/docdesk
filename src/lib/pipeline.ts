@@ -50,7 +50,12 @@ export async function storeIncoming(input: IncomingInput) {
   if (chErr || !channel) throw new Error(`ไม่พบช่องทาง ${input.channelType} ที่เปิดใช้งาน`);
 
   const contactPatch: Record<string, unknown> = { channel_id: channel.id, external_id: input.externalId };
-  if (input.displayName) contactPatch.display_name = input.displayName;
+  if (input.displayName) {
+    // ชื่อที่เจ้าหน้าที่ตั้งเองไม่ถูกเขียนทับด้วยชื่อจากแพลตฟอร์ม
+    const { data: existing } = await db.from("contacts").select("name_locked")
+      .eq("channel_id", channel.id).eq("external_id", input.externalId).maybeSingle();
+    if (!existing?.name_locked) contactPatch.display_name = input.displayName;
+  }
   if (input.avatarUrl) contactPatch.avatar_url = input.avatarUrl;
   const { data: contact, error: ctErr } = await db
     .from("contacts").upsert(contactPatch, { onConflict: "channel_id,external_id" })
