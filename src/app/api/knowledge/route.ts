@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   // service role ข้าม trigger ในฐานข้อมูล จึงต้องตรวจที่นี่ด้วย
   if (b.id) {
     const { data: current } = await db.from("knowledge_items").select("source").eq("id", b.id).maybeSingle();
-    if (current?.source === "website") return NextResponse.json({ error: "ข้อมูลจากเว็บ ต้องแก้ที่หลังบ้านเว็บ" }, { status: 409 });
+    if (current?.source && current.source !== "manual") return NextResponse.json({ error: "ข้อมูลจากเว็บ ต้องแก้ที่หลังบ้านเว็บ" }, { status: 409 });
   }
   const q = b.id
     ? db.from("knowledge_items").update(row).eq("id", b.id)

@@ -1,4 +1,5 @@
 import { embedMany } from "./ai";
+import { syncWebsitePages } from "./website-pages";
 import { getSetting } from "./mode";
 import { NO_PRICE_MARK } from "./price-catalog";
 import { supabaseAdmin } from "./supabase/admin";
@@ -25,6 +26,9 @@ export interface WebsiteSyncStatus {
   needs_confirm: boolean;
   count: number;
   alerts: PriceAlert[];
+  /** หัวข้อจากหน้าเว็บและบทความ (website-pages.ts) */
+  pages?: number;
+  pages_error?: string | null;
 }
 
 export const WEBSITE_SYNC_KEY = "website_sync";
@@ -220,9 +224,18 @@ export async function runWebsiteSync({ force = false, now = Date.now() } = {}): 
     const newAlerts = await syncPackagePrices(programs, nowIso);
     // แจ้งเตือนซ้ำรายการเดิมไม่ได้ช่วยอะไร เก็บอันล่าสุดต่อแพ็กเกจและข้อความ
     const fresh = newAlerts.filter((a) => !status.alerts.some((o) => o.code === a.code && o.message === a.message));
+    // เนื้อหาหน้าเว็บพลาดได้โดยไม่ทำให้ซิงก์ราคาล้ม
+    let pages = status.pages ?? 0;
+    let pagesError: string | null = null;
+    try {
+      pages = (await syncWebsitePages()).count;
+    } catch (e) {
+      console.error("website pages sync failed", e);
+      pagesError = e instanceof Error ? e.message : "ซิงก์หน้าเว็บไม่สำเร็จ";
+    }
     await saveSyncStatus({
       last_attempt_at: nowIso, last_success_at: nowIso, error: null, needs_confirm: false, count: programs.length,
-      alerts: [...fresh, ...status.alerts].slice(0, MAX_ALERTS),
+      alerts: [...fresh, ...status.alerts].slice(0, MAX_ALERTS), pages, pages_error: pagesError,
     });
     return { ok: true, count: programs.length, changed: applied.changed ?? 0, hidden: applied.hideCount, error: null, needs_confirm: false };
   } catch (e) {

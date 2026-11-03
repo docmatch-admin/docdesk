@@ -330,8 +330,8 @@ test("API ซิงก์: เฉพาะ admin", async () => {
 
 test("หน้าฐานข้อมูล: แถวจากเว็บมีป้ายและไม่มีปุ่มแก้", () => {
   const src = readFileSync("src/app/(staff)/knowledge/knowledge-client.tsx", "utf8");
-  assert.match(src, /i\.source === "website" \? <span className="chip">จากเว็บ — แก้ที่หลังบ้านเว็บ<\/span>/);
-  assert.match(src, /ซิงก์ราคาจากเว็บตอนนี้/);
+  assert.match(src, /i\.source === "website" \|\| i\.source === "website_page" \? <span className="chip">จากเว็บ — แก้ที่หลังบ้านเว็บ<\/span>/);
+  assert.match(src, /ซิงก์จากเว็บตอนนี้/);
 });
 
 // ---- ตัวกันราคา ----

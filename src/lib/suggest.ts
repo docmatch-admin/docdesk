@@ -20,6 +20,7 @@ import { applySymptomGuards, findRedFlag, hasEnoughSymptomInfo, hasSymptomSignal
 import { sanitizeSuggestedTags } from "./tags";
 import type { AiMode, ChannelType, SuggestionOption, SuggestionResult, SuggestionSource } from "./types";
 import { WEBCHAT_LIMITS } from "./webchat-guard";
+import { ARTICLE_CATEGORY, HOME_CATEGORY } from "./website-pages";
 
 const KNOWLEDGE_MIN_SIM = 0.3;
 const EXAMPLE_MIN_SIM = 0.45;
@@ -239,6 +240,7 @@ export async function generateSuggestions(conversationId: string, { force = fals
 - ราคาใช้จาก [K] และ "ราคาแล็บ" เท่านั้น ราคาในคำตอบเดิมและประวัติแชทอาจเก่า ห้ามนำมาตอบ
 - บริการที่เขียนว่า "ไม่มีราคาบนเว็บ" ห้ามบอกหรือเดาตัวเลขราคา ให้ตอบตามข้อความที่ระบุไว้
 - ถ้าคำตอบเดิม [E] ขัดกับฐานข้อมูล [K] ให้ใช้ข้อมูลจาก [K] และใส่ note อธิบายสั้นๆ
+- [K] หมวด "${HOME_CATEGORY}" และ "${ARTICLE_CATEGORY}" มาจากเว็บคลินิก ใช้ตอบได้ ถ้าขัดกับ [K] หมวดอื่นให้ยึดหมวดอื่น เพราะคลินิกตั้งไว้เอง "${ARTICLE_CATEGORY}" เป็นข่าวหรือความรู้ทั่วไป ใช้อธิบายเพิ่มได้ แต่ไม่ใช่เงื่อนไขบริการของคลินิก
 ${symptomPromptRules(approvedGuides.length > 0)}
 - ผลแล็บ หรือการใช้ยา/ขนาดยาที่แพทย์สั่ง: needs_human = true ห้ามแปลผลหรือแนะนำยาเอง
 - ลูกค้าขอคุยกับคน/ไม่พอใจ/ร้องเรียน: needs_human = true

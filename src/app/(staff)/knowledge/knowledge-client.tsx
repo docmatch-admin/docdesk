@@ -7,7 +7,7 @@ import { LabPricesPanel } from "./lab-prices-panel";
 
 interface Item { id: string; category: string; title: string; content: string; active: boolean; updated_at: string; source: string; review_status: string }
 const GUIDE_CATEGORY = "แนวทางซักอาการ";
-interface SyncStatus { last_success_at: string | null; error: string | null; needs_confirm?: boolean; count?: number }
+interface SyncStatus { last_success_at: string | null; error: string | null; needs_confirm?: boolean; count?: number; pages?: number; pages_error?: string | null }
 interface Example { id: string; question: string; answer: string; starred: boolean; use_count: number; active: boolean; created_at: string; source?: string; import_batch_id?: string | null }
 
 const dateTh = (iso: string) => new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });
@@ -100,12 +100,13 @@ export function KnowledgeClient() {
       {tab === "kb" && (
         <div className="card row between">
           <div className="small">
-            {sync?.last_success_at ? <>ซิงก์ราคาจากเว็บล่าสุด {timeTh(sync.last_success_at)} ({sync.count ?? 0} บริการ)</> : "ยังไม่เคยซิงก์ราคาจากเว็บ"}
+            {sync?.last_success_at ? <>ซิงก์จากเว็บล่าสุด {timeTh(sync.last_success_at)} ({sync.count ?? 0} บริการ, {sync.pages ?? 0} หัวข้อจากหน้าเว็บและบทความ)</> : "ยังไม่เคยซิงก์ราคาจากเว็บ"}
             {sync?.error && <div className="chip red">{sync.error}</div>}
+            {sync?.pages_error && <div className="chip red">หน้าเว็บ: {sync.pages_error}</div>}
           </div>
           <div className="row">
             {sync?.needs_confirm && <button className="btn ghost small" disabled={syncing} onClick={() => syncNow(true)}>ยืนยันปิดบริการที่หายจากเว็บ</button>}
-            <button className="btn ghost small" disabled={syncing} onClick={() => syncNow()}>{syncing ? "กำลังซิงก์…" : "ซิงก์ราคาจากเว็บตอนนี้"}</button>
+            <button className="btn ghost small" disabled={syncing} onClick={() => syncNow()}>{syncing ? "กำลังซิงก์…" : "ซิงก์จากเว็บตอนนี้"}</button>
           </div>
         </div>
       )}
@@ -137,7 +138,7 @@ export function KnowledgeClient() {
                     <span className="chip">{i.category}</span> <b>{i.title}</b>
                     {i.category === GUIDE_CATEGORY && <> <span className="chip red">ต้องให้แพทย์ตรวจทาน</span> <span className="chip">{i.review_status === "approved" ? "✅ แพทย์อนุมัติแล้ว" : "ร่าง AI ยังไม่ใช้"}</span></>}
                   </div>
-                  {i.source === "website" ? <span className="chip">จากเว็บ — แก้ที่หลังบ้านเว็บ</span> : (
+                  {i.source === "website" || i.source === "website_page" ? <span className="chip">จากเว็บ — แก้ที่หลังบ้านเว็บ</span> : (
                     <div className="row">
                       {i.category === GUIDE_CATEGORY && i.review_status !== "approved" && (
                         <button className="btn ghost small" onClick={async () => {
