@@ -54,6 +54,8 @@ test("ปิดได้เมื่อเราตอบล่าสุด: โ
   const out = (text) => ({ direction: "out", text });
   assert.equal(endsConversation("affirm", out("เปิด 8 โมงค่ะ")), true);
   assert.equal(endsConversation("affirm", out("สะดวกบ่ายสองไหมคะ")), false);
+  assert.equal(endsConversation("affirm", out("ได้ผลเลือดแล้วจะรีบแจ้งนะคะ")), true, "นะคะ ไม่ใช่คำถาม");
+  assert.equal(endsConversation("affirm", out("พรุ่งนี้ 10 โมงสะดวกคะ")), false);
   assert.equal(endsConversation("thanks", out("สะดวกบ่ายสองไหมคะ")), true);
   assert.equal(endsConversation("goodbye", out("สะดวกวันไหนคะ")), true);
   assert.equal(endsConversation("thanks", { direction: "in", text: "ราคาเท่าไหร่" }), false, "คำถามยังไม่ได้ตอบ");
@@ -68,6 +70,13 @@ test("ลูกค้าตอบ โอเค หลังเราตอบ: �
   await say("โอเคค่ะ");
   assert.equal(conv().status, "closed");
   assert.equal(conv().needs_human, false);
+});
+
+test("ได้ค่ะ🙏 หลังเราบอกว่า จะรีบแจ้งนะคะ: ย้ายไปเสร็จแล้ว", async () => {
+  await say("สวัสดีค่ะ");
+  reply("ได้ผลเลือดแล้วจะรีบแจ้งนะคะ");
+  await say("ได้ค่ะ🙏");
+  assert.equal(conv().status, "closed");
 });
 
 test("สติกเกอร์หลังเราถาม สะดวกไหม: ยังเปิด เพราะเป็นคำตอบที่ต้องตอบต่อ", async () => {

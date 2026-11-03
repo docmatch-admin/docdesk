@@ -90,7 +90,8 @@ export function classifyClosingMessage(text: string, isImage = false): ClosingKi
  */
 export function endsConversation(kind: ClosingKind | null, lastMessage: { direction: string; text: string } | null): boolean {
   if (!kind || lastMessage?.direction !== "out") return false;
-  return kind !== "affirm" || !asksQuestion(lastMessage.text);
+  // ใช้ isStaffQuestion ไม่ใช่ asksQuestion: "จะรีบแจ้งนะคะ" ลงท้าย นะคะ แต่ไม่ได้ถาม
+  return kind !== "affirm" || !isStaffQuestion(lastMessage.text);
 }
 
 /** ไม่ต้องร่างคำตอบ: ทุกบรรทัดเป็นคำขอบคุณ/รับทราบ/อีโมจิ หรือไฟล์แนบที่ AI อ่านไม่ได้ */
