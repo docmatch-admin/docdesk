@@ -1,8 +1,9 @@
 import { after, NextResponse } from "next/server";
 import { getLineProfile, lineContentRequest, verifyLineSignature } from "@/lib/channels/line";
 import { logSystemError } from "@/lib/health";
+import { isPdfName, MAX_FILE_BYTES, sanitizeFileName } from "@/lib/files";
 import { downloadLimited } from "@/lib/media";
-import { ingestInboundImage } from "@/lib/media-store";
+import { ingestInboundFile, ingestInboundImage } from "@/lib/media-store";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
@@ -12,7 +13,7 @@ interface LineEvent {
   type: string;
   replyToken?: string;
   source?: { type: string; userId?: string };
-  message?: { id: string; type: string; text?: string; markAsReadToken?: string };
+  message?: { id: string; type: string; text?: string; markAsReadToken?: string; fileName?: string; fileSize?: number };
 }
 
 export async function POST(req: Request) {
@@ -29,10 +30,16 @@ export async function POST(req: Request) {
     if (ev.type !== "message" || !userId || ev.source?.type !== "user" || !ev.message) continue;
 
     const isImage = ev.message.type === "image";
-    // รองรับข้อความและรูป ประเภทอื่นบันทึกเป็นข้อความแจ้งเตือน
+    // ไฟล์: รับ PDF ไม่เกิน 25MB ไฟล์ชนิดอื่นให้เจ้าหน้าที่เปิดดูใน LINE OA
+    const isFile = ev.message.type === "file";
+    const isPdf = isFile && isPdfName(ev.message.fileName) && (ev.message.fileSize ?? 0) <= MAX_FILE_BYTES;
+    const fileName = sanitizeFileName(ev.message.fileName);
+    // รองรับข้อความ รูป และ PDF ประเภทอื่นบันทึกเป็นข้อความแจ้งเตือน
     const text = ev.message.type === "text"
       ? ev.message.text ?? ""
-      : isImage ? "" : `[ลูกค้าส่ง ${ev.message.type} — เปิดดูใน LINE OA]`;
+      : isImage || isPdf ? ""
+      : isFile ? `[ลูกค้าส่งไฟล์ ${(ev.message.fileName ?? "").slice(0, 120)} — เปิดดูใน LINE OA]`
+      : `[ลูกค้าส่ง ${ev.message.type} — เปิดดูใน LINE OA]`;
 
     const profile = await getLineProfile(userId);
     const stored = await storeIncoming({
@@ -45,12 +52,17 @@ export async function POST(req: Request) {
       replyToken: ev.replyToken,
       markAsReadToken: ev.message.markAsReadToken,
       isImage,
+      file: isPdf ? { name: fileName, size: ev.message.fileSize ?? null } : undefined,
     });
 
     if (stored.duplicate) continue;
     if (isImage) {
       const content = lineContentRequest(ev.message.id);
       after(() => ingestInboundImage(stored.messageId, () => downloadLimited(content.url, content.headers)));
+    } else if (isPdf) {
+      const content = lineContentRequest(ev.message.id);
+      after(() => ingestInboundFile(stored.messageId, () => downloadLimited(content.url, content.headers, MAX_FILE_BYTES), fileName,
+        "[ลูกค้าส่งไฟล์ — โหลดไม่สำเร็จ เปิดดูใน LINE OA]"));
     } else if (ev.message.type === "text") {
       after(() => processIncoming(stored.conversationId, stored.messageId, ev.replyToken).catch((e) => {
         console.error("processIncoming", e);

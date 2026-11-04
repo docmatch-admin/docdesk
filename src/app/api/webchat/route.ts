@@ -79,7 +79,7 @@ export async function GET(req: Request) {
   const { data: conv } = await db.from("conversations").select("id, customer_marked_read_at").eq("contact_id", contact.id).maybeSingle();
   if (!conv) return NextResponse.json({ messages: [] }, { headers: cors });
 
-  let q = db.from("messages").select("id, direction, body, created_at, media_path, media_preview_path, media_deleted_at")
+  let q = db.from("messages").select("id, direction, body, created_at, media_path, media_preview_path, media_deleted_at, media_type, file_name, file_size")
     .eq("conversation_id", conv.id).order("created_at").limit(100);
   if (after_) q = q.gt("created_at", after_);
   const { data } = await q;

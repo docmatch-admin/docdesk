@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { MAX_WEB_IMAGE_BYTES, MediaError } from "@/lib/media";
-import { CHAT_BUCKET, consumeUpload, createUploadSlot } from "@/lib/media-store";
+import { MAX_WEB_FILE_BYTES } from "@/lib/files";
+import { CHAT_BUCKET, consumeUploadAny, createUploadSlot } from "@/lib/media-store";
 import { storeIncoming } from "@/lib/pipeline";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { admitWebchatImage, clientIp, corsHeaders, hashIp, isAllowedOrigin } from "@/lib/webchat-guard";
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
   const cors = corsHeaders(origin);
   if (!isAllowedOrigin(origin)) return NextResponse.json({ error: "forbidden" }, { status: 403, headers: cors });
 
-  const { session, path } = (await req.json().catch(() => ({}))) as { session?: string; path?: string };
+  const { session, path, name } = (await req.json().catch(() => ({}))) as { session?: string; path?: string; name?: string };
   if (!session || !SESSION_RE.test(session)) {
     return NextResponse.json({ error: "invalid" }, { status: 400, headers: cors });
   }
@@ -52,8 +53,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "forbidden" }, { status: 403, headers: cors });
   }
   try {
-    const media = await consumeUpload(path, CHAT_BUCKET, MAX_WEB_IMAGE_BYTES);
-    const stored = await storeIncoming({ channelType: "web", externalId: session, text: "", isImage: true, media });
+    // รูปหรือ PDF ตัดสินจากเนื้อไฟล์
+    const up = await consumeUploadAny(path, CHAT_BUCKET, { maxImage: MAX_WEB_IMAGE_BYTES, maxFile: MAX_WEB_FILE_BYTES, fileName: typeof name === "string" ? name : null });
+    const stored = up.kind === "image"
+      ? await storeIncoming({ channelType: "web", externalId: session, text: "", isImage: true, media: up.media })
+      : await storeIncoming({ channelType: "web", externalId: session, text: "", file: { name: up.file.name, size: up.file.size, stored: up.file } });
     return NextResponse.json({ ok: true, id: stored.messageId }, { headers: cors });
   } catch (e) {
     if (e instanceof MediaError) {

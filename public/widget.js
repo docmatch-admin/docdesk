@@ -10,8 +10,8 @@
   var API = new URL(script ? script.src : location.href).origin + "/api/webchat";
   var en = (document.documentElement.lang || "").toLowerCase().indexOf("en") === 0;
   var T = en
-    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment.", read: "Read", attach: "Attach image", tooBig: "Images must be 5MB or smaller.", badImage: "This image could not be sent. Please use JPEG, PNG, WebP or HEIC.", mediaDeleted: "Image removed under our data retention policy", imageCap: "We can't accept more images today. Please send a message or call the clinic." }
-    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่", read: "อ่านแล้ว", attach: "แนบรูป", tooBig: "รูปต้องไม่เกิน 5MB", badImage: "ส่งรูปนี้ไม่ได้ กรุณาใช้ไฟล์ JPEG, PNG, WebP หรือ HEIC", mediaDeleted: "รูปถูกลบตามนโยบายเก็บข้อมูล", imageCap: "วันนี้รับรูปครบจำนวนแล้ว กรุณาพิมพ์ข้อความหรือโทรหาคลินิก" };
+    ? { title: "Chat with HappiWell Clinic", hello: "Hello! How can we help you today?", ph: "Type a message…", send: "Send", open: "Chat with us", busy: "You're sending messages too quickly. Please wait a moment.", read: "Read", attach: "Attach image or PDF", tooBig: "Images must be 5MB or smaller.", badImage: "This image could not be sent. Please use JPEG, PNG, WebP or HEIC.", mediaDeleted: "Image removed under our data retention policy", imageCap: "We can't accept more images today. Please send a message or call the clinic.", fileTooBig: "PDF files must be 10MB or smaller.", badFile: "This file could not be sent. Please use a PDF file." }
+    : { title: "แชทกับแฮปปี้เวลล์ คลินิก", hello: "สวัสดีค่ะ มีอะไรให้คลินิกช่วยไหมคะ", ph: "พิมพ์ข้อความ…", send: "ส่ง", open: "แชทกับเรา", busy: "ส่งเร็วเกินไป กรุณารอสักครู่", read: "อ่านแล้ว", attach: "แนบรูปหรือ PDF", tooBig: "รูปต้องไม่เกิน 5MB", badImage: "ส่งรูปนี้ไม่ได้ กรุณาใช้ไฟล์ JPEG, PNG, WebP หรือ HEIC", mediaDeleted: "รูปถูกลบตามนโยบายเก็บข้อมูล", imageCap: "วันนี้รับรูปครบจำนวนแล้ว กรุณาพิมพ์ข้อความหรือโทรหาคลินิก", fileTooBig: "ไฟล์ PDF ต้องไม่เกิน 10MB", badFile: "ส่งไฟล์นี้ไม่ได้ กรุณาใช้ไฟล์ PDF" };
 
   var KEY = "docdesk_session";
   function uuid() {
@@ -36,6 +36,7 @@
 .dd-out{align-self:flex-start;background:#fff;border:1px solid #e3e7f0;border-bottom-left-radius:4px}\
 .dd-read{align-self:flex-end;margin-top:-4px;font-size:11px;color:#7a8295}\
 .dd-img{display:block;max-width:100%;max-height:220px;border-radius:10px;cursor:zoom-in}\
+.dd-file{display:block;color:inherit;text-decoration:underline;word-break:break-word}\
 .dd-cap{margin-top:6px}\
 #dd-form #dd-attach{background:none;color:#4A63E0;border:1px solid #cfd5e3;padding:0 10px;font-size:18px}\
 #dd-form{display:flex;gap:8px;padding:10px;border-top:1px solid #e3e7f0}\
@@ -54,7 +55,7 @@
     "<header><span>" + T.title + "</span><button aria-label='close'>×</button></header>" +
     "<div id='dd-list'></div>" +
     "<form id='dd-form'><button type='button' id='dd-attach' aria-label='" + T.attach + "' title='" + T.attach + "'>📎</button>" +
-    "<input type='file' id='dd-file' accept='image/*,.heic,.heif' style='display:none'>" +
+    "<input type='file' id='dd-file' accept='image/*,.heic,.heif,application/pdf,.pdf' style='display:none'>" +
     "<textarea placeholder='" + T.ph + "'></textarea><button type='submit'>" + T.send + "</button></form>";
   document.body.appendChild(btn);
   document.body.appendChild(panel);
@@ -69,6 +70,7 @@
   readEl.className = "dd-read";
   readEl.textContent = T.read;
 
+  function fmtSize(b) { return b < 1048576 ? Math.max(1, Math.round(b / 1024)) + " KB" : (b / 1048576).toFixed(1) + " MB"; }
   function add(m) {
     if (seen[m.id]) return;
     seen[m.id] = 1;
@@ -76,6 +78,18 @@
     d.className = "dd-m " + (m.direction === "in" ? "dd-in" : "dd-out");
     if (m.media_deleted) {
       d.textContent = T.mediaDeleted;
+    } else if (m.file_name) {
+      var a = document.createElement("a");
+      a.className = "dd-file";
+      a.textContent = "📄 " + m.file_name + (m.file_size ? " · " + fmtSize(m.file_size) : "");
+      if (m.media_url) { a.href = m.media_url; a.target = "_blank"; a.rel = "noopener"; }
+      d.appendChild(a);
+      if (m.body) {
+        var fcap = document.createElement("div");
+        fcap.className = "dd-cap";
+        fcap.textContent = m.body;
+        d.appendChild(fcap);
+      }
     } else if (m.preview_url) {
       var img = document.createElement("img");
       img.className = "dd-img";
@@ -163,32 +177,35 @@
 
   // รูป: ขอช่องอัปโหลด (นับ rate limit) → อัปโหลดตรงเข้า Storage → แจ้ง server ให้ตรวจและเก็บ
   var fileInput = form.querySelector("#dd-file");
-  var MAX_IMAGE = 5 * 1024 * 1024;
+  var MAX_IMAGE = 5 * 1024 * 1024, MAX_PDF = 10 * 1024 * 1024;
+  function isPdf(file) { return file.type === "application/pdf" || /\.pdf$/i.test(file.name || ""); }
   function note(text) { add({ id: "note-" + Date.now(), direction: "out", body: text }); }
   function postUpload(body) {
     return fetch(API + "/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   }
   function uploadImage(file) {
-    if (file.size > MAX_IMAGE) { note(T.tooBig); return Promise.resolve(); }
+    var pdf = isPdf(file);
+    if (file.size > (pdf ? MAX_PDF : MAX_IMAGE)) { note(pdf ? T.fileTooBig : T.tooBig); return Promise.resolve(); }
+    var bad = pdf ? T.badFile : T.badImage;
     return postUpload({ session: session }).then(function (r) {
       if (r.status === 429) {
         return r.json().catch(function () { return null; }).then(function (j) {
           note(j && j.error === "image_cap" ? T.imageCap : T.busy);
         });
       }
-      if (!r.ok) { note(T.badImage); return; }
+      if (!r.ok) { note(bad); return; }
       return r.json().then(function (slot) {
         return fetch(slot.url, { method: "PUT", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file })
           .then(function (put) {
             if (!put.ok) throw new Error("upload failed");
-            return postUpload({ session: session, path: slot.path });
+            return postUpload(pdf ? { session: session, path: slot.path, name: file.name } : { session: session, path: slot.path });
           })
           .then(function (done) {
-            if (!done.ok) { note(T.badImage); return; }
+            if (!done.ok) { note(bad); return; }
             clearTimeout(timer); poll();
           });
       });
-    }).catch(function () { note(T.badImage); });
+    }).catch(function () { note(bad); });
   }
   form.querySelector("#dd-attach").onclick = function () { fileInput.click(); };
   fileInput.onchange = function () {

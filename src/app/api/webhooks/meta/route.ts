@@ -2,7 +2,8 @@ import { after, NextResponse } from "next/server";
 import { getMetaProfile, META_FALLBACK_NAME, parseMetaEchoes, parseMetaReads, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
 import { logSystemError } from "@/lib/health";
 import { downloadLimited } from "@/lib/media";
-import { ingestInboundImage } from "@/lib/media-store";
+import { fileNameFromUrl, MAX_FILE_BYTES } from "@/lib/files";
+import { ingestInboundFile, ingestInboundImage } from "@/lib/media-store";
 import { processIncoming, storeIncoming, storeMetaEcho } from "@/lib/pipeline";
 import { applyCustomerRead, findConversationId } from "@/lib/read-receipts";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -47,11 +48,17 @@ export async function POST(req: Request) {
       avatarUrl: profile.avatar,
       externalMessageId: m.messageId,
       isImage: !!m.imageUrl,
+      file: m.fileUrl ? { name: fileNameFromUrl(m.fileUrl) } : undefined,
     });
 
     if (!stored.duplicate && m.imageUrl) {
       const url = m.imageUrl;
       after(() => ingestInboundImage(stored.messageId, () => downloadLimited(url)));
+    } else if (!stored.duplicate && m.fileUrl) {
+      const url = m.fileUrl;
+      const app = m.kind === "facebook" ? "Meta Business Suite" : "Instagram";
+      after(() => ingestInboundFile(stored.messageId, () => downloadLimited(url, {}, MAX_FILE_BYTES), fileNameFromUrl(url),
+        `[ลูกค้าส่งไฟล์ที่ไม่ใช่ PDF หรือโหลดไม่สำเร็จ — เปิดดูใน ${app}]`));
     } else if (!stored.duplicate && m.isText) {
       after(() => processIncoming(stored.conversationId, stored.messageId).catch((e) => {
         console.error("processIncoming", e);

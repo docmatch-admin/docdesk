@@ -141,7 +141,31 @@ export async function metaSend(
   return mids;
 }
 
-/** ส่งรูปตามกติกาเวลาเดียวกับข้อความ caption ไปเป็นข้อความถัดไปเพราะ attachment ไม่มี caption */
+/** ส่งรูปหรือไฟล์ตามกติกาเวลาเดียวกับข้อความ caption ไปเป็นข้อความถัดไปเพราะ attachment ไม่มี caption */
+async function metaSendAttachment(
+  kind: "facebook" | "instagram",
+  recipientId: string,
+  type: "image" | "file",
+  url: string,
+  caption: string,
+  opts: { lastInboundAt: Date | null; senderType: "staff" | "ai" },
+): Promise<string[]> {
+  const messaging = metaMessagingType(opts.lastInboundAt, opts.senderType);
+  const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      recipient: { id: recipientId },
+      message: { attachment: { type, payload: { url } } },
+      ...messaging,
+    }),
+  });
+  if (!res.ok) throw new Error(`Meta send ${type} failed ${res.status}: ${await res.text()}`);
+  const mid = await sentMid(res);
+  const captionMids = caption.trim() ? await metaSend(kind, recipientId, caption, opts) : [];
+  return [...(mid ? [mid] : []), ...captionMids];
+}
+
 export async function metaSendImage(
   kind: "facebook" | "instagram",
   recipientId: string,
@@ -149,20 +173,18 @@ export async function metaSendImage(
   caption: string,
   opts: { lastInboundAt: Date | null; senderType: "staff" | "ai" },
 ): Promise<string[]> {
-  const type = metaMessagingType(opts.lastInboundAt, opts.senderType);
-  const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      recipient: { id: recipientId },
-      message: { attachment: { type: "image", payload: { url: imageUrl } } },
-      ...type,
-    }),
-  });
-  if (!res.ok) throw new Error(`Meta send image failed ${res.status}: ${await res.text()}`);
-  const mid = await sentMid(res);
-  const captionMids = caption.trim() ? await metaSend(kind, recipientId, caption, opts) : [];
-  return [...(mid ? [mid] : []), ...captionMids];
+  return metaSendAttachment(kind, recipientId, "image", imageUrl, caption, opts);
+}
+
+/** ไฟล์ PDF: Messenger และ Instagram รับ attachment type file ได้ถึง 25MB Meta ดึงไฟล์จาก url ทันที */
+export async function metaSendFile(
+  kind: "facebook" | "instagram",
+  recipientId: string,
+  fileUrl: string,
+  caption: string,
+  opts: { lastInboundAt: Date | null; senderType: "staff" | "ai" },
+): Promise<string[]> {
+  return metaSendAttachment(kind, recipientId, "file", fileUrl, caption, opts);
 }
 
 /** แจ้ง Facebook/Instagram ว่าเพจอ่านแล้ว */
@@ -186,6 +208,8 @@ export interface MetaIncoming {
   isText: boolean;
   /** รูปภาพ: ลิงก์หมดอายุเร็ว ต้องดาวน์โหลดทันที */
   imageUrl?: string;
+  /** ไฟล์: ดาวน์โหลดทันทีเหมือนรูป เก็บเฉพาะ PDF */
+  fileUrl?: string;
 }
 
 interface MetaWebhookBody {
@@ -230,6 +254,10 @@ export function parseMetaWebhook(body: MetaWebhookBody): MetaIncoming[] {
         // ส่งหลายรูปพร้อมกันได้ mid เดียว ต้องแยก id ไม่อย่างนั้นตัวกันซ้ำจะทิ้งรูปที่เหลือ
         m.attachments.filter((a) => a.type === "image" && a.payload?.url).forEach((a, i) => {
           out.push({ kind, senderId, messageId: i ? `${m.mid}:${i}` : m.mid, text: "", isText: false, imageUrl: a.payload!.url });
+        });
+      } else if (m.attachments?.some((a) => a.type === "file" && a.payload?.url)) {
+        m.attachments.filter((a) => a.type === "file" && a.payload?.url).forEach((a, i) => {
+          out.push({ kind, senderId, messageId: i ? `${m.mid}:${i}` : m.mid, text: "", isText: false, fileUrl: a.payload!.url });
         });
       } else if (m.attachments?.length) {
         const t = m.attachments[0].type;

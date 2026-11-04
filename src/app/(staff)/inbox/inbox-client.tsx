@@ -7,6 +7,7 @@ import { staffInitial } from "@/lib/assignment";
 import { isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
 import { SENSITIVE_TAG } from "@/lib/sensitive-rules";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
+import { formatFileSize, isPdfName, MAX_FILE_BYTES } from "@/lib/files";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
 import { ArchiveMergeBar } from "./archive-merge-bar";
@@ -34,7 +35,7 @@ const timeTh = (iso: string) =>
 interface StaffOption { id: string; display_name: string; active: boolean; role?: string; can_view_sensitive?: boolean }
 interface AssignmentEntry { id: number; from_staff: string | null; to_staff: string | null; by_staff: string | null; created_at: string }
 interface QuickMedia { id: string; title: string; preview_path: string; previewUrl?: string }
-interface Attachment { file?: File; quick?: QuickMedia; previewUrl: string; name: string }
+interface Attachment { file?: File; quick?: QuickMedia; previewUrl: string; name: string; kind?: "image" | "file"; size?: number }
 
 const SIGNED_URL_SECONDS = 600;
 /** แชทลับเบลอกลับเมื่อไม่ขยับนานเท่านี้ */
@@ -468,9 +469,14 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   function attachFile(file: File | null | undefined) {
     if (!file) return;
+    // ปุ่มแนบเดียวรับทั้งรูปและ PDF ชนิดจริงตรวจจาก magic bytes ที่ server ตรงนี้แค่กันเลือกผิด
+    if (file.type === "application/pdf" || isPdfName(file.name)) {
+      if (file.size > MAX_FILE_BYTES) return flash("PDF ต้องไม่เกิน 25MB");
+      setAttachment({ file, kind: "file", previewUrl: "", name: file.name || "เอกสาร.pdf", size: file.size });
+      return;
+    }
     if (file.size > MAX_UPLOAD_BYTES) return flash("รูปต้องไม่เกิน 10MB");
-    // ชนิดจริงตรวจจาก magic bytes ที่ server ตรงนี้แค่กันเลือกผิด
-    setAttachment({ file, previewUrl: URL.createObjectURL(file), name: file.name || "รูปภาพ" });
+    setAttachment({ file, kind: "image", previewUrl: URL.createObjectURL(file), name: file.name || "รูปภาพ" });
   }
 
   function onPaste(e: React.ClipboardEvent) {
@@ -488,12 +494,15 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       const res = await fetch(`/api/conversations/${selectedId}/send-media`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadPath, quickMediaId: attachment.quick?.id, caption, skipTranslate: rawMode }),
+        body: JSON.stringify({
+          uploadPath, quickMediaId: attachment.quick?.id, caption, skipTranslate: rawMode,
+          fileName: attachment.kind === "file" ? attachment.name : undefined,
+        }),
       });
-      if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "ส่งรูปไม่สำเร็จ");
+      if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "ส่งไม่สำเร็จ");
       setAttachment(null); setCaption(""); setSuggestion(null); setChosen(null);
     } catch (e) {
-      flash(e instanceof Error ? e.message : "ส่งรูปไม่สำเร็จ");
+      flash(e instanceof Error ? e.message : "ส่งไม่สำเร็จ");
     } finally {
       setSending(false);
     }
@@ -803,7 +812,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               {messages.map((m) => (
                 <div key={m.id} className={`msg ${m.direction} ${m.sender_type} ${m.imported ? "imported" : ""}`}>
                   <div className="bubble">
-                    {m.media_type && <ChatImage message={m} />}
+                    {m.media_type === "file" ? <ChatFile message={m} /> : m.media_type && <ChatImage message={m} />}
                     {(m.body_th ?? m.body) && <div>{m.body_th ?? m.body}</div>}
                     {m.body_th && (
                       <div className="orig">
@@ -880,9 +889,14 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               )}
               {attachment && (
                 <div className="attach-preview">
-                  <img src={attachment.previewUrl} alt={attachment.name} />
+                  {attachment.kind === "file" ? (
+                    <div className="file-chip" title={attachment.name}>📄 {attachment.name}{attachment.size ? ` · ${formatFileSize(attachment.size)}` : ""}</div>
+                  ) : (
+                    <img src={attachment.previewUrl} alt={attachment.name} />
+                  )}
                   <input value={caption} onChange={(e) => setCaption(e.target.value)} onKeyDown={onKey}
-                    placeholder="คำบรรยายรูป (ไม่ใส่ก็ได้)" aria-label="คำบรรยายรูป" />
+                    placeholder={attachment.kind === "file" ? "ข้อความประกอบไฟล์ (ไม่ใส่ก็ได้)" : "คำบรรยายรูป (ไม่ใส่ก็ได้)"}
+                    aria-label={attachment.kind === "file" ? "ข้อความประกอบไฟล์" : "คำบรรยายรูป"} />
                   <button className="btn ghost small" onClick={() => { setAttachment(null); setCaption(""); }}>ยกเลิก</button>
                 </div>
               )}
@@ -895,10 +909,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               />
               <div className="composer-foot">
                 <div className="muted small">
-                  <button className="btn ghost small attach-btn" title="แนบรูป (ลากวาง หรือ Ctrl+V ได้)" aria-label="แนบรูป"
+                  <button className="btn ghost small attach-btn" title="แนบรูปหรือ PDF (ลากวาง หรือ Ctrl+V ได้)" aria-label="แนบรูปหรือ PDF"
                     onClick={() => fileInput.current?.click()}>📎</button>
                   <button className="btn ghost small attach-btn" aria-expanded={labOpen} onClick={() => setLabOpen(!labOpen)}>💰 ราคาแล็บ</button>
-                  <input ref={fileInput} type="file" accept="image/*,.heic,.heif" hidden
+                  <input ref={fileInput} type="file" accept="image/*,.heic,.heif,application/pdf,.pdf" hidden
                     onChange={(e) => { attachFile(e.target.files?.[0]); e.target.value = ""; }} />
                   {cancelBookingId && "📅 ส่งข้อความนี้แล้วนัดจะถูกยกเลิก "}
                   {chosen != null && (edited ? "✏️ แก้จากคำแนะนำ — ระบบจะจำสำนวนนี้" : "✅ ใช้คำแนะนำตามเดิม")}
@@ -911,7 +925,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 </div>
                 {attachment ? (
                   <button className="btn primary" onClick={sendAttachment} disabled={sending || metaWindow === "closed"}>
-                    {sending ? "กำลังส่ง…" : "ส่งรูป"}
+                    {sending ? "กำลังส่ง…" : attachment.kind === "file" ? "ส่งไฟล์" : "ส่งรูป"}
                   </button>
                 ) : (
                   <button className="btn primary" onClick={send} disabled={sending || !text.trim() || metaWindow === "closed"}>
@@ -958,6 +972,36 @@ function ChatImage({ message: m }: { message: Message }) {
   return (
     <button className="chat-image" onClick={openFull} title="เปิดรูปใหญ่" aria-label="เปิดรูปใหญ่">
       {previewUrl ? <img src={previewUrl} alt="รูปภาพในแชท" /> : <span className="media-note">กำลังโหลดรูป…</span>}
+    </button>
+  );
+}
+
+/** ไฟล์ในแชท: การ์ดชื่อไฟล์ทุกช่องทาง คลิกเปิดผ่าน signed URL อายุ 10 นาทีเหมือนรูป */
+function ChatFile({ message: m }: { message: Message }) {
+  const sb = useMemo(() => supabaseBrowser(), []);
+  const name = m.file_name || "เอกสาร.pdf";
+
+  async function open() {
+    if (!m.media_path) return;
+    // เปิดหน้าต่างก่อน ไม่อย่างนั้นเบราว์เซอร์จะบล็อกเพราะมีการรอ
+    const win = window.open("", "_blank");
+    const { data } = await sb.storage.from("chat-media").createSignedUrl(m.media_path, SIGNED_URL_SECONDS);
+    if (win && data?.signedUrl) win.location.href = data.signedUrl;
+    else win?.close();
+  }
+
+  if (m.media_deleted_at) return <div className="media-note">ไฟล์ถูกลบตามนโยบายเก็บข้อมูล</div>;
+  if (!m.media_path) {
+    const stuck = Date.now() - new Date(m.created_at).getTime() > IMAGE_LOADING_MAX_MS;
+    return <div className="media-note">{stuck ? "[ไฟล์ — โหลดไม่สำเร็จ เปิดดูในแอปต้นทาง]" : `กำลังโหลดไฟล์ ${name}…`}</div>;
+  }
+  return (
+    <button className="chat-file" onClick={open} title="เปิดไฟล์" aria-label={`เปิดไฟล์ ${name}`}>
+      <span className="chat-file-icon" aria-hidden="true">📄</span>
+      <span className="chat-file-text">
+        <span className="chat-file-name">{name}</span>
+        <span className="chat-file-size">{formatFileSize(m.file_size) || "PDF"}</span>
+      </span>
     </button>
   );
 }

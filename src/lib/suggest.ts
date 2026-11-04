@@ -38,7 +38,7 @@ const STYLE_FEW_SHOT = [
 interface KnowledgeHit { id: string; category: string; title: string; content: string; updated_at: string; similarity: number }
 interface ExampleHit { id: string; question: string; answer: string; starred: boolean; use_count: number; created_at: string; similarity: number }
 
-interface MsgRow { id: string; direction: "in" | "out"; sender_type: string; body: string; body_th: string | null; created_at: string }
+interface MsgRow { id: string; direction: "in" | "out"; sender_type: string; body: string; body_th: string | null; created_at: string; media_type?: string | null; file_name?: string | null }
 
 const thDate = (iso: string) =>
   new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit", timeZone: "Asia/Bangkok" });
@@ -94,7 +94,7 @@ export async function generateSuggestions(conversationId: string, { force = fals
 
   const { data: rows } = await db
     .from("messages")
-    .select("id, direction, sender_type, body, body_th, created_at")
+    .select("id, direction, sender_type, body, body_th, created_at, media_type, file_name")
     .eq("conversation_id", conversationId)
     .neq("imported", true) // ประวัติเก่าอาจมีราคาเก่า
     .neq("sender_type", "system") // ข้อความอัตโนมัติของเพจไม่ใช่การตอบ
@@ -217,7 +217,7 @@ export async function generateSuggestions(conversationId: string, { force = fals
   // ---- แหล่งที่ 3: ประวัติของลูกค้าคนนี้ ----
   const history = msgs
     .slice(-20)
-    .map((m) => `[${thDate(m.created_at)}] ${m.direction === "in" ? "ลูกค้า" : m.sender_type === "ai" ? "AI" : "เจ้าหน้าที่"}: ${forAi(m.body_th || m.body || "[รูปภาพ]")}`)
+    .map((m) => `[${thDate(m.created_at)}] ${m.direction === "in" ? "ลูกค้า" : m.sender_type === "ai" ? "AI" : "เจ้าหน้าที่"}: ${forAi(m.body_th || m.body || (m.media_type === "file" ? `[ไฟล์ ${m.file_name ?? "PDF"}]` : "[รูปภาพ]"))}`)
     .join("\n");
 
   const kBlock = knowledge.length

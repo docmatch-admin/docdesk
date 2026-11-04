@@ -1,6 +1,6 @@
 import type { ChannelType } from "../types";
-import { lineSend, lineSendImage } from "./line";
-import { metaSend, metaSendImage } from "./meta";
+import { lineSend, lineSendFile, lineSendImage } from "./line";
+import { metaSend, metaSendFile, metaSendImage } from "./meta";
 
 export interface SendOptions {
   /** LINE replyToken (ถ้ายังไม่หมดอายุ จะใช้แทน push เพื่อประหยัดโควต้า) */
@@ -31,6 +31,37 @@ export async function sendImageToChannel(
       return;
     default:
       throw new Error(`ยังไม่รองรับการส่งรูปไปช่องทาง ${type}`);
+  }
+}
+
+export interface OutFile { url: string; name: string; sizeText?: string; expiresAt: Date; language?: string }
+
+/**
+ * ส่งไฟล์ (PDF) ปุ่มเดียวกันทุกช่องทาง หลังบ้านเลือกวิธีตามแพลตฟอร์ม
+ * - Facebook/Instagram: ไฟล์จริง
+ * - LINE: API ไม่มีข้อความประเภทไฟล์ จึงส่งการ์ดพร้อมปุ่มเปิดไฟล์
+ * - web: widget ดึงจากฐานข้อมูลเอง
+ */
+export async function sendFileToChannel(
+  type: ChannelType,
+  externalId: string,
+  file: OutFile,
+  caption: string,
+  opts: SendOptions = {},
+): Promise<string[] | void> {
+  switch (type) {
+    case "line":
+      return lineSendFile(externalId, file, caption, opts.replyToken);
+    case "facebook":
+    case "instagram":
+      return metaSendFile(type, externalId, file.url, caption, {
+        lastInboundAt: opts.lastInboundAt ?? null,
+        senderType: opts.senderType ?? "staff",
+      });
+    case "web":
+      return;
+    default:
+      throw new Error(`ยังไม่รองรับการส่งไฟล์ไปช่องทาง ${type}`);
   }
 }
 

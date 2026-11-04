@@ -1,6 +1,6 @@
 import { embed } from "./ai";
 import { maskForLearning, saveConfirmedBooking } from "./booking-store";
-import { sendImageToChannel, sendToChannel } from "./channels";
+import { sendFileToChannel, sendImageToChannel, sendToChannel } from "./channels";
 import { AUTO_CLOSE_EXEMPT_TAGS, CLEARED_ON_REOPEN_TAG, CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "./case-flow";
 import { lineMarkAsRead } from "./channels/line";
 import { classifyMetaEcho, metaMarkSeen, metaMessagingType, type MetaEcho } from "./channels/meta";
@@ -14,7 +14,8 @@ import { awardStarPoints, recordStaffResponse } from "./score-store";
 import { classifyAck, classifyClosingMessage, endsConversation, hasUrgentSignal, isCustomerText, isStaffQuestion, isThanksOrSticker, shouldSkipSuggestion } from "./suggest-rules";
 import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
-import { CHAT_BUCKET, consumeUpload, downloadFile, loadRetentionDays, QUICK_BUCKET, removeFiles, storeImage, type StoredMedia } from "./media-store";
+import { CHAT_BUCKET, consumeUploadAny, downloadFile, loadRetentionDays, QUICK_BUCKET, removeFiles, storeImage, type StoredFile, type StoredMedia } from "./media-store";
+import { FILE_LINK_DAYS, formatFileSize, MAX_FILE_BYTES } from "./files";
 import { MAX_IMAGE_BYTES } from "./media";
 import { AUTO_SEND_MIN_CONFIDENCE, generateSuggestions, pendingCustomerText } from "./suggest";
 import { supabaseAdmin } from "./supabase/admin";
@@ -38,6 +39,8 @@ export interface IncomingInput {
   skipAi?: boolean;             // เกินเพดาน AI: เก็บข้อความโดยไม่แปล
   isImage?: boolean;            // รูปภาพ: text เป็น caption ได้ ว่างได้
   media?: StoredMedia;          // มีเมื่อรูปถูกเก็บแล้ว ถ้าไม่มี = รอดาวน์โหลดใน after()
+  /** ไฟล์ PDF: stored มีเมื่อเก็บแล้ว (เว็บ) ถ้าไม่มี = รอดาวน์โหลดใน after() */
+  file?: { name: string; size?: number | null; stored?: StoredFile };
 }
 
 /** บันทึกข้อความเข้า แล้วคืน conversationId (เร็ว ใช้ก่อนตอบ webhook) */
@@ -90,7 +93,8 @@ export async function storeIncoming(input: IncomingInput) {
   const closeNow = !wasClosed && endsChat && !conv.booking_pending && !conv.needs_human
     && !((conv.tags ?? []) as string[]).some((t) => AUTO_CLOSE_EXEMPT_TAGS.includes(t));
 
-  const imageOnly = !!input.isImage && !input.text.trim();
+  // รูปหรือไฟล์ล้วน: AI อ่านไม่ได้ ไม่ต้องแปล และให้คนดู
+  const imageOnly = (!!input.isImage || !!input.file) && !input.text.trim();
   const { language, th } = input.skipAi || imageOnly
     ? { language: contact.language as string, th: null }
     : await toThai(input.text);
@@ -111,6 +115,12 @@ export async function storeIncoming(input: IncomingInput) {
       media_width: input.media?.width ?? null,
       media_height: input.media?.height ?? null,
     } : {}),
+    ...(input.file ? {
+      media_type: "file",
+      media_path: input.file.stored?.path ?? null,
+      file_name: input.file.stored?.name ?? input.file.name,
+      file_size: input.file.stored?.size ?? input.file.size ?? null,
+    } : {}),
   }).select("id").single();
   if (mErr || !msg) throw mErr ?? new Error("message insert failed");
 
@@ -122,7 +132,7 @@ export async function storeIncoming(input: IncomingInput) {
       ...(conv.archived ? { archived: false } : {}),
       unread_count: (conv.unread_count ?? 0) + 1,
       last_message_at: new Date().toISOString(),
-      last_message_preview: preview(th ?? input.text) || "[รูปภาพ]",
+      last_message_preview: preview(th ?? input.text) || (input.file ? preview(`[ไฟล์] ${input.file.name}`) : "[รูปภาพ]"),
       ...(imageOnly ? { needs_human: true } : {}), // AI ไม่เห็นรูป ต้องให้คนดู
       ...(input.replyToken
         ? { line_reply_token: input.replyToken, line_reply_token_at: new Date().toISOString() }
@@ -451,6 +461,7 @@ export interface MediaReplyInput {
   senderId: string;
   skipTranslate?: boolean;
   origin: string;               // โดเมนของแอป ใช้สร้าง URL ที่ LINE/Meta ดึงรูป
+  fileName?: string;            // ชื่อไฟล์จากเครื่องเจ้าหน้าที่ ใช้เมื่อไฟล์ที่อัปโหลดเป็น PDF
 }
 
 /** เจ้าหน้าที่ส่งรูป: ไม่เข้าระบบเรียนรู้คำตอบ */
@@ -480,7 +491,8 @@ export async function sendMediaReply(input: MediaReplyInput) {
   const caption = captionTh && language !== "th" ? await fromThai(captionTh, language) : captionTh;
 
   // รูปใช้บ่อยคัดลอกเป็นไฟล์ของแชท ลบจากคลังภายหลังแล้วประวัติแชทไม่เสีย และระบบลบตามอายุไม่แตะคลัง
-  let media: StoredMedia;
+  let media: StoredMedia | null = null;
+  let file: StoredFile | null = null;
   if (input.quickMediaId) {
     const { data: quick } = await db.from("quick_media").select("path, preview_path").eq("id", input.quickMediaId).maybeSingle();
     if (!quick) throw new Error("ไม่พบรูปที่ใช้บ่อยนี้");
@@ -494,12 +506,16 @@ export async function sendMediaReply(input: MediaReplyInput) {
       height: meta.height ?? 0,
     });
   } else if (input.uploadPath) {
-    media = await consumeUpload(input.uploadPath, CHAT_BUCKET, MAX_IMAGE_BYTES);
+    // ปุ่มแนบเดียวรับทั้งรูปและ PDF ชนิดตัดสินจากเนื้อไฟล์
+    const up = await consumeUploadAny(input.uploadPath, CHAT_BUCKET, { maxImage: MAX_IMAGE_BYTES, maxFile: MAX_FILE_BYTES, fileName: input.fileName });
+    if (up.kind === "image") media = up.media;
+    else file = up.file;
   } else {
     throw new Error("ไม่มีรูปที่จะส่ง");
   }
+  const storedPaths = file ? [file.path] : [media!.path, media!.previewPath];
 
-  // ต้องมีแถวก่อนส่ง เพราะ Meta ดึงรูประหว่างที่เรายังรอคำตอบ
+  // ต้องมีแถวก่อนส่ง เพราะ Meta ดึงรูปและไฟล์ระหว่างที่เรายังรอคำตอบ
   const messageId = crypto.randomUUID();
   const { data: inserted } = await db.from("messages").insert({
     id: messageId,
@@ -510,24 +526,38 @@ export async function sendMediaReply(input: MediaReplyInput) {
     body: caption,
     body_th: caption !== captionTh ? captionTh : null,
     language,
-    media_type: "image",
-    media_path: media.path,
-    media_preview_path: media.previewPath,
-    media_width: media.width,
-    media_height: media.height,
+    ...(file
+      ? { media_type: "file", media_path: file.path, file_name: file.name, file_size: file.size }
+      : {
+          media_type: "image",
+          media_path: media!.path,
+          media_preview_path: media!.previewPath,
+          media_width: media!.width,
+          media_height: media!.height,
+        }),
   }).select("created_at").single();
 
   try {
     const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
     const ttlDays = await loadRetentionDays();
-    const mids = await sendImageToChannel(channel.type, contact.external_id, {
-      main: buildOutMediaUrl(input.origin, messageId, "main", { ttlDays }),
-      preview: buildOutMediaUrl(input.origin, messageId, "preview", { ttlDays }),
-    }, caption, { replyToken, lastInboundAt, senderType: "staff" });
+    const opts = { replyToken, lastInboundAt, senderType: "staff" as const };
+    const mids = file
+      ? await sendFileToChannel(channel.type, contact.external_id, {
+          // LINE: ลูกค้าได้ลิงก์ไปกดเปิดเอง จึงหมดอายุเร็ว Meta ดึงไฟล์ไปเก็บทันที ใช้อายุเท่ารูป
+          url: buildOutMediaUrl(input.origin, messageId, "file", { ttlDays: channel.type === "line" ? FILE_LINK_DAYS : ttlDays, fileName: file.name }),
+          name: file.name,
+          sizeText: formatFileSize(file.size),
+          expiresAt: new Date(Date.now() + FILE_LINK_DAYS * 86_400_000),
+          language,
+        }, caption, opts)
+      : await sendImageToChannel(channel.type, contact.external_id, {
+          main: buildOutMediaUrl(input.origin, messageId, "main", { ttlDays }),
+          preview: buildOutMediaUrl(input.origin, messageId, "preview", { ttlDays }),
+        }, caption, opts);
     if (mids?.[0]) await db.from("messages").update({ external_id: mids[0] }).eq("id", messageId);
   } catch (e) {
     await db.from("messages").delete().eq("id", messageId);
-    await removeFiles(CHAT_BUCKET, [media.path, media.previewPath]);
+    await removeFiles(CHAT_BUCKET, storedPaths);
     throw e;
   }
 
@@ -537,7 +567,7 @@ export async function sendMediaReply(input: MediaReplyInput) {
     needs_human: false,
     ...(isStaffQuestion(captionTh) ? { status: "open" } : {}),
     last_message_at: new Date().toISOString(),
-    last_message_preview: preview(`[รูปภาพ] ${captionTh}`),
+    last_message_preview: preview(`${file ? `[ไฟล์] ${file.name}` : "[รูปภาพ]"} ${captionTh}`),
   }).eq("id", input.conversationId);
   await claimIfUnassigned(input.conversationId, input.senderId);
   await recordStaffResponse({

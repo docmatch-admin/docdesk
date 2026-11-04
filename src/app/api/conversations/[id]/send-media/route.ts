@@ -8,9 +8,9 @@ export const maxDuration = 60;
 
 const STAFF_UPLOAD_RE = /^uploads\/staff-[0-9a-f-]{36}$/i;
 const MEDIA_ERROR_TEXT: Record<MediaError["code"], string> = {
-  unsupported: "รองรับเฉพาะรูป JPEG, PNG, WebP และ HEIC",
-  too_large: "รูปต้องไม่เกิน 10MB",
-  corrupt: "ไฟล์รูปเสียหาย เปิดไม่ได้",
+  unsupported: "รองรับรูป JPEG, PNG, WebP, HEIC และไฟล์ PDF",
+  too_large: "รูปต้องไม่เกิน 10MB และ PDF ต้องไม่เกิน 25MB",
+  corrupt: "ไฟล์เสียหาย เปิดไม่ได้",
 };
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const archived = await denyArchivedChat(id);
   if (archived) return archived;
   const body = (await req.json().catch(() => ({}))) as {
-    uploadPath?: string; quickMediaId?: string; caption?: string; skipTranslate?: boolean;
+    uploadPath?: string; quickMediaId?: string; caption?: string; skipTranslate?: boolean; fileName?: string;
   };
   if (body.uploadPath && !STAFF_UPLOAD_RE.test(body.uploadPath)) {
     return NextResponse.json({ error: "ไฟล์ไม่ถูกต้อง" }, { status: 400 });
@@ -35,6 +35,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json(await sendMediaReply({
       conversationId: id,
       uploadPath: body.uploadPath,
+      fileName: typeof body.fileName === "string" ? body.fileName : undefined,
       quickMediaId: body.quickMediaId,
       captionTh: body.caption,
       senderId: user.id,

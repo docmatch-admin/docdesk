@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { detectDocType, sanitizeFileName } from "./files";
 import { MediaError, processImage, type ProcessedImage } from "./media";
 import { DEFAULT_RETENTION_DAYS, normalizeRetentionDays } from "./media-url";
 import { getSetting } from "./mode";
@@ -8,6 +9,7 @@ import { supabaseAdmin } from "./supabase/admin";
 export const CHAT_BUCKET = "chat-media";
 export const QUICK_BUCKET = "quick-media";
 export const IMAGE_FAILED_TEXT = "[รูปภาพ — โหลดไม่สำเร็จ เปิดดูในแอปต้นทาง]";
+export const FILE_FAILED_TEXT = "[ไฟล์ — โหลดไม่สำเร็จ เปิดดูในแอปต้นทาง]";
 const WIDGET_URL_TTL_SECONDS = 600;
 const STALE_UPLOAD_MS = 60 * 60 * 1000;
 
@@ -63,6 +65,53 @@ export async function consumeUpload(uploadPath: string, bucket: string, maxBytes
   }
 }
 
+export interface StoredFile { path: string; name: string; size: number }
+
+/** เก็บไฟล์ PDF ตามเดิมไม่แปลง ตรวจจากเนื้อไฟล์ */
+export async function storeFile(bucket: string, data: Buffer, name?: string | null): Promise<StoredFile> {
+  if (!detectDocType(data)) throw new MediaError("unsupported");
+  const path = `${new Date().toISOString().slice(0, 7)}/${crypto.randomUUID()}.pdf`;
+  const { error } = await supabaseAdmin().storage.from(bucket).upload(path, data, { contentType: "application/pdf" });
+  if (error) throw error;
+  return { path, name: sanitizeFileName(name), size: data.length };
+}
+
+export type StoredUpload = { kind: "image"; media: StoredMedia } | { kind: "file"; file: StoredFile };
+
+/** ปุ่มแนบเดียวรับทั้งรูปและ PDF ชนิดตัดสินจากเนื้อไฟล์ ไฟล์พักถูกลบเสมอ แม้ไฟล์ไม่ผ่าน */
+export async function consumeUploadAny(
+  uploadPath: string, bucket: string, opts: { maxImage: number; maxFile: number; fileName?: string | null },
+): Promise<StoredUpload> {
+  let raw: Buffer;
+  try {
+    raw = await downloadFile(CHAT_BUCKET, uploadPath);
+  } catch (e) {
+    console.error("read upload failed", e);
+    throw new MediaError("unsupported");
+  }
+  try {
+    if (detectDocType(raw)) {
+      if (raw.length > opts.maxFile) throw new MediaError("too_large");
+      return { kind: "file", file: await storeFile(bucket, raw, opts.fileName) };
+    }
+    return { kind: "image", media: await storeImage(bucket, await processImage(raw, opts.maxImage)) };
+  } finally {
+    await removeFiles(CHAT_BUCKET, [uploadPath]);
+  }
+}
+
+/** ไฟล์เข้าจาก LINE/Meta: ลิงก์ต้นทางหมดอายุ ต้องโหลดทันที ไม่ใช่ PDF หรือโหลดไม่ได้ให้เจ้าหน้าที่ไปดูในแอปต้นทาง */
+export async function ingestInboundFile(messageId: string, download: () => Promise<Buffer>, name: string, failedText = FILE_FAILED_TEXT) {
+  const db = supabaseAdmin();
+  try {
+    const stored = await storeFile(CHAT_BUCKET, await download(), name);
+    await db.from("messages").update({ media_path: stored.path, file_name: stored.name, file_size: stored.size }).eq("id", messageId);
+  } catch (e) {
+    console.error("ingest file failed", e instanceof Error ? e.message : e);
+    await db.from("messages").update({ body: failedText, media_type: null }).eq("id", messageId);
+  }
+}
+
 /** รูปเข้าจาก LINE/Meta: ลิงก์ต้นทางหมดอายุ ต้องโหลดทันที ถ้าไม่ได้ให้เจ้าหน้าที่ไปดูในแอปต้นทาง */
 export async function ingestInboundImage(messageId: string, download: () => Promise<Buffer>) {
   const db = supabaseAdmin();
@@ -82,15 +131,18 @@ export async function ingestInboundImage(messageId: string, download: () => Prom
 
 export interface WidgetMessage {
   id: string; direction: string; body: string; created_at: string;
-  media_url?: string; preview_url?: string; media_deleted?: boolean;
+  media_url?: string; preview_url?: string; media_deleted?: boolean; file_name?: string; file_size?: number;
 }
 
 /** แนบ signed URL อายุสั้นให้ข้อความที่ผ่านการกรองตาม session มาแล้ว */
 export async function attachWidgetMedia(rows: {
   id: string; direction: string; body: string; created_at: string;
   media_path?: string | null; media_preview_path?: string | null; media_deleted_at?: string | null;
+  media_type?: string | null; file_name?: string | null; file_size?: number | null;
 }[]): Promise<WidgetMessage[]> {
-  const paths = rows.flatMap((r) => (r.media_path && r.media_preview_path ? [r.media_path, r.media_preview_path] : []));
+  const paths = rows.flatMap((r) => (r.media_type === "file"
+    ? (r.media_path ? [r.media_path] : [])
+    : r.media_path && r.media_preview_path ? [r.media_path, r.media_preview_path] : []));
   const urls = new Map<string, string>();
   if (paths.length) {
     const { data } = await supabaseAdmin().storage.from(CHAT_BUCKET).createSignedUrls(paths, WIDGET_URL_TTL_SECONDS);
@@ -98,7 +150,9 @@ export async function attachWidgetMedia(rows: {
   }
   return rows.map((r) => ({
     id: r.id, direction: r.direction, body: r.body, created_at: r.created_at,
-    ...(r.media_path ? { media_url: urls.get(r.media_path), preview_url: urls.get(r.media_preview_path ?? "") } : {}),
+    ...(r.media_type === "file"
+      ? { file_name: r.file_name || "เอกสาร.pdf", ...(r.file_size ? { file_size: r.file_size } : {}), ...(r.media_path ? { media_url: urls.get(r.media_path) } : {}) }
+      : r.media_path ? { media_url: urls.get(r.media_path), preview_url: urls.get(r.media_preview_path ?? "") } : {}),
     ...(r.media_deleted_at ? { media_deleted: true } : {}),
   }));
 }

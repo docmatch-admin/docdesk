@@ -93,6 +93,8 @@ export interface Message {
   media_preview_path: string | null;
   media_width: number | null;
   media_height: number | null;
+  file_name?: string | null;
+  file_size?: number | null;
   media_deleted_at: string | null;
   imported?: boolean;
   /** ผู้ส่งนอก DocDesk เช่น Meta Business Suite */
