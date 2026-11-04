@@ -57,7 +57,7 @@ export function pendingCustomerText(msgs: MsgRow[]): { text: string; lastId: str
   };
 }
 
-/** โหมด auto/fallback ระบบร่างเองหลังรอ 8 วินาที เผื่อเวลาร่างไว้ด้วย กันเจ้าหน้าที่เปิดแชทแล้วเรียก LLM ซ้ำ */
+/** ระบบร่างเองหลังรอ 8 วินาทีทุกโหมด เผื่อเวลาร่างไว้ด้วย กันเจ้าหน้าที่เปิดแชทแล้วเรียก LLM ซ้ำ */
 const SERVER_DRAFT_WINDOW_MS = 20_000;
 
 /**
@@ -68,7 +68,7 @@ export async function ensureSuggestions(conversationId: string, now = Date.now()
   const db = supabaseAdmin();
   const empty = { id: null, options: [], needs_human: false };
   const { data: conv } = await db.from("conversations")
-    .select("ai_mode, channels(type, ai_mode)").eq("id", conversationId).single();
+    .select("ai_mode, sensitive, channels(type, ai_mode)").eq("id", conversationId).single();
   if (!conv) return empty;
   const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as unknown as { type: ChannelType; ai_mode: AiMode | null };
 
@@ -77,8 +77,9 @@ export async function ensureSuggestions(conversationId: string, now = Date.now()
     if ((usage?.count ?? 0) >= WEBCHAT_LIMITS.aiPerDay) return { ...empty, skipped: "cap" };
   }
 
+  // ทุกโหมดร่างเองหลังข้อความเข้า ยกเว้นแชทลับใน off/assist เปิดแชทระหว่างนั้นจึงรอผลแทนการเรียก LLM ซ้ำ
   const mode = await resolveAiMode(conv as { ai_mode: AiMode | null }, channel);
-  if (mode === "auto" || mode === "fallback") {
+  if (!(conv.sensitive && (mode === "off" || mode === "assist"))) {
     const { data: lastIn } = await db.from("messages").select("created_at")
       .eq("conversation_id", conversationId).eq("direction", "in")
       .order("created_at", { ascending: false }).limit(1).maybeSingle();

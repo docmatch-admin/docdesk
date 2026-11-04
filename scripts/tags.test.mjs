@@ -215,12 +215,13 @@ test("AI เสนอแท็กในการเรียกเดิม: ไ
   assert.match(calls.lastPrompt, /รายการแท็กที่เลือกได้\n.*วัคซีน/);
 });
 
-test("โหมดผู้ช่วย: เสนออย่างเดียว ไม่ติดเอง", async () => {
+test("โหมดผู้ช่วย: ติดแท็ก topic เองจากข้อความเข้า โดยไม่ร่างซ้ำ", async () => {
   replies.next.suggested_tags = ["วัคซีน"];
   const s = await incoming("ฉีดวัคซีนราคาเท่าไหร่");
-  await generateSuggestions(s.conversationId);
   await processIncoming(s.conversationId, s.messageId);
-  assert.deepEqual(conv().tags ?? [], []);
+  assert.deepEqual(conv().tags, ["วัคซีน"]);
+  assert.deepEqual(events(), ["add:วัคซีน:ai"]);
+  assert.equal(calls.chat, 1);
 });
 
 test("โหมดอัตโนมัติ: ติดเองเฉพาะกลุ่ม topic", async () => {
@@ -242,13 +243,14 @@ test("โหมดอัตโนมัติ: แท็ก topic ที่ป�
   assert.deepEqual(conv().tags ?? [], []);
 });
 
-test("โหมดคนตอบก่อน: ไม่ติดเอง", async () => {
+test("โหมดคนตอบก่อน: ติดแท็กเอง และรอเจ้าหน้าที่ตอบก่อน", async () => {
   setup("fallback");
   state.tables.settings.push({ key: "business_hours", value: { tz: "Asia/Bangkok", days: Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [d, ["00:00", "23:59"]])) } });
   replies.next = { needs_human: false, suggested_tags: ["วัคซีน"], options: [{ text: "ร่าง", source: "knowledge", ref_ids: [], confidence: 0.8 }] };
   const s = await incoming("ฉีดวัคซีนราคาเท่าไหร่");
   await processIncoming(s.conversationId, s.messageId);
-  assert.deepEqual(conv().tags ?? [], []);
+  assert.deepEqual(conv().tags, ["วัคซีน"]);
+  assert.ok(conv().ai_due_at);
 });
 
 test("คำแนะนำเดิมถูกใช้ซ้ำ: คงแท็กที่เสนอ และไม่เรียก LLM", async () => {
