@@ -202,19 +202,7 @@ export async function setConversationTag(conversationId: string, tag: string, ac
   return (data ?? []) as string[];
 }
 
-/** โหมด auto: ติดแท็กที่ AI เสนอเองเฉพาะกลุ่ม topic ไม่เรียก LLM เพิ่ม */
-async function autoApplyTopicTags(conversationId: string, suggested: string[] = []) {
-  if (!suggested.length) return;
-  try {
-    const { data: topics } = await supabaseAdmin().from("tags").select("name")
-      .eq("group", "topic").eq("active", true).in("name", suggested);
-    for (const t of topics ?? []) await setConversationTag(conversationId, t.name as string, "add", "ai");
-  } catch (e) {
-    console.error("auto tag failed", e);
-  }
-}
-
-/** ทุกโหมด: รอให้ลูกค้าพิมพ์จบก่อน ข้อความใหม่จะเริ่มนับใหม่ และร่างครั้งเดียวจากทั้งชุด */
+/** auto/fallback: รอให้ลูกค้าพิมพ์จบก่อน ข้อความใหม่จะเริ่มนับใหม่ และร่างครั้งเดียวจากทั้งชุด */
 export const aiTiming = { debounceMs: 8_000 };
 
 /** หลังบันทึก: ตัดสินใจตามโหมด AI (เรียกใน after()) */
@@ -229,15 +217,13 @@ export async function processIncoming(conversationId: string, messageId: string,
   const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as { ai_mode: AiMode | null };
   const mode = await resolveAiMode(conv as { ai_mode: AiMode | null }, channel ?? { ai_mode: null });
 
-  // off/assist: AI ไม่ส่งถึงลูกค้า แต่ยังร่างไว้ล่วงหน้าเพื่อติดแท็ก เรื่องด่วนขึ้นป้ายทันทีไม่ต้องรอร่าง
-  const staffOnly = mode === "off" || mode === "assist";
-  if (staffOnly) {
+  // ไม่ร่างตอนข้อความเข้า ประหยัด LLM: ร่างและติดแท็กตอนเจ้าหน้าที่เปิดแชท แต่เรื่องด่วนยังต้องขึ้นป้ายในรายการแชท
+  if (mode === "off" || mode === "assist") {
     const { data: m } = await db.from("messages").select("body, body_th").eq("id", messageId).maybeSingle();
     if (m && hasUrgentSignal(m.body_th || m.body)) {
       await db.from("conversations").update({ needs_human: true }).eq("id", conversationId);
     }
-    // แชทลับไม่ร่างล่วงหน้า ร่างตอนคนที่มีสิทธิ์เปิดแชท
-    if (conv.sensitive) return;
+    return;
   }
 
   await new Promise((resolve) => setTimeout(resolve, aiTiming.debounceMs));
@@ -252,10 +238,6 @@ export async function processIncoming(conversationId: string, messageId: string,
     ? { id: null, options: [], needs_human: true, suggested_tags: [] as string[], skipped: undefined }
     : await generateSuggestions(conversationId);
   if (suggestion.skipped) return;
-
-  // ติดแท็กทุกโหมด แท็กที่เจ้าหน้าที่เอาออกเองจะไม่กลับมา (set_conversation_tag ข้าม by = ai)
-  await autoApplyTopicTags(conversationId, suggestion.suggested_tags);
-  if (staffOnly) return;
 
   if (mode === "fallback") {
     const hours = await getSetting<BusinessHours>("business_hours", { tz: "Asia/Bangkok", days: {} });

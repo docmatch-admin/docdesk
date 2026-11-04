@@ -97,25 +97,22 @@ test("คำถามซ้ำคำตอบดาว: ไม่เรียก
 });
 
 // ---- ข้อ 1: off / assist ----
-// ร่างล่วงหน้าเพื่อติดแท็ก แต่ไม่ส่งถึงลูกค้า
 for (const mode of ["off", "assist"]) {
-  test(`โหมด ${mode}: ข้อความเข้าร่างล่วงหน้า 1 ครั้ง แต่ไม่ส่ง`, async () => {
+  test(`โหมด ${mode}: ข้อความเข้าไม่เรียก AI`, async () => {
     setup(mode);
     const s = await incoming("วัคซีนราคาเท่าไหร่");
     await processIncoming(s.conversationId, s.messageId);
-    assert.equal(calls.chat, 1);
-    assert.equal(state.tables.suggestions.length, 1);
-    assert.equal(out().length, 0);
-    assert.equal(conv().ai_due_at ?? null, null);
+    assert.deepEqual(calls, { chat: 0, embed: 0 });
+    assert.equal(state.tables.suggestions.length, 0);
   });
 }
 
-test("assist: เรื่องด่วนยังขึ้นป้ายต้องให้คนตอบ และไม่ส่ง", async () => {
+test("assist: เรื่องด่วนยังขึ้นป้ายต้องให้คนตอบ แม้ไม่เรียก AI", async () => {
   setup("assist");
   const s = await incoming("ปวดหัวมาก กินยาอะไรดี");
   await processIncoming(s.conversationId, s.messageId);
+  assert.equal(calls.chat, 0);
   assert.equal(conv().needs_human, true);
-  assert.equal(out().length, 0);
 });
 
 test("เปิดแชทหลายครั้ง: สร้างครั้งเดียวต่อชุดข้อความ และสร้างใหม่เมื่อมีข้อความใหม่", async () => {

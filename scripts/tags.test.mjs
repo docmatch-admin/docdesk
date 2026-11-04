@@ -215,10 +215,13 @@ test("AI เสนอแท็กในการเรียกเดิม: ไ
   assert.match(calls.lastPrompt, /รายการแท็กที่เลือกได้\n.*วัคซีน/);
 });
 
-test("โหมดผู้ช่วย: ติดแท็ก topic เองจากข้อความเข้า โดยไม่ร่างซ้ำ", async () => {
+test("โหมดผู้ช่วย: ข้อความเข้าไม่เรียก LLM แท็กติดตอนเปิดแชท", async () => {
   replies.next.suggested_tags = ["วัคซีน"];
   const s = await incoming("ฉีดวัคซีนราคาเท่าไหร่");
   await processIncoming(s.conversationId, s.messageId);
+  assert.equal(calls.chat, 0);
+  assert.deepEqual(conv().tags ?? [], []);
+  await generateSuggestions(s.conversationId);
   assert.deepEqual(conv().tags, ["วัคซีน"]);
   assert.deepEqual(events(), ["add:วัคซีน:ai"]);
   assert.equal(calls.chat, 1);
