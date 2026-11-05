@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Icon } from "./icons";
 
 export const NAV_KEY = "docdesk_nav_collapsed";
 
@@ -25,7 +26,7 @@ export function NavToggle() {
   return (
     <button type="button" className="nav-toggle" onClick={toggle}
       aria-label={collapsed ? "ขยายเมนู" : "ย่อเมนู"} aria-expanded={!collapsed} title={collapsed ? "ขยายเมนู" : "ย่อเมนู"}>
-      <span className="nav-icon" aria-hidden="true">{collapsed ? "»" : "«"}</span>
+      <span className={`nav-icon ${collapsed ? "flip" : ""}`} aria-hidden="true"><Icon name="chevronLeft" size={20} /></span>
       <span className="nav-label">ย่อเมนู</span>
     </button>
   );

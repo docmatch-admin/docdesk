@@ -7,6 +7,23 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
+/**
+ * ใครติดแท็กแต่ละอันของแชทนี้ (ai / rule / staff) ใช้แสดงเครื่องหมาย AI
+ * tag_events อ่านได้เฉพาะ admin ผ่าน RLS จึงอ่านที่นี่ด้วย service role หลังตรวจสิทธิ์แชท
+ */
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { canViewSensitive, error } = await requireStaff();
+  if (error) return error;
+  const { id } = await params;
+  const denied = await denySensitiveChat(id, canViewSensitive);
+  if (denied) return denied;
+  const { data } = await supabaseAdmin().from("tag_events").select("tag, action, by, created_at")
+    .eq("conversation_id", id).eq("action", "add").order("created_at");
+  const sources: Record<string, string> = {};
+  for (const e of (data ?? []) as { tag: string; by: string }[]) sources[e.tag] = e.by;
+  return NextResponse.json({ sources });
+}
+
 /** เจ้าหน้าที่ติดหรือเอาแท็กออก ผ่าน server เพื่อให้มี tag_events สำหรับรายงานเสมอ */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { canViewSensitive, error } = await requireStaff();

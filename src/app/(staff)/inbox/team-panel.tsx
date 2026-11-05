@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { Icon } from "../icons";
 
 interface StaffOption { id: string; display_name: string; active: boolean; role?: string; can_view_sensitive?: boolean }
 interface Task { id: string; conversation_id: string; text: string; assignee_id: string | null; done: boolean; done_by: string | null; done_at: string | null; created_by: string | null; created_at: string }
@@ -92,11 +93,11 @@ export function TeamPanel({ conversationId, staff, sensitive, onChanged, onError
   const who = (id: string | null) => (id && name.get(id)) || "เจ้าหน้าที่";
 
   return (
-    <aside className="team-panel" aria-label="งานของทีมและคอมเมนต์ภายใน">
-      <section className="team-box">
-        <div className="team-head">
+    <>
+      <section className="side-block">
+        <div className="side-head">
           <h3>งานของทีม</h3>
-          {tasks.length > 0 && <span className={`chip ${doneCount < tasks.length ? "orange" : ""}`}>{doneCount}/{tasks.length} เสร็จ</span>}
+          {tasks.length > 0 && <span className={`chip tiny ${doneCount < tasks.length ? "orange" : ""}`}>{doneCount}/{tasks.length} เสร็จ</span>}
         </div>
         {tasks.length === 0 && <div className="muted small">ยังไม่มีงาน</div>}
         <ul className="task-list">
@@ -112,10 +113,10 @@ export function TeamPanel({ conversationId, staff, sensitive, onChanged, onError
                   <span className="task-text">{t.text}</span>
                 </label>
                 <div className="task-meta muted small">
-                  {t.assignee_id && <span>👤 {who(t.assignee_id)}</span>}
-                  {t.done && t.done_at && <span>✓ {who(t.done_by)} · {timeTh(t.done_at)}</span>}
+                  {t.assignee_id && <span>ผู้รับ: {who(t.assignee_id)}</span>}
+                  {t.done && t.done_at && <span>เสร็จโดย {who(t.done_by)} · {timeTh(t.done_at)}</span>}
                   <button type="button" className="link-btn" aria-expanded={expanded}
-                    onClick={() => { setOpenThread(expanded ? null : t.id); setReply(""); }}>คอมเมนต์ {thread.length}</button>
+                    onClick={() => { setOpenThread(expanded ? null : t.id); setReply(""); }}>{expanded ? "ซ่อนคอมเมนต์" : thread.length ? `คอมเมนต์ ${thread.length}` : "เพิ่มคอมเมนต์"}</button>
                 </div>
                 {!expanded && latest && (
                   <div className="task-latest small"><b>{who(latest.author_id)}:</b> {latest.body}</div>
@@ -128,9 +129,9 @@ export function TeamPanel({ conversationId, staff, sensitive, onChanged, onError
                         <div className="note-body">{n.body}</div>
                       </div>
                     ))}
-                    <form className="note-form" onSubmit={(e) => addNote(e, t.id)}>
-                      <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="คอมเมนต์งานนี้…" aria-label="คอมเมนต์งานนี้" maxLength={2000} />
-                      <button className="btn small" disabled={busy || !reply.trim()}>ส่ง</button>
+                    <form className="inline-form" onSubmit={(e) => addNote(e, t.id)}>
+                      <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="อัปเดตงานนี้…" aria-label="อัปเดตงานนี้" maxLength={2000} />
+                      <button className="icon-btn dark" disabled={busy || !reply.trim()} aria-label="ส่งคอมเมนต์งานนี้" title="ส่ง"><Icon name="send" /></button>
                     </form>
                   </div>
                 )}
@@ -139,19 +140,19 @@ export function TeamPanel({ conversationId, staff, sensitive, onChanged, onError
           })}
         </ul>
         <form className="task-form" onSubmit={addTask}>
-          <input value={newTask} onChange={(e) => setNewTask(e.target.value)} placeholder="เพิ่มงาน เช่น โทรยืนยันนัด" aria-label="เพิ่มงาน" maxLength={500} />
-          <div className="row">
-            <select value={assignee} onChange={(e) => setAssignee(e.target.value)} aria-label="ผู้รับงาน">
-              <option value="">ไม่ระบุผู้รับ</option>
-              {assignable.map((s) => <option key={s.id} value={s.id}>{s.display_name}</option>)}
-            </select>
-            <button className="btn small" disabled={busy || !newTask.trim()}>เพิ่มงาน</button>
+          <div className="inline-form">
+            <input value={newTask} onChange={(e) => setNewTask(e.target.value)} placeholder="เพิ่มงาน เช่น โทรยืนยันนัด" aria-label="เพิ่มงาน" maxLength={500} />
+            <button className="icon-btn dark" disabled={busy || !newTask.trim()} aria-label="เพิ่มงาน" title="เพิ่มงาน"><Icon name="plus" /></button>
           </div>
+          <select value={assignee} onChange={(e) => setAssignee(e.target.value)} aria-label="ผู้รับงาน">
+            <option value="">ไม่ระบุผู้รับ</option>
+            {assignable.map((s) => <option key={s.id} value={s.id}>{s.display_name}</option>)}
+          </select>
         </form>
       </section>
 
-      <section className="team-box internal-notes">
-        <div className="team-head">
+      <section className="side-block internal-notes">
+        <div className="side-head">
           <h3>คอมเมนต์ภายใน</h3>
           <span className="chip internal-badge">ลูกค้าไม่เห็น</span>
         </div>
@@ -162,11 +163,11 @@ export function TeamPanel({ conversationId, staff, sensitive, onChanged, onError
             <div className="note-body">{n.body}</div>
           </div>
         ))}
-        <form className="note-form" onSubmit={(e) => addNote(e, null)}>
-          <textarea rows={2} value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="บันทึกถึงทีม ลูกค้าไม่เห็น" aria-label="คอมเมนต์ภายใน" maxLength={2000} />
-          <button className="btn small" disabled={busy || !newNote.trim()}>บันทึก</button>
+        <form className="inline-form" onSubmit={(e) => addNote(e, null)}>
+          <textarea rows={2} value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="เขียนโน้ตถึงทีม ลูกค้าไม่เห็น" aria-label="เขียนโน้ตถึงทีม" maxLength={2000} />
+          <button className="icon-btn dark" disabled={busy || !newNote.trim()} aria-label="บันทึกโน้ตถึงทีม" title="บันทึกโน้ต"><Icon name="send" /></button>
         </form>
       </section>
-    </aside>
+    </>
   );
 }

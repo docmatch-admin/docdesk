@@ -71,6 +71,50 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .nav-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; min-width: 44px; padding: 9px 12px; margin: 0 -8px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--muted); cursor: pointer; font: inherit; }
 .nav-toggle:hover, .nav-toggle:focus-visible { background: var(--bg); color: var(--ink); }
 .brand-short { display: none; }
+.nav-icon svg { display: block; margin: 0 auto; }
+.nav-icon.flip svg { transform: rotate(180deg); }
+/* ---------- ปุ่มไอคอน ---------- */
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 32px; height: 32px; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); cursor: pointer; flex-shrink: 0; font: inherit; font-size: 12px; }
+.icon-btn:hover:not(:disabled), .icon-btn:focus-visible { background: var(--bg); }
+.icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+.icon-btn.primary { background: #128a6c; border-color: transparent; color: #fff; }
+.icon-btn.dark { background: var(--ink); border-color: transparent; color: #fff; }
+.icon-btn.danger { color: #b3263a; }
+.icon-btn.confirm { background: var(--red-soft); border-color: #e9a3ad; color: #b3263a; }
+.icon-btn.on { background: var(--blue-soft); border-color: transparent; color: var(--blue); }
+.icon-btn.static { cursor: default; }
+.icon-btn.round { border-radius: 999px; min-width: 28px; height: 28px; padding: 0; }
+.icon-btn.dashed { border-style: dashed; color: var(--muted); }
+.icon-btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.icon-btn.tiny { min-width: 32px; height: 32px; }
+.icon-btn-text { font-size: 12px; }
+/* ---------- หัวแชทแบบกระชับ ---------- */
+.chat-head.compact { min-height: 46px; padding: 6px 12px; gap: 10px; flex-wrap: nowrap; justify-content: flex-start; }
+.chat-head.compact .chat-head-main { flex: 1; min-width: 0; }
+.head-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.head-line .name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.head-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.avatar.small { width: 30px; height: 30px; font-size: 13px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.btn.done.head-done { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; font-weight: 600; white-space: nowrap; }
+.btn.done.head-done:disabled { background: #eceae4; color: var(--muted); opacity: 1; border: 1px solid var(--line); }
+/* แถบสถานะติดด้านบนของพื้นที่ข้อความ */
+.status-strip { position: sticky; top: -16px; z-index: 2; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; margin: -16px -16px 0; padding: 6px 16px; background: #fff; font-size: 12px; }
+.status-chip { padding: 2px 10px; border-radius: 999px; background: var(--bg); color: var(--ink); font-weight: 500; }
+.status-chip.wait { background: #fff1dc; color: #8a4b00; }
+.status-chip.done { background: #e6e9e7; color: #3e4a4d; }
+.status-hint { color: #8a4b00; }
+/* ---------- บล็อกในแผงขวา ---------- */
+.side-block { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.side-head { display: flex; align-items: center; gap: 6px; }
+.side-head h3 { margin: 0; font-size: 14px; flex: 1; }
+.side-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.side-row { display: flex; gap: 6px; align-items: center; }
+.side-row select { flex: 1; min-width: 0; height: 32px; padding: 0 8px; font-size: 13px; }
+.tag-ai { color: var(--muted); font-size: 11px; }
+.chip.tiny { font-size: 11px; padding: 0 7px; }
+.inline-form { display: flex; gap: 6px; align-items: flex-end; }
+.inline-form input, .inline-form textarea { flex: 1; min-width: 0; font-size: 13px; padding: 6px 8px; }
+.inline-form input { height: 32px; }
 .brand .nav-label, .brand .brand-short { color: var(--blue); }
 html[data-nav="collapsed"] .nav { width: 68px; padding-left: 8px; padding-right: 8px; }
 html[data-nav="collapsed"] .nav .nav-label, html[data-nav="collapsed"] .nav-extra { display: none; }
@@ -108,33 +152,32 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--mint-soft); color: #128a6c; display: grid; place-items: center; font-weight: 600; flex-shrink: 0; object-fit: cover; }
 
-.chat { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.chat { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; }
 .chat-area { flex: 1; min-width: 0; display: flex; }
 /* ---------- กล่องทีม ---------- */
-.team-panel { width: 320px; flex-shrink: 0; border-left: 1px solid var(--line); background: #fff; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px; }
-.team-box { display: flex; flex-direction: column; gap: 8px; }
-.team-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.team-head h3 { margin: 0; font-size: 15px; }
+.team-panel { width: 276px; flex-shrink: 0; border-left: 1px solid var(--line); background: #fff; overflow-y: auto; display: flex; flex-direction: column; font-size: 13px; }
 .task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.task { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.task { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 2px; }
+.task.done { background: #f7f6f2; }
 .task.done .task-text { text-decoration: line-through; color: var(--muted); }
 .task-check { display: flex; align-items: flex-start; gap: 8px; font-weight: 400; cursor: pointer; min-height: 32px; }
-.task-check input { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; }
+.task-check input { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; }
 .task-text { word-break: break-word; }
-.task-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding-left: 28px; }
-.task-latest { padding: 4px 8px 4px 28px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.task-thread { display: flex; flex-direction: column; gap: 6px; padding-left: 28px; }
-.link-btn { background: none; border: 0; padding: 4px 0; color: var(--blue); cursor: pointer; font: inherit; min-height: 32px; }
-.task-form, .note-form { display: flex; flex-direction: column; gap: 6px; }
-.task-form .row { display: flex; gap: 6px; }
-.task-form select { flex: 1; min-width: 0; }
-.note { padding: 6px 8px; border-radius: 8px; background: var(--bg); }
+.task-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: center; padding-left: 26px; font-size: 11px; }
+.task-latest { padding: 0 4px 2px 26px; color: var(--muted); font-size: 12px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.task-thread { display: flex; flex-direction: column; gap: 4px; padding-left: 26px; }
+.task-thread .note { background: #fff8ea; border: 1px solid #f1e0bc; }
+.link-btn { background: none; border: 0; padding: 0 4px; color: var(--blue); cursor: pointer; font: inherit; font-size: 12px; min-height: 32px; }
+.task-form { display: flex; flex-direction: column; gap: 6px; }
+.task-form select { height: 32px; padding: 0 8px; font-size: 13px; }
+.note { padding: 6px 8px; border-radius: 8px; background: var(--bg); font-size: 12px; }
+.note-by { font-size: 11px; }
 .note-body { white-space: pre-wrap; word-break: break-word; }
-.internal-notes { background: #fff8db; border: 1px solid #f1df8f; border-radius: 10px; padding: 10px; }
+.internal-notes { background: #fffbef; }
+.internal-notes .note { border: 1px solid #f1e0bc; }
 .internal-notes .note { background: #fffdf0; }
-.internal-badge { background: #f6c94a; border-color: transparent; color: #4a3500; font-weight: 600; }
+.internal-badge { background: #fff1dc; border-color: transparent; color: #8a4b00; font-size: 11px; padding: 0 7px; }
 .chip.orange { background: #fff1e0; color: #a14e00; border-color: #ffd2a1; }
-.close-hint { color: #a14e00; margin-top: 4px; text-align: right; }
 .btn.done:disabled { opacity: .55; cursor: not-allowed; }
 @media (max-width: 1279px) {
   .chat-area { flex-direction: column; overflow-y: auto; }
@@ -142,7 +185,6 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
   .team-panel { width: auto; border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
 }
 .chat-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--line); gap: 12px; }
-.head-actions { display: flex; gap: 8px; align-items: center; }
 .mode-select { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
 .mode-select select { width: auto; padding: 4px 8px; }
 .banner { background: #fff4e0; color: #8a5200; padding: 6px 16px; font-size: 13.5px; }
@@ -234,7 +276,6 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .tag-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #fff; border: 1px solid var(--line); white-space: nowrap; }
 .tag-chip i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .tag-x { border: 0; background: none; padding: 0 0 0 2px; cursor: pointer; color: var(--muted); font-size: 14px; line-height: 1; }
-.head-tags { margin-top: 4px; align-items: center; }
 .tag-picker { position: relative; display: inline-block; }
 .tag-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; width: 260px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 8px; }
 .tag-pop-list { max-height: 260px; overflow-y: auto; margin-top: 6px; }
@@ -307,12 +348,10 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .inbox-tabs .badge { font-size: 12px; font-weight: 600; }
 .inbox-tabs .badge.muted-badge { background: #6b7286; color: #fff; }
 .all-done { display: flex; align-items: center; justify-content: center; min-height: 60vh; font-size: 20px; font-weight: 600; color: var(--ink); }
-.chat-back { display: none; flex-shrink: 0; font-size: 18px; }
+.chat-back { display: none !important; }
 .chat-head-main { flex: 1; min-width: 0; }
 .name-edit { display: flex; gap: 6px; align-items: center; max-width: 420px; }
 .name-edit input { padding: 4px 8px; }
-.name-edit-btn { border: 0; background: none; cursor: pointer; padding: 0 4px; margin-left: 4px; font-size: 13px; opacity: .45; }
-.name-edit-btn:hover, .name-edit-btn:focus-visible { opacity: 1; }
 
 @media (max-width: 899px) {
   .conv-list { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
@@ -321,9 +360,8 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
   .inbox-tabs button.on { border-top-color: var(--blue); }
   .inbox:not(.has-chat) .chat, .inbox:not(.has-chat) .chat-area { display: none; }
   .inbox.has-chat .conv-list { display: none; }
-  .chat-back { display: inline-block; }
+  .chat-back { display: inline-flex !important; }
   .chat-head { flex-wrap: wrap; }
-  .head-actions { flex-wrap: wrap; }
 }
 
 /* ---------- หัวห้องแชทบนมือถือ ---------- */
@@ -333,7 +371,6 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 @media (max-width: 899px) {
   .chat-head { align-items: flex-start; }
   .chat-head-main { flex: 1 1 calc(100% - 60px); }
-  .head-actions { flex: 1 1 100%; justify-content: space-between; }
   .mode-select { white-space: nowrap; }
   .mode-select select { width: auto; max-width: 150px; }
 }
@@ -407,11 +444,17 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 }
 
 /* ---------- นัดหมาย ---------- */
-.booking-card { display: flex; flex-direction: column; gap: 6px; padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg); }
-.booking-card.pending { background: var(--red-soft); }
+.booking-card { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.booking-title { font-weight: 600; font-size: 13px; }
+.booking-sub { font-size: 12px; color: var(--muted); }
+.icon-row { display: flex; gap: 4px; margin-top: 4px; }
+.booking-form { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.booking-form input { height: 32px; padding: 0 8px; font-size: 13px; }
+.booking-form-row { display: flex; gap: 6px; }
+.booking-form-row label { flex: 1; min-width: 0; }
+.booking-card.pending { border-color: #e9a3ad; background: #fffafa; }
 .booking-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-items: end; }
 .booking-chip { font-weight: 600; }
-.btn.done.blocked { opacity: .55; cursor: not-allowed; }
 .booking-unrecorded td { background: var(--red-soft); }
 .booking-soon td:first-child { font-weight: 600; }
 .booking-when { margin-left: 6px; background: #fff4e0; color: #8a5200; }
@@ -443,7 +486,7 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .sensitive-blur .bubble, .sensitive-blur .sugg, .sensitive-text { filter: blur(7px); user-select: none; }
 .sensitive-blur .sugg { pointer-events: none; }
 .conv.masked { cursor: default; opacity: .85; display: flex; gap: 10px; padding: 12px; border-bottom: 1px solid var(--line); }
-.sensitive-blur .booking-card > .small, .sensitive-blur .booking-form { filter: blur(7px); user-select: none; }
+.sensitive-blur .booking-card > .booking-title, .sensitive-blur .booking-card > .booking-sub, .sensitive-blur .booking-form { filter: blur(7px); user-select: none; }
 .sensitive-blur .booking-card button { pointer-events: none; opacity: .5; }
 
 /* ---------- แชทเก่า ---------- */
@@ -452,4 +495,3 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .archived-notice { padding: 16px; text-align: center; color: var(--muted); border-top: 1px solid var(--line); background: var(--bg); }
 .chat-head { flex-wrap: wrap; }
 .chat-head-main { min-width: 200px; flex: 1 1 200px; }
-.head-actions { flex-wrap: wrap; }

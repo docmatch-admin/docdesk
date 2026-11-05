@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { TAG_GROUP_LABEL, type Tag, type TagGroup } from "@/lib/tags";
+import { Icon } from "../icons";
 import { TagChip } from "../tag-chip";
 
 /** ปุ่ม "+ แท็ก": ค้นหาแท็กที่มี หรือสร้างใหม่ได้ทันที */
@@ -32,7 +33,7 @@ export function TagPicker({ tags, current, onPick, onCreate }: {
 
   return (
     <div className="tag-picker" ref={root}>
-      <button className="btn ghost small" onClick={() => setOpen(!open)} aria-expanded={open}>+ แท็ก</button>
+      <button type="button" className="icon-btn round dashed" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="เพิ่มแท็ก" title="เพิ่มแท็ก"><Icon name="plus" size={14} /></button>
       {open && (
         <div className="tag-pop">
           <input autoFocus value={q} maxLength={40} placeholder="ค้นหา หรือพิมพ์แท็กใหม่…" aria-label="ค้นหาแท็ก"

@@ -12,7 +12,8 @@ import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
 import { ArchiveMergeBar } from "./archive-merge-bar";
 import { AssigneeControl } from "./assignee-control";
-import { BookingCard, type BookingCardRow } from "./booking-card";
+import { BookingsBlock, type BookingCardRow } from "./booking-card";
+import { Icon } from "../icons";
 import { LabPanel } from "./lab-panel";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
@@ -106,6 +107,18 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const selected = convs.find((c) => c.id === selectedId) ?? (openConv?.id === selectedId ? openConv : null);
   const tagColor = useMemo(() => new Map(tags.map((t) => [t.name, t.color])), [tags]);
   const customerLang = selected?.contacts?.language ?? "th";
+  // ใครติดแท็กแต่ละอัน ใช้แสดงเครื่องหมาย AI (tag_events อ่านได้เฉพาะ admin จึงถามผ่าน API)
+  const [tagSources, setTagSources] = useState<Record<string, string>>({});
+  const tagKey = selected ? `${selected.id}:${selected.tags.join(",")}` : "";
+  useEffect(() => {
+    if (!tagKey) return;
+    const id = tagKey.split(":")[0];
+    let live = true;
+    fetch(`/api/conversations/${id}/tags`).then((r) => (r.ok ? r.json() : { sources: {} }))
+      .then((j) => { if (live) setTagSources((j.sources ?? {}) as Record<string, string>); })
+      .catch(() => { if (live) setTagSources({}); });
+    return () => { live = false; };
+  }, [tagKey]);
 
   // ---------- โหลดรายการแชท ----------
   const loadConvs = useCallback(async () => {
@@ -569,6 +582,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   const shown = lists[filter];
   const openTasks = selected?.open_tasks ?? 0;
+  // กดเสร็จแล้วไม่ได้เมื่อยังมีนัดรอลง หรืองานของทีมยังไม่ครบ server ตรวจซ้ำอีกชั้น
+  const doneHint = selected?.booking_pending ? "ลงนัดก่อน" : openTasks > 0 ? `เหลือ ${openTasks} งานที่ยังไม่เสร็จ` : "";
+  const doneBlocked = !!doneHint;
+  const statusText = selected?.status === "closed" ? "เสร็จแล้ว" : selected && isWaitingForReply(selected) ? "รอตอบ" : "เปิดอยู่";
   const statusTags = tags.filter((t) => t.group === "status" && t.active && t.name !== SENSITIVE_TAG);
   const locked = !!selected?.sensitive && !acked;
   const blurred = !!selected?.sensitive && !revealed;
@@ -687,8 +704,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           <div className="empty big">เลือกแชททางซ้ายเพื่อเริ่มตอบ</div>
         ) : (
           <>
-            <header className="chat-head">
-              <button className="btn ghost small chat-back" aria-label="กลับไปรายการแชท" onClick={() => setSelectedId(null)}>←</button>
+            <header className="chat-head compact">
+              <button className="icon-btn chat-back" aria-label="กลับไปรายการแชท" title="กลับไปรายการแชท" onClick={() => setSelectedId(null)}><Icon name="chevronLeft" /></button>
+              {selected.sensitive ? <div className="avatar small"><Icon name="lock" size={14} /></div> : <Avatar name={selected.contacts?.display_name} url={selected.contacts?.avatar_url} small />}
               <div className="chat-head-main">
                 {editingName != null ? (
                   <form className="name-edit" onSubmit={(e) => { e.preventDefault(); saveContactName(); }}>
@@ -699,65 +717,37 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                     <button className="btn ghost small" type="button" onClick={() => setEditingName(null)}>ยกเลิก</button>
                   </form>
                 ) : (
-                  <div className={`name ${blurred ? "sensitive-text" : ""}`}>
-                    {selected.contacts?.display_name || "ลูกค้า"}
+                  <div className="head-line">
+                    <span className={`name ${blurred ? "sensitive-text" : ""}`}>{selected.contacts?.display_name || "ลูกค้า"}</span>
                     {!blurred && (
-                      <button className="name-edit-btn" type="button" title="แก้ชื่อลูกค้า" aria-label="แก้ชื่อลูกค้า"
-                        onClick={() => setEditingName(selected.contacts?.display_name ?? "")}>✏️</button>
+                      <button className="icon-btn ghost tiny" type="button" title="แก้ชื่อลูกค้า" aria-label="แก้ชื่อลูกค้า"
+                        onClick={() => setEditingName(selected.contacts?.display_name ?? "")}><Icon name="pencil" size={14} /></button>
                     )}
+                    <span className="head-sub">
+                      {selected.channels?.name}
+                      {customerLang !== "th" && <> · ภาษา{LANGUAGE_NAME[customerLang] ?? customerLang} (ระบบแปลให้)</>}
+                    </span>
                   </div>
                 )}
-                <div className="muted small">
-                  {selected.channels?.name}
-                  {customerLang !== "th" && <> · ลูกค้าใช้ภาษา{LANGUAGE_NAME[customerLang] ?? customerLang} (ระบบแปลให้อัตโนมัติ)</>}
-                </div>
-                <div className="chips head-tags">
-                  {selected.tags.map((t) => (
-                    <TagChip key={t} name={t} color={tagColor.get(t)} onRemove={t === SENSITIVE_TAG ? undefined : () => changeTag(t, "remove")} />
-                  ))}
-                  <TagPicker tags={tags} current={selected.tags} onPick={(t) => changeTag(t, "add")} onCreate={isAdmin ? createTag : undefined} />
-                </div>
               </div>
               {selected.archived ? (
-                <div className="head-actions"><span className="chip">LINE OA เดิม</span></div>
+                <span className="chip">LINE OA เดิม</span>
               ) : (
-              <div className="head-actions">
-                <AssigneeControl me={me} assignedTo={selected.assigned_to} onChange={assign}
-                  staff={selected.sensitive ? staffList.filter((s) => s.role === "admin" || s.can_view_sensitive) : staffList} />
-                {!selected.sensitive && <button className="btn ghost small" onClick={() => setSensitive(true)}>🔒 ตั้งเป็นแชทลับ</button>}
-                {selected.sensitive && isAdmin && (
-                  <button className="btn ghost small" onClick={() => (confirmUntag ? setSensitive(false) : setConfirmUntag(true))}>
-                    {confirmUntag ? "ยืนยันเอาออกจากแชทลับ?" : "เอาออกจากแชทลับ"}
-                  </button>
-                )}
-                <label className="mode-select" title={AI_MODE_HINT[effectiveMode(selected)]}>
-                  AI แชทนี้
-                  <select value={selected.ai_mode ?? ""} disabled={!isAdmin} onChange={(e) => setConvMode((e.target.value || null) as AiMode | null)}>
-                    <option value="">ตามช่องทาง ({AI_MODE_LABEL[selected.channels?.ai_mode ?? globalMode]})</option>
-                    {(Object.keys(AI_MODE_LABEL) as AiMode[]).map((m) => <option key={m} value={m}>{AI_MODE_LABEL[m]}</option>)}
-                  </select>
-                </label>
-                {selected.status === "open" ? (
-                  <div className="close-anchor">
-                    <button className={`btn done small ${selected.booking_pending ? "blocked" : ""}`} title={selected.booking_pending ? "ลงนัดก่อน" : openTasks > 0 ? `เหลือ ${openTasks} งานที่ยังไม่เสร็จ` : "Ctrl+Shift+E"}
-                      disabled={openTasks > 0} aria-disabled={!!selected.booking_pending || openTasks > 0} aria-expanded={closing}
-                      aria-describedby={openTasks > 0 ? "open-tasks-hint" : undefined}
-                      onClick={() => (selected.booking_pending ? flash("ลงนัดก่อน") : setClosing(!closing))}>✓ เสร็จแล้ว</button>
-                    {openTasks > 0 && <div id="open-tasks-hint" className="close-hint small">เหลือ {openTasks} งานที่ยังไม่เสร็จ</div>}
-                    {closing && (
-                      <CloseCasePopup tags={statusTags} current={selected.tags} hasDraft={!!text.trim() || !!attachment || !!caption.trim()}
-                        onChoose={closeCase} onCancel={cancelClosing} />
-                    )}
-                  </div>
-                ) : (
-                  <button className="btn ghost small" onClick={reopenCase}>เปิดใหม่</button>
-                )}
-                {canSplitImported && (
-                  <button className="btn ghost small" onClick={() => (confirmSplit ? splitImported() : setConfirmSplit(true))}>
-                    {confirmSplit ? "ยืนยันแยกประวัติ?" : "แยกประวัติที่นำเข้า"}
-                  </button>
-                )}
-              </div>
+                <>
+                  <AssigneeControl me={me} assignedTo={selected.assigned_to} onChange={assign}
+                    staff={selected.sensitive ? staffList.filter((s) => s.role === "admin" || s.can_view_sensitive) : staffList} />
+                  {selected.status === "open" && (
+                    <div className="close-anchor">
+                      <button className="btn done head-done" title={doneHint || "Ctrl+Shift+E"} disabled={doneBlocked}
+                        aria-describedby={doneBlocked ? "done-hint" : undefined} aria-expanded={closing}
+                        onClick={() => setClosing(!closing)}><Icon name="check" /> เสร็จแล้ว</button>
+                      {closing && (
+                        <CloseCasePopup tags={statusTags} current={selected.tags} hasDraft={!!text.trim() || !!attachment || !!caption.trim()}
+                          onChoose={closeCase} onCancel={cancelClosing} />
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </header>
 
@@ -798,12 +788,6 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 <span className="muted small">เบลอกลับเมื่อไม่ขยับ 60 วินาที หรือสลับหน้าต่าง</span>
               </div>
             )}
-            <div className={blurred ? "sensitive-blur" : ""}>
-              {bookings.map((b) => (
-                <BookingCard key={`${b.id}${b.date}${b.time}${b.status}`} booking={b} onError={flash} onReschedule={draftReschedule}
-                  onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
-              ))}
-            </div>
 
             {dueMin != null && (
               <div className="banner">⏱ ถ้าไม่มีใครตอบ AI จะตอบแทนในอีก ~{dueMin} นาที</div>
@@ -817,6 +801,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             )}
 
             <div className={`messages ${blurred ? "sensitive-blur" : ""}`} ref={listRef}>
+              <div className="status-strip" role="status">
+                <span className={`status-chip ${selected.status === "closed" ? "done" : statusText === "รอตอบ" ? "wait" : ""}`}>{statusText}</span>
+                {doneHint && selected.status === "open" && <span id="done-hint" className="status-hint">{doneHint}</span>}
+              </div>
               {messages.map((m) => (
                 <div key={m.id} className={`msg ${m.direction} ${m.sender_type} ${m.imported ? "imported" : ""}`}>
                   <div className="bubble">
@@ -947,9 +935,52 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           </>
         )}
       </section>
-      {selected && !selected.archived && !locked && (
-        <TeamPanel conversationId={selected.id} sensitive={!!selected.sensitive}
-          staff={staffList} onChanged={loadConvs} onError={flash} />
+      {selected && !locked && (
+        <aside className="team-panel" aria-label="ข้อมูลแชทและงานของทีม">
+          <section className="side-block">
+            <div className="side-tags">
+              {selected.tags.map((t) => (
+                <TagChip key={t} name={t} color={tagColor.get(t)} ai={tagSources[t] === "ai"}
+                  onRemove={t === SENSITIVE_TAG ? undefined : () => changeTag(t, "remove")} />
+              ))}
+              <TagPicker tags={tags} current={selected.tags} onPick={(t) => changeTag(t, "add")} onCreate={isAdmin ? createTag : undefined} />
+            </div>
+            {!selected.archived && (
+              <div className="side-row">
+                <select aria-label="AI แชทนี้" title={AI_MODE_HINT[effectiveMode(selected)]} value={selected.ai_mode ?? ""} disabled={!isAdmin}
+                  onChange={(e) => setConvMode((e.target.value || null) as AiMode | null)}>
+                  <option value="">AI: ตามช่องทาง ({AI_MODE_LABEL[selected.channels?.ai_mode ?? globalMode]})</option>
+                  {(Object.keys(AI_MODE_LABEL) as AiMode[]).map((m) => <option key={m} value={m}>AI: {AI_MODE_LABEL[m]}</option>)}
+                </select>
+                {!selected.sensitive ? (
+                  <button type="button" className="icon-btn" aria-label="ตั้งเป็นแชทลับ" title="ตั้งเป็นแชทลับ" onClick={() => setSensitive(true)}><Icon name="lock" /></button>
+                ) : isAdmin ? (
+                  <button type="button" className={`icon-btn on ${confirmUntag ? "confirm" : ""}`} aria-label={confirmUntag ? "ยืนยันเอาออกจากแชทลับ" : "เอาออกจากแชทลับ"}
+                    title={confirmUntag ? "กดอีกครั้งเพื่อยืนยันเอาออกจากแชทลับ" : "เอาออกจากแชทลับ"}
+                    onClick={() => (confirmUntag ? setSensitive(false) : setConfirmUntag(true))}><Icon name="unlock" /></button>
+                ) : (
+                  <span className="icon-btn on static" role="img" aria-label="แชทลับ" title="แชทลับ (admin เท่านั้นที่เอาออกได้)"><Icon name="lock" /></span>
+                )}
+                {selected.status === "closed" && (
+                  <button type="button" className="icon-btn" aria-label="เปิดแชทนี้ใหม่" title="เปิดแชทนี้ใหม่" onClick={reopenCase}><Icon name="reopen" /></button>
+                )}
+                {canSplitImported && (
+                  <button type="button" className={`icon-btn ${confirmSplit ? "confirm" : ""}`}
+                    aria-label={confirmSplit ? "ยืนยันแยกประวัติที่นำเข้า" : "แยกประวัติที่นำเข้า"} title={confirmSplit ? "กดอีกครั้งเพื่อยืนยันแยกประวัติ" : "แยกประวัติที่นำเข้า"}
+                    onClick={() => (confirmSplit ? splitImported() : setConfirmSplit(true))}><Icon name="split" /></button>
+                )}
+              </div>
+            )}
+          </section>
+          {!selected.archived && (
+            <>
+              <BookingsBlock conversationId={selected.id} bookings={bookings} blurred={blurred} onError={flash} onReschedule={draftReschedule}
+                onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
+              <TeamPanel conversationId={selected.id} sensitive={!!selected.sensitive}
+                staff={staffList} onChanged={loadConvs} onError={flash} />
+            </>
+          )}
+        </aside>
       )}
       </div>
       {toast && <div className="toast">{toast}</div>}
@@ -1032,7 +1063,8 @@ function WaitChip({ since }: { since: string | null }) {
   return badge ? <span className={`chip wait-${badge.level}`}>{badge.text}</span> : null;
 }
 
-function Avatar({ name, url }:{ name?: string | null; url?: string | null }) {
-  if (url) return <img className="avatar" src={url} alt="" />;
-  return <div className="avatar">{(name || "?").slice(0, 1)}</div>;
+function Avatar({ name, url, small }:{ name?: string | null; url?: string | null; small?: boolean }) {
+  const cls = small ? "avatar small" : "avatar";
+  if (url) return <img className={cls} src={url} alt="" />;
+  return <div className={cls}>{(name || "?").slice(0, 1)}</div>;
 }
