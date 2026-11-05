@@ -63,8 +63,22 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 
 /* ---------- shell ---------- */
 .shell { display: flex; height: 100vh; }
-.nav { width: 210px; flex-shrink: 0; background: #fff; border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
-.nav a { padding: 9px 12px; border-radius: 9px; text-decoration: none; color: var(--ink); font-weight: 500; }
+.nav { width: 224px; flex-shrink: 0; transition: width .15s ease; background: #fff; border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
+.nav a { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 9px 12px; border-radius: 9px; text-decoration: none; color: var(--ink); font-weight: 500; }
+.nav-icon { width: 24px; flex-shrink: 0; text-align: center; font-size: 17px; }
+.nav-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-extra { display: flex; flex-direction: column; gap: 6px; }
+.nav-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; min-width: 44px; padding: 9px 12px; margin: 0 -8px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--muted); cursor: pointer; font: inherit; }
+.nav-toggle:hover, .nav-toggle:focus-visible { background: var(--bg); color: var(--ink); }
+.brand-short { display: none; }
+.brand .nav-label, .brand .brand-short { color: var(--blue); }
+html[data-nav="collapsed"] .nav { width: 68px; padding-left: 8px; padding-right: 8px; }
+html[data-nav="collapsed"] .nav .nav-label, html[data-nav="collapsed"] .nav-extra { display: none; }
+html[data-nav="collapsed"] .nav a, html[data-nav="collapsed"] .nav-toggle { justify-content: center; padding: 9px 0; }
+html[data-nav="collapsed"] .nav-foot { padding: 0; }
+html[data-nav="collapsed"] .nav-toggle { margin: 0; }
+html[data-nav="collapsed"] .brand { padding: 0 0 14px; text-align: center; }
+html[data-nav="collapsed"] .brand-short { display: inline; }
 .nav a:hover { background: var(--bg); }
 .nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 8px; }
 .brand { font-weight: 600; font-size: 18px; color: var(--blue); padding: 0 12px 14px; }
@@ -95,6 +109,38 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--mint-soft); color: #128a6c; display: grid; place-items: center; font-weight: 600; flex-shrink: 0; object-fit: cover; }
 
 .chat { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.chat-area { flex: 1; min-width: 0; display: flex; }
+/* ---------- กล่องทีม ---------- */
+.team-panel { width: 320px; flex-shrink: 0; border-left: 1px solid var(--line); background: #fff; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+.team-box { display: flex; flex-direction: column; gap: 8px; }
+.team-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.team-head h3 { margin: 0; font-size: 15px; }
+.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.task { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.task.done .task-text { text-decoration: line-through; color: var(--muted); }
+.task-check { display: flex; align-items: flex-start; gap: 8px; font-weight: 400; cursor: pointer; min-height: 32px; }
+.task-check input { width: 20px; height: 20px; margin-top: 2px; flex-shrink: 0; }
+.task-text { word-break: break-word; }
+.task-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding-left: 28px; }
+.task-latest { padding: 4px 8px 4px 28px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.task-thread { display: flex; flex-direction: column; gap: 6px; padding-left: 28px; }
+.link-btn { background: none; border: 0; padding: 4px 0; color: var(--blue); cursor: pointer; font: inherit; min-height: 32px; }
+.task-form, .note-form { display: flex; flex-direction: column; gap: 6px; }
+.task-form .row { display: flex; gap: 6px; }
+.task-form select { flex: 1; min-width: 0; }
+.note { padding: 6px 8px; border-radius: 8px; background: var(--bg); }
+.note-body { white-space: pre-wrap; word-break: break-word; }
+.internal-notes { background: #fff8db; border: 1px solid #f1df8f; border-radius: 10px; padding: 10px; }
+.internal-notes .note { background: #fffdf0; }
+.internal-badge { background: #f6c94a; border-color: transparent; color: #4a3500; font-weight: 600; }
+.chip.orange { background: #fff1e0; color: #a14e00; border-color: #ffd2a1; }
+.close-hint { color: #a14e00; margin-top: 4px; text-align: right; }
+.btn.done:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 1279px) {
+  .chat-area { flex-direction: column; overflow-y: auto; }
+  .chat-area > .chat { flex: none; height: 100vh; }
+  .team-panel { width: auto; border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+}
 .chat-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--line); gap: 12px; }
 .head-actions { display: flex; gap: 8px; align-items: center; }
 .mode-select { flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
@@ -273,7 +319,7 @@ a.btn { text-decoration: none; color: inherit; display: inline-block; }
   .inbox-tabs { position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 30; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
   .inbox-tabs button { border-bottom: 0; border-top: 3px solid transparent; }
   .inbox-tabs button.on { border-top-color: var(--blue); }
-  .inbox:not(.has-chat) .chat { display: none; }
+  .inbox:not(.has-chat) .chat, .inbox:not(.has-chat) .chat-area { display: none; }
   .inbox.has-chat .conv-list { display: none; }
   .chat-back { display: inline-block; }
   .chat-head { flex-wrap: wrap; }

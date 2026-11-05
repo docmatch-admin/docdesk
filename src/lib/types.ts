@@ -73,6 +73,8 @@ export interface Conversation {
   booking_pending?: boolean;
   sensitive?: boolean;
   archived?: boolean;
+  /** งานของทีมที่ยังไม่ติ๊ก */
+  open_tasks?: number;
   contacts?: { display_name: string | null; avatar_url: string | null; language: string };
   channels?: { type: ChannelType; name: string; ai_mode: AiMode | null };
 }

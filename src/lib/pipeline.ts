@@ -75,7 +75,7 @@ export async function storeIncoming(input: IncomingInput) {
   const { data: conv, error: cvErr } = await db
     .from("conversations")
     .upsert({ contact_id: contact.id, channel_id: channel.id }, { onConflict: "contact_id" })
-    .select("id, unread_count, status, sensitive, waiting_since, archived, tags, needs_human, booking_pending").single();
+    .select("id, unread_count, status, sensitive, waiting_since, archived, tags, needs_human, booking_pending, open_tasks").single();
   if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
   const wasClosed = conv.status === "closed";
   // ลูกค้าตอบรับ ขอบคุณ หรือบอกลา หลังเราตอบแล้ว: ไม่ต้องตอบต่อ
@@ -89,8 +89,8 @@ export async function storeIncoming(input: IncomingInput) {
   }
   // แชทที่เสร็จแล้วกลับมารอตอบทุกข้อความ ยกเว้นคำขอบคุณ สติกเกอร์ หรือข้อความจบการคุย
   const stayClosed = wasClosed && !conv.archived && (isThanksOrSticker(input.text, input.isImage) || endsChat);
-  // แชทที่เปิดอยู่ปิดเลย ยกเว้นงานค้าง (รอลงนัด, ต้องให้คนตอบ, แท็กตามต่อ/รอนัด) เหมือนการย้ายอัตโนมัติ
-  const closeNow = !wasClosed && endsChat && !conv.booking_pending && !conv.needs_human
+  // แชทที่เปิดอยู่ปิดเลย ยกเว้นงานค้าง (รอลงนัด, ต้องให้คนตอบ, งานของทีม, แท็กตามต่อ/รอนัด) เหมือนการย้ายอัตโนมัติ
+  const closeNow = !wasClosed && endsChat && !conv.booking_pending && !conv.needs_human && !((conv.open_tasks ?? 0) > 0)
     && !((conv.tags ?? []) as string[]).some((t) => AUTO_CLOSE_EXEMPT_TAGS.includes(t));
 
   // รูปหรือไฟล์ล้วน: AI อ่านไม่ได้ ไม่ต้องแปล และให้คนดู
@@ -749,6 +749,8 @@ export async function autoCloseQuietChats(now = Date.now()) {
   const cutoff = new Date(now - hours * 3_600_000).toISOString();
   const { data, error } = await db.from("conversations").update(CLOSE_PATCH)
     .eq("status", "open").eq("last_direction", "out").eq("needs_human", false).neq("booking_pending", true)
+    // งานของทีมยังไม่ครบ: รอให้เจ้าหน้าที่ติ๊กก่อน
+    .lt("open_tasks", 1)
     .lt("last_message_at", cutoff)
     .or(`reopened_at.is.null,reopened_at.lt.${cutoff}`)
     .not("tags", "ov", `{${AUTO_CLOSE_EXEMPT_TAGS.join(",")}}`)

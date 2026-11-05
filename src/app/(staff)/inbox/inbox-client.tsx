@@ -16,6 +16,7 @@ import { BookingCard, type BookingCardRow } from "./booking-card";
 import { LabPanel } from "./lab-panel";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
+import { TeamPanel } from "./team-panel";
 import {
   AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL,
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
@@ -126,7 +127,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       return tagFilterRef.current.length ? query.contains("tags", tagFilterRef.current) : query;
     };
     const [waiting, open_, closed] = await Promise.all([
-      base("open").or("last_direction.eq.in,booking_pending.eq.true")
+      base("open").or("last_direction.eq.in,booking_pending.eq.true,open_tasks.gt.0")
         .order("booking_pending", { ascending: false }).order("needs_human", { ascending: false }).order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
       base("open").order("last_message_at", { ascending: false }).limit(200),
       base("closed").order("closed_at", { ascending: false, nullsFirst: false }).limit(200),
@@ -522,6 +523,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   async function closeCase(tag?: string) {
     if (!selected) return;
     if (selected.booking_pending) return flash("ลงนัดก่อน");
+    if (openTasks > 0) return flash(`เหลือ ${openTasks} งานที่ยังไม่เสร็จ`);
     const id = selected.id;
     setClosing(false);
     const res = await fetch(`/api/conversations/${id}/close`, {
@@ -541,6 +543,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       e.preventDefault();
       if (selected?.status !== "open") return;
       if (selected.booking_pending) return flash("ลงนัดก่อน");
+      if ((selected.open_tasks ?? 0) > 0) return flash(`เหลือ ${selected.open_tasks} งานที่ยังไม่เสร็จ`);
       // กดครั้งแรกเปิดป๊อปอัป กดซ้ำ = ข้าม
       if (closing) closeCase();
       else setClosing(true);
@@ -565,6 +568,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
   const shown = lists[filter];
+  const openTasks = selected?.open_tasks ?? 0;
   const statusTags = tags.filter((t) => t.group === "status" && t.active && t.name !== SENSITIVE_TAG);
   const locked = !!selected?.sensitive && !acked;
   const blurred = !!selected?.sensitive && !revealed;
@@ -649,6 +653,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 <span className={`chip mode-${effectiveMode(c)}`}>AI: {AI_MODE_LABEL[effectiveMode(c)]}</span>
                 {c.archived && <span className="chip">LINE OA เดิม</span>}
                 {c.booking_pending && <span className="chip red booking-chip">📅 ยังไม่ลงนัด</span>}
+                {(c.open_tasks ?? 0) > 0 && <span className="chip orange">งานค้าง {c.open_tasks}</span>}
                 {c.needs_human && <span className="chip red">ต้องให้คนตอบ</span>}
                 {filter === "open" && isWaitingForReply(c) && <span className="chip red">รอตอบ</span>}
                 {filter === "waiting" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
@@ -665,7 +670,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         ))}
       </aside>
 
-      {/* ---------- ห้องแชท ---------- */}
+      {/* ---------- ห้องแชท + กล่องทีม ---------- */}
+      <div className="chat-area">
       <section
         className={`chat ${dragging ? "dragging" : ""}`}
         onDragOver={(e) => { if (selected) { e.preventDefault(); setDragging(true); } }}
@@ -733,9 +739,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 </label>
                 {selected.status === "open" ? (
                   <div className="close-anchor">
-                    <button className={`btn done small ${selected.booking_pending ? "blocked" : ""}`} title={selected.booking_pending ? "ลงนัดก่อน" : "Ctrl+Shift+E"}
-                      aria-disabled={!!selected.booking_pending} aria-expanded={closing}
+                    <button className={`btn done small ${selected.booking_pending ? "blocked" : ""}`} title={selected.booking_pending ? "ลงนัดก่อน" : openTasks > 0 ? `เหลือ ${openTasks} งานที่ยังไม่เสร็จ` : "Ctrl+Shift+E"}
+                      disabled={openTasks > 0} aria-disabled={!!selected.booking_pending || openTasks > 0} aria-expanded={closing}
+                      aria-describedby={openTasks > 0 ? "open-tasks-hint" : undefined}
                       onClick={() => (selected.booking_pending ? flash("ลงนัดก่อน") : setClosing(!closing))}>✓ เสร็จแล้ว</button>
+                    {openTasks > 0 && <div id="open-tasks-hint" className="close-hint small">เหลือ {openTasks} งานที่ยังไม่เสร็จ</div>}
                     {closing && (
                       <CloseCasePopup tags={statusTags} current={selected.tags} hasDraft={!!text.trim() || !!attachment || !!caption.trim()}
                         onChoose={closeCase} onCancel={cancelClosing} />
@@ -939,6 +947,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           </>
         )}
       </section>
+      {selected && !selected.archived && !locked && (
+        <TeamPanel conversationId={selected.id} sensitive={!!selected.sensitive}
+          staff={staffList} onChanged={loadConvs} onError={flash} />
+      )}
+      </div>
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

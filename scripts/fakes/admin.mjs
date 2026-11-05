@@ -70,6 +70,13 @@ function withRelations(name, row) {
   };
 }
 
+/** เลียนแบบ trigger chat_tasks_refresh_open ใน migration 035 */
+function refreshOpenTasks() {
+  for (const conv of state.tables.conversations ?? []) {
+    conv.open_tasks = (state.tables.chat_tasks ?? []).filter((t) => t.conversation_id === conv.id && !t.done).length;
+  }
+}
+
 function refreshBookingPending() {
   for (const conv of state.tables.conversations ?? []) {
     conv.booking_pending = (state.tables.bookings ?? []).some((b) => b.conversation_id === conv.id && b.status === "ai_confirmed");
@@ -106,6 +113,7 @@ function query(name) {
       table.push(row);
       if (name === "messages") refreshQueue(row.conversation_id);
       if (name === "bookings") refreshBookingPending();
+      if (name === "chat_tasks") refreshOpenTasks();
       return [row];
     }
     const hit = rows();
@@ -116,9 +124,11 @@ function query(name) {
         if (name === "conversations") trackStatus(r, before);
       });
       if (name === "bookings") refreshBookingPending();
+      if (name === "chat_tasks") refreshOpenTasks();
     }
     if (op === "delete") {
       state.tables[name] = table.filter((r) => !hit.includes(r));
+      if (name === "chat_tasks") refreshOpenTasks();
       if (name === "messages") hit.forEach((r) => refreshQueue(r.conversation_id));
     }
     return hit.map((r) => withRelations(name, r));
@@ -153,7 +163,7 @@ function query(name) {
     is(k, v) { filters.push((r) => (r[k] ?? null) === v); return b; },
     in(k, v) { filters.push((r) => v.includes(r[k])); return b; },
     lte(k, v) { filters.push((r) => r[k] != null && Date.parse(r[k]) <= Date.parse(v)); return b; },
-    lt(k, v) { filters.push((r) => Date.parse(r[k]) < Date.parse(v)); return b; },
+    lt(k, v) { filters.push((r) => (typeof v === "number" ? (r[k] ?? 0) < v : Date.parse(r[k]) < Date.parse(v))); return b; },
     gte(k, v) { filters.push((r) => r[k] != null && r[k] >= v); return b; },
     like(k, v) { const prefix = v.replace(/%$/, ""); filters.push((r) => String(r[k]).startsWith(prefix)); return b; },
     order(key, o) { sort = { key, dir: o?.ascending === false ? -1 : 1 }; return b; },

@@ -4,6 +4,7 @@ import { CLOSE_PATCH } from "@/lib/case-flow";
 import { setConversationTag } from "@/lib/pipeline";
 import { awardClosePoints } from "@/lib/score-store";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { countOpenTasks, openTasksText } from "@/lib/team-store";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { data: conv } = await db.from("conversations").select("status, booking_pending").eq("id", id).maybeSingle();
   if (!conv) return NextResponse.json({ error: "ไม่พบแชท" }, { status: 404 });
   if (conv.booking_pending) return NextResponse.json({ error: "ลงนัดก่อน" }, { status: 409 });
+  // งานของทีมต้องติ๊กครบก่อน ตรวจที่ server ด้วย ไม่ใช่แค่ปิดปุ่ม
+  const openTasks = await countOpenTasks(id);
+  if (openTasks > 0) return NextResponse.json({ error: openTasksText(openTasks), open_tasks: openTasks }, { status: 409 });
 
   if (tag) {
     const { data: known } = await db.from("tags").select("id").eq("name", tag).maybeSingle();
