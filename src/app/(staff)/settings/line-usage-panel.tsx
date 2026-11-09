@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CardHead, useTabAlert } from "./settings-save";
+import { SetGroup, SetLine, useTabAlert } from "./settings-save";
 import { LINE_KIND_LABEL, LINE_KINDS, quotaForecast, type LineUsageSummary } from "@/lib/line-usage-rules";
 
 export type Usage = LineUsageSummary & { quota: { type: string; limit: number | null; used: number | null; error: string | null } };
@@ -24,40 +24,42 @@ export function LineUsagePanel({ initial }: { initial?: Usage } = {}) {
   const pct = u?.quota.limit ? Math.min(100, ((u.quota.used ?? 0) / Math.max(1, u.quota.limit)) * 100) : 0;
   useTabAlert("quota", "overview", pct >= 80);
   return (
-    <section className="card line-usage">
-      <CardHead title="โควตาข้อความ LINE เดือนนี้" info="ตัวเลขโควตาจาก LINE รวมการส่งจากระบบอื่นและ LINE OA Manager · reply ฟรีไม่นับโควตา">
-        {u?.quota.limit != null && <span className={`chip ${pct >= 80 ? "red" : ""}`}>{Math.round(pct)}%</span>}
-      </CardHead>
-      {!u ? <div className="muted small">{err || "กำลังโหลด…"}</div> : (
+    <SetGroup title="โควตาข้อความ LINE เดือนนี้" className="line-usage" info="ตัวเลขโควตาจาก LINE รวมการส่งจากระบบอื่นและ LINE OA Manager · reply ฟรีไม่นับโควตา"
+      side={u?.quota.limit != null && <span className={`chip ${pct >= 80 ? "red" : ""}`}>{Math.round(pct)}%</span>}>
+      {!u ? <p className="muted small">{err || "กำลังโหลด…"}</p> : (
         <>
-          {u.quota.error ? <span className="error small">{u.quota.error}</span> : (
-            <div className="line-usage-quota">
-              <div className="line-usage-line">
-                <span><b>{n(u.quota.used ?? 0)}</b>{u.quota.limit != null ? <> / {n(u.quota.limit)} push</> : " push (ไม่จำกัด)"}</span>
-                {u.quota.limit != null && <span className="muted small">เหลือ {n(Math.max(0, u.quota.limit - (u.quota.used ?? 0)))}</span>}
-              </div>
-              {u.quota.limit != null && (
-                <div className={`line-usage-bar ${pct >= 90 ? "low" : pct >= 80 ? "warn" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={u.quota.limit} aria-valuenow={u.quota.used ?? 0}>
-                  <span style={{ width: `${pct}%` }} />
+          <SetLine label="ใช้ไปแล้ว" desc="push นับโควตา">
+            {u.quota.error ? <span className="error small">{u.quota.error}</span> : (
+              <div className="line-usage-quota">
+                <div className="line-usage-line">
+                  <span><b>{n(u.quota.used ?? 0)}</b>{u.quota.limit != null ? <> / {n(u.quota.limit)} push</> : " push (ไม่จำกัด)"}</span>
+                  {u.quota.limit != null && <span className="muted small">เหลือ {n(Math.max(0, u.quota.limit - (u.quota.used ?? 0)))}</span>}
                 </div>
-              )}
-              <Forecast limit={u.quota.limit} used={u.quota.used ?? 0} />
+                {u.quota.limit != null && (
+                  <div className={`line-usage-bar ${pct >= 90 ? "low" : pct >= 80 ? "warn" : ""}`} role="progressbar" aria-valuemin={0} aria-valuemax={u.quota.limit} aria-valuenow={u.quota.used ?? 0}>
+                    <span style={{ width: `${pct}%` }} />
+                  </div>
+                )}
+                <Forecast limit={u.quota.limit} used={u.quota.used ?? 0} />
+              </div>
+            )}
+          </SetLine>
+          <SetLine label="DocDesk ส่ง push" desc={`แยกประเภท เดือน ${u.month}`}>
+            <div className="line-usage-stats">
+              {LINE_KINDS.map((k) => (
+                <div key={k} className="line-usage-stat"><span>{LINE_KIND_LABEL[k]}</span><b>{n(u.push[k])}</b></div>
+              ))}
+              <div className="line-usage-stat total"><span>รวม push</span><b>{n(u.pushTotal)}</b></div>
             </div>
-          )}
-          <div className="line-usage-stats" aria-label={`DocDesk ส่ง push เดือน ${u.month}`}>
-            {LINE_KINDS.map((k) => (
-              <div key={k} className="line-usage-stat"><span>{LINE_KIND_LABEL[k]}</span><b>{n(u.push[k])}</b></div>
-            ))}
-            <div className="line-usage-stat total"><span>รวม push</span><b>{n(u.pushTotal)}</b></div>
-          </div>
-          <div className="muted tiny-note">
-            reply ฟรี {n(u.replyMessages)} ข้อความ ({n(u.replyRequests)} ครั้ง)
-            {u.fallbacks > 0 && <> · reply ไม่ทันส่ง push แทน {n(u.fallbacks)}</>}
+          </SetLine>
+          <SetLine label="reply ฟรี" desc="ไม่นับโควตา">
+            <span>{n(u.replyMessages)} ข้อความ ({n(u.replyRequests)} ครั้ง)</span>
+            {u.fallbacks > 0 && <span className="muted"> · reply ไม่ทันส่ง push แทน {n(u.fallbacks)}</span>}
             {u.failed > 0 && <span className="error"> · ส่งไม่สำเร็จ {n(u.failed)}</span>}
-          </div>
+          </SetLine>
         </>
       )}
-    </section>
+    </SetGroup>
   );
 }
 

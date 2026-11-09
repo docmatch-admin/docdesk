@@ -12,7 +12,7 @@ import { HealthPanel } from "./health-panel";
 import { AiModelsPanel } from "./ai-models-panel";
 import { LineUsagePanel, type Usage } from "./line-usage-panel";
 import { PriceAlerts } from "./price-alerts";
-import { CardHead, SettingsContext, type SaveUnit, type SettingsCtx, type SettingsTab } from "./settings-save";
+import { SetGroup, SetLine, SettingsContext, Switch, type SaveUnit, type SettingsCtx, type SettingsTab } from "./settings-save";
 import { TagSettings } from "./tag-settings";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
 
@@ -25,7 +25,7 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const MODES = Object.keys(AI_MODE_LABEL) as AiMode[];
 
 export const TABS: [SettingsTab, string][] = [
-  ["overview", "ภาพรวม"], ["ai", "AI"], ["chat", "แชทและแท็ก"], ["appointments", "นัดหมายและข้อความ"], ["team", "ทีมและระบบ"],
+  ["overview", "ภาพรวม"], ["ai", "AI"], ["chat", "แชทและแท็ก"], ["appointments", "นัดหมาย"], ["team", "ทีมและระบบ"],
 ];
 const isTab = (v: unknown): v is SettingsTab => TABS.some(([k]) => k === v);
 
@@ -33,7 +33,7 @@ const isTab = (v: unknown): v is SettingsTab => TABS.some(([k]) => k === v);
 const CORE_CARDS: Record<string, { label: string; tab: SettingsTab; keys: string[] }> = {
   mode: { label: "โหมด AI ทั้งระบบ", tab: "ai", keys: ["mode", "minutes"] },
   channels: { label: "รายช่องทาง", tab: "ai", keys: ["channels"] },
-  persona: { label: "บุคลิกการตอบของ AI", tab: "ai", keys: ["profile"] },
+  persona: { label: "บุคลิกการตอบ", tab: "ai", keys: ["profile"] },
   hours: { label: "เวลาทำการ", tab: "chat", keys: ["hours"] },
   autoclose: { label: "ย้ายไปเสร็จแล้วอัตโนมัติ", tab: "chat", keys: ["autoCloseHours"] },
   sensitive: { label: "แชทลับ", tab: "chat", keys: ["sensitiveKeywords", "sensitiveDays"] },
@@ -82,15 +82,16 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
     setAlert: (key, t, on) => setAlerts((cur) => (cur[key]?.on === on ? cur : { ...cur, [key]: { tab: t, on } })),
   }), []);
 
-  // แท็บที่เลือกจำใน URL (?tab=)
+  // หมวดที่เลือกจำใน URL (?section=) · สลับหมวดไม่เตือน ค่าที่แก้คงอยู่จนกดบันทึก
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("tab");
+    const q = new URLSearchParams(window.location.search).get("section");
     if (isTab(q)) setTab(q);
   }, []);
   const pickTab = useCallback((t: SettingsTab) => {
     setTab(t);
     const url = new URL(window.location.href);
-    url.searchParams.set("tab", t);
+    url.searchParams.set("section", t);
+    url.searchParams.delete("tab");
     window.history.replaceState(null, "", url);
   }, []);
 
@@ -186,195 +187,206 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
 
   const tabDirty = (t: SettingsTab) => Object.entries(CORE_CARDS).some(([id, c]) => c.tab === t && cardDirty(id)) || dirtyUnits.some((u) => u.unit.tab === t);
   const tabAlert = (t: SettingsTab) => Object.values(alerts).some((a) => a.tab === t && a.on);
+  const dirtySections = TABS.filter(([k]) => tabDirty(k));
   const setDay = (d: number, v: [string, string] | null) => setHours({ ...hours, days: { ...hours.days, [d]: v } });
   const stats = summarizeUsage(usage);
   const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const panel = (t: SettingsTab, children: React.ReactNode) => (
-    <div className="settings-panel" role="tabpanel" id={`tab-${t}`} aria-labelledby={`tabbtn-${t}`} hidden={tab !== t}>{children}</div>
+    <div className="settings-panel" role="tabpanel" id={`section-${t}`} aria-labelledby={`sectionbtn-${t}`} hidden={tab !== t}>
+      <h1 className="settings-section-title">{TABS.find(([k]) => k === t)?.[1]}</h1>
+      {children}
+    </div>
   );
 
   return (
     <SettingsContext.Provider value={ctx}>
       <div className="page settings-page">
-        <div className="settings-top">
-          <h1>ตั้งค่า AI</h1>
-          <div className="settings-tabs" role="tablist" aria-label="หมวดการตั้งค่า">
-            {TABS.map(([k, label]) => (
-              <button key={k} id={`tabbtn-${k}`} type="button" role="tab" aria-selected={tab === k} aria-controls={`tab-${k}`}
-                className={tab === k ? "on" : ""} onClick={() => pickTab(k)}>
-                {label}
-                {tabAlert(k) && <i className="tab-dot red" aria-label="มีสิ่งผิดปกติ" />}
-                {tabDirty(k) && <i className="tab-dot yellow" aria-label="มีการแก้ไขที่ยังไม่บันทึก" />}
-              </button>
+        <div className="settings-layout">
+          <nav className="settings-nav" aria-label="หมวดการตั้งค่า">
+            <div className="settings-nav-title">ตั้งค่า AI</div>
+            <div role="tablist" aria-orientation="vertical" className="settings-nav-list">
+              {TABS.map(([k, label]) => (
+                <button key={k} id={`sectionbtn-${k}`} type="button" role="tab" aria-selected={tab === k} aria-controls={`section-${k}`}
+                  className={tab === k ? "on" : ""} onClick={() => pickTab(k)}>
+                  <span className="settings-nav-label">{label}</span>
+                  {tabAlert(k) && <i className="tab-dot red" aria-label="มีสิ่งผิดปกติ" />}
+                  {tabDirty(k) && <i className="tab-dot yellow" aria-label="มีการแก้ไขที่ยังไม่บันทึก" />}
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          <div className="settings-content">
+            {panel("overview", (
+              <>
+                <HealthPanel initial={preview?.health} />
+                <LineUsagePanel initial={preview?.usage} />
+                <SetGroup title="การใช้ AI" info={`ค่าใช้จ่ายโดยประมาณ รวม embedding คิดที่ 1 USD = ${USD_TO_THB} บาท ยอดจริงดูที่หน้า billing ของ OpenAI${stats.unpricedModels.length ? ` · ไม่รวมโมเดลที่ไม่รู้ราคา: ${stats.unpricedModels.join(", ")}` : ""}`}>
+                  <SetLine label="วันนี้" desc="จำนวนครั้งที่เรียก LLM · ค่าใช้จ่ายโดยประมาณ">
+                    <b>{stats.todayCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.todayCostThb)} บาท</b>
+                  </SetLine>
+                  <SetLine label="เดือนนี้" desc="ตั้งแต่วันที่ 1">
+                    <b>{stats.monthCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.monthCostThb)} บาท</b>
+                  </SetLine>
+                </SetGroup>
+                <PriceAlerts />
+              </>
+            ))}
+
+            {panel("ai", (
+              <>
+                <AiModelsPanel initial={preview?.models} />
+                <SetGroup title="โหมด AI ทั้งระบบ" dirty={cardDirty("mode")} info="ตั้งแยกรายช่องทาง (ด้านล่าง) และรายแชท (ในหน้าแชท) ได้ — รายแชทสำคัญที่สุด">
+                  <SetLine label="โหมด" desc="ใช้กับทุกช่องทางที่ไม่ได้ตั้งแยก">
+                    <div className="mode-cards" role="radiogroup" aria-label="โหมด AI ทั้งระบบ">
+                      {MODES.map((m) => (
+                        <button key={m} type="button" role="radio" aria-checked={mode === m} className={`mode-card ${mode === m ? "on" : ""}`} onClick={() => setMode(m)}>
+                          <b>{AI_MODE_LABEL[m]}</b>
+                          <span className="small">{AI_MODE_HINT[m]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </SetLine>
+                  <SetLine label="รอคนตอบก่อน" desc="โหมด “คนตอบก่อน”: AI ตอบแทนเมื่อไม่มีใครตอบภายในเวลานี้" htmlFor="set-minutes">
+                    <span className="inline-field"><input id="set-minutes" className="w-num" type="number" min={1} max={120} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} /> นาที</span>
+                  </SetLine>
+                </SetGroup>
+                <SetGroup title="รายช่องทาง" dirty={cardDirty("channels")} info="โหมด AI ของแต่ละช่องทาง ว่าง = ตามโหมดทั้งระบบ">
+                  {channels.length === 0 && <p className="muted small">ยังไม่มีช่องทาง</p>}
+                  {channels.map((c, i) => (
+                    <SetLine key={c.id} label={c.name} desc={CHANNEL_LABEL[c.type]}>
+                      <div className="row channel-controls">
+                        <select value={c.ai_mode ?? ""} aria-label={`โหมด AI ของ ${c.name}`} onChange={(e) => {
+                          const next = [...channels]; next[i] = { ...c, ai_mode: (e.target.value || null) as AiMode | null }; setChannels(next);
+                        }}>
+                          <option value="">ตามทั้งระบบ</option>
+                          {MODES.map((m) => <option key={m} value={m}>{AI_MODE_LABEL[m]}</option>)}
+                        </select>
+                        <Switch checked={c.enabled} label="เปิดใช้" onChange={(v) => {
+                          const next = [...channels]; next[i] = { ...c, enabled: v }; setChannels(next);
+                        }} />
+                      </div>
+                    </SetLine>
+                  ))}
+                </SetGroup>
+                <SetGroup title="บุคลิกการตอบ" dirty={cardDirty("persona")}>
+                  <SetLine label="ชื่อคลินิก" desc="AI ใช้เรียกตัวเองและในข้อความนัด" htmlFor="set-clinic-name">
+                    <input id="set-clinic-name" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
+                  </SetLine>
+                  <SetLine label="โทน/สำนวน" desc="เช่น สุภาพ เป็นกันเอง ลงท้ายค่ะ" htmlFor="set-tone">
+                    <textarea id="set-tone" rows={3} value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} />
+                  </SetLine>
+                </SetGroup>
+              </>
+            ))}
+
+            {panel("chat", (
+              <>
+                <SetGroup title="เวลาทำการ" dirty={cardDirty("hours")} info="นอกเวลาทำการ โหมด “คนตอบก่อน” จะให้ AI ตอบทันที และเกณฑ์คะแนนนับเวลาเฉพาะช่วงนี้">
+                  {DAY_ORDER.map((d) => {
+                    const r = hours.days[d];
+                    return (
+                      <SetLine key={d} label={DAY[d]}>
+                        <div className="business-hours-row">
+                          <Switch checked={!!r} label={r ? "เปิด" : "ปิด"} onChange={(on) => setDay(d, on ? ["08:00", "18:00"] : null)} />
+                          {r && (
+                            <span className="business-hours-times">
+                              <input type="time" aria-label={`${DAY[d]} เปิด`} value={r[0]} onChange={(e) => setDay(d, [e.target.value, r[1]])} />–
+                              <input type="time" aria-label={`${DAY[d]} ปิด`} value={r[1]} onChange={(e) => setDay(d, [r[0], e.target.value])} />
+                            </span>
+                          )}
+                        </div>
+                      </SetLine>
+                    );
+                  })}
+                  <p className="set-other-note">ใช้กับ AI ตอบแชทและเกณฑ์คะแนนเท่านั้น — ช่วงเวลาให้คนไข้เลือกตอนนัดตั้งแยกที่ “เวลาเปิดคลินิก” (หมวดนัดหมาย) เป็นข้อมูลคนละชุด</p>
+                </SetGroup>
+                <SetGroup title="ย้ายไปเสร็จแล้วอัตโนมัติ" dirty={cardDirty("autoclose")}>
+                  <SetLine label="ลูกค้าเงียบเกิน" desc={`เราตอบล่าสุดแล้วลูกค้าไม่ตอบ · 0 = ปิด · ไม่ย้ายแชทที่มีแท็ก ${AUTO_CLOSE_EXEMPT_TAGS.join(" หรือ ")} หรือป้าย “ต้องให้คนตอบ”`} htmlFor="set-autoclose">
+                    <span className="inline-field"><input id="set-autoclose" className="w-num" type="number" min={0} max={8760} value={autoCloseHours} onChange={(e) => setAutoCloseHours(Number(e.target.value))} /> ชั่วโมง</span>
+                  </SetLine>
+                </SetGroup>
+                <TagSettings />
+                <SetGroup title="แชทลับ" dirty={cardDirty("sensitive")} info="ติดแล้วไม่หายเอง เอาออกได้เฉพาะ admin ในห้องแชท">
+                  <SetLine label="คำสำคัญ" desc="บรรทัดละคำ ข้อความลูกค้าที่มีคำเหล่านี้จะถูกตั้งเป็นแชทลับ" htmlFor="set-sensitive">
+                    <textarea id="set-sensitive" rows={6} value={sensitiveKeywords} onChange={(e) => setSensitiveKeywords(e.target.value)} />
+                  </SetLine>
+                  <SetLine label="ลบรูปในแชทลับหลัง" desc="นับจากวันที่ส่งรูป" htmlFor="set-sensitive-days">
+                    <span className="inline-field"><input id="set-sensitive-days" className="w-num" type="number" min={1} value={sensitiveDays} onChange={(e) => setSensitiveDays(Number(e.target.value))} /> วัน</span>
+                  </SetLine>
+                </SetGroup>
+              </>
+            ))}
+
+            {panel("appointments", (
+              <AppointmentSettings initial={preview?.appointments}>
+                <SetGroup title="ข้อความการจอง" dirty={cardDirty("booking")} info="ระบบแทนค่าในวงเล็บปีกกาให้ และแปลตามภาษาลูกค้าตอนส่ง เว้นว่างแล้วบันทึกจะกลับเป็นค่าเริ่มต้น">
+                  {(Object.keys(BOOKING_TEMPLATE_LABEL) as (keyof BookingTemplates)[]).map((key) => {
+                    const [name, vars] = splitBookingLabel(BOOKING_TEMPLATE_LABEL[key]);
+                    return (
+                      <SetLine key={key} label={name} desc={vars} htmlFor={`booking-${key}`}>
+                        <textarea id={`booking-${key}`} rows={2} value={bookingTemplates[key]} onChange={(e) => setBookingTemplates({ ...bookingTemplates, [key]: e.target.value })} />
+                      </SetLine>
+                    );
+                  })}
+                </SetGroup>
+              </AppointmentSettings>
+            ))}
+
+            {panel("team", (
+              <>
+                <SetGroup title="เกณฑ์คะแนนเจ้าหน้าที่" dirty={cardDirty("score")} info="นับเวลาเฉพาะเวลาทำการ ตอบช้ากว่าขั้นสุดท้ายได้ 0 คะแนน">
+                  {scoreRules.speed.map((tier, i) => (
+                    <SetLine key={i} label={`ความเร็ว ขั้นที่ ${i + 1}`} desc="ตอบภายใน (นาที) ได้กี่คะแนน">
+                      <span className="inline-field">
+                        ตอบภายใน
+                        <input className="w-num" type="number" min={0} value={tier.maxSeconds / 60} aria-label={`นาทีของขั้นที่ ${i + 1}`} onChange={(e) => {
+                          const speed = [...scoreRules.speed];
+                          speed[i] = { ...tier, maxSeconds: Number(e.target.value) * 60 };
+                          setScoreRules({ ...scoreRules, speed });
+                        }} /> นาที ได้
+                        <input className="w-num" type="number" min={0} step={0.5} value={tier.points} aria-label={`คะแนนของขั้นที่ ${i + 1}`} onChange={(e) => {
+                          const speed = [...scoreRules.speed];
+                          speed[i] = { ...tier, points: Number(e.target.value) };
+                          setScoreRules({ ...scoreRules, speed });
+                        }} /> คะแนน
+                      </span>
+                    </SetLine>
+                  ))}
+                  <SetLine label="คำตอบสั้น" desc="สั้นกว่านี้ได้คะแนนครึ่งเดียว" htmlFor="set-short">
+                    <span className="inline-field"><input id="set-short" className="w-num" type="number" min={0} value={scoreRules.shortChars} onChange={(e) => setScoreRules({ ...scoreRules, shortChars: Number(e.target.value) })} /> ตัวอักษร</span>
+                  </SetLine>
+                  <SetLine label="ข้อความถูกกดดาว" desc="คะแนนพิเศษต่อข้อความ" htmlFor="set-star">
+                    <span className="inline-field"><input id="set-star" className="w-num" type="number" min={0} step={0.5} value={scoreRules.starPoints} onChange={(e) => setScoreRules({ ...scoreRules, starPoints: Number(e.target.value) })} /> คะแนน</span>
+                  </SetLine>
+                  <SetLine label="กดเสร็จแล้ว" desc="คนที่ตอบล่าสุดได้คะแนน" htmlFor="set-close">
+                    <span className="inline-field"><input id="set-close" className="w-num" type="number" min={0} step={0.5} value={scoreRules.closePoints} onChange={(e) => setScoreRules({ ...scoreRules, closePoints: Number(e.target.value) })} /> คะแนน</span>
+                  </SetLine>
+                </SetGroup>
+                <SetGroup title="การเก็บรูปภาพ" dirty={cardDirty("retention")} info="ข้อความยังอยู่ แต่รูปจะขึ้นว่า “รูปถูกลบตามนโยบายเก็บข้อมูล” การลบกู้คืนไม่ได้ รูปที่ใช้บ่อยไม่ถูกลบ">
+                  <SetLine label="ลบรูปในแชทเมื่อเก่ากว่า" desc="ลบอัตโนมัติ กู้คืนไม่ได้" htmlFor="set-retention">
+                    <span className="inline-field"><input id="set-retention" className="w-num" type="number" min={1} max={3650} value={retentionDays} onChange={(e) => setRetentionDays(Number(e.target.value))} /> วัน</span>
+                  </SetLine>
+                </SetGroup>
+              </>
             ))}
           </div>
         </div>
 
-        {panel("overview", (
-          <div className="settings-masonry">
-            <HealthPanel initial={preview?.health} />
-            <LineUsagePanel initial={preview?.usage} />
-            <section className="card">
-              <CardHead title="การใช้ AI" info={`ค่าใช้จ่ายโดยประมาณ รวม embedding คิดที่ 1 USD = ${USD_TO_THB} บาท ยอดจริงดูที่หน้า billing ของ OpenAI${stats.unpricedModels.length ? ` · ไม่รวมโมเดลที่ไม่รู้ราคา: ${stats.unpricedModels.join(", ")}` : ""}`} />
-              <div className="row between ch-row"><span>เรียก LLM วันนี้</span><b>{stats.todayCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.todayCostThb)} บาท</b></div>
-              <div className="row between ch-row"><span>เรียก LLM เดือนนี้</span><b>{stats.monthCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.monthCostThb)} บาท</b></div>
-            </section>
-            <PriceAlerts />
-          </div>
-        ))}
-
-        {panel("ai", (
-          <div className="settings-masonry">
-            <AiModelsPanel initial={preview?.models} />
-            <section className="card">
-              <CardHead title="โหมด AI ทั้งระบบ" dirty={cardDirty("mode")} info="ตั้งแยกรายช่องทางและรายแชท (ในหน้าแชท) ได้ — รายแชทสำคัญที่สุด" />
-              <div className="mode-cards">
-                {MODES.map((m) => (
-                  <button key={m} className={`mode-card ${mode === m ? "on" : ""}`} onClick={() => setMode(m)}>
-                    <b>{AI_MODE_LABEL[m]}</b>
-                    <span className="small">{AI_MODE_HINT[m]}</span>
-                  </button>
-                ))}
-              </div>
-              <label className="inline">
-                โหมด “คนตอบก่อน”: AI ตอบแทนเมื่อไม่มีใครตอบภายใน
-                <input type="number" min={1} max={120} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} /> นาที
-              </label>
-            </section>
-            <section className="card">
-              <CardHead title="บุคลิกการตอบของ AI" dirty={cardDirty("persona")} />
-              <label>ชื่อคลินิก<input value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></label>
-              <label>โทน/สำนวน<textarea rows={3} value={profile.tone} onChange={(e) => setProfile({ ...profile, tone: e.target.value })} /></label>
-            </section>
-            <section className="card">
-              <CardHead title="รายช่องทาง" dirty={cardDirty("channels")} info="โหมด AI ของแต่ละช่องทาง ว่าง = ตามโหมดทั้งระบบ" />
-              {channels.map((c, i) => (
-                <div key={c.id} className="row between ch-row">
-                  <div><span className={`chip ch-${c.type}`}>{CHANNEL_LABEL[c.type]}</span> {c.name}</div>
-                  <div className="row">
-                    <select value={c.ai_mode ?? ""} aria-label={`โหมด AI ของ ${c.name}`} onChange={(e) => {
-                      const next = [...channels]; next[i] = { ...c, ai_mode: (e.target.value || null) as AiMode | null }; setChannels(next);
-                    }}>
-                      <option value="">ตามทั้งระบบ</option>
-                      {MODES.map((m) => <option key={m} value={m}>{AI_MODE_LABEL[m]}</option>)}
-                    </select>
-                    <label className="raw">
-                      <input type="checkbox" checked={c.enabled} onChange={(e) => {
-                        const next = [...channels]; next[i] = { ...c, enabled: e.target.checked }; setChannels(next);
-                      }} /> เปิดใช้
-                    </label>
-                  </div>
-                </div>
-              ))}
-            </section>
-          </div>
-        ))}
-
-        {panel("chat", (
-          <div className="settings-masonry">
-            <section className="card">
-              <CardHead title="เวลาทำการ" dirty={cardDirty("hours")} info="นอกเวลาทำการ โหมด “คนตอบก่อน” จะให้ AI ตอบทันที" />
-              <div className="business-hours">
-                {DAY_ORDER.map((d) => {
-                  const r = hours.days[d];
-                  return (
-                    <div key={d} className="business-hours-row">
-                      <label className="raw"><input type="checkbox" checked={!!r} onChange={(e) => setDay(d, e.target.checked ? ["08:00", "18:00"] : null)} /> {DAY[d]}</label>
-                      {r ? (
-                        <span className="business-hours-times">
-                          <input type="time" aria-label={`${DAY[d]} เปิด`} value={r[0]} onChange={(e) => setDay(d, [e.target.value, r[1]])} />–
-                          <input type="time" aria-label={`${DAY[d]} ปิด`} value={r[1]} onChange={(e) => setDay(d, [r[0], e.target.value])} />
-                        </span>
-                      ) : <span className="muted small">ปิด</span>}
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="set-other-note">ใช้กับ AI ตอบแชทเท่านั้น — ช่วงเวลาให้คนไข้เลือกตอนนัดตั้งแยกที่ “เวลาเปิดคลินิก” (แท็บนัดหมายและข้อความ) เป็นข้อมูลคนละชุด</p>
-            </section>
-            <section className="card">
-              <CardHead title="ย้ายไปเสร็จแล้วอัตโนมัติ" dirty={cardDirty("autoclose")} info={`ใส่ 0 เพื่อปิด ไม่ย้ายแชทที่มีแท็ก ${AUTO_CLOSE_EXEMPT_TAGS.join(" หรือ ")} หรือป้าย “ต้องให้คนตอบ” ลูกค้าทักกลับมาแชทจะเปิดเอง`} />
-              <label className="inline">
-                เมื่อเราตอบล่าสุดและลูกค้าเงียบเกิน
-                <input type="number" min={0} max={8760} value={autoCloseHours} onChange={(e) => setAutoCloseHours(Number(e.target.value))} /> ชั่วโมง
-              </label>
-            </section>
-            <section className="card">
-              <CardHead title="แชทลับ" dirty={cardDirty("sensitive")} info="ข้อความลูกค้าที่มีคำเหล่านี้จะถูกตั้งเป็นแชทลับ ติดแล้วไม่หายเอง เอาออกได้เฉพาะ admin ในห้องแชท" />
-              <label>คำสำคัญ บรรทัดละคำ
-                <textarea rows={6} value={sensitiveKeywords} onChange={(e) => setSensitiveKeywords(e.target.value)} />
-              </label>
-              <label className="inline">ลบรูปในแชทลับหลัง
-                <input type="number" min={1} value={sensitiveDays} onChange={(e) => setSensitiveDays(Number(e.target.value))} /> วัน
-              </label>
-            </section>
-            <TagSettings />
-          </div>
-        ))}
-
-        {panel("appointments", (
-          <div className="settings-masonry">
-            <AppointmentSettings initial={preview?.appointments} />
-            <section className="card set-wide">
-              <CardHead title="ข้อความการจอง" dirty={cardDirty("booking")} info="ระบบแทนค่าในวงเล็บปีกกาให้ และแปลตามภาษาลูกค้าตอนส่ง เว้นว่างแล้วบันทึกจะกลับเป็นค่าเริ่มต้น" />
-              <div className="set-wide-grid">
-                {(Object.keys(BOOKING_TEMPLATE_LABEL) as (keyof BookingTemplates)[]).map((key) => (
-                  <label key={key}>{BOOKING_TEMPLATE_LABEL[key]}
-                    <textarea rows={2} value={bookingTemplates[key]} onChange={(e) => setBookingTemplates({ ...bookingTemplates, [key]: e.target.value })} />
-                  </label>
-                ))}
-              </div>
-            </section>
-          </div>
-        ))}
-
-        {panel("team", (
-          <div className="settings-masonry">
-            <section className="card">
-              <CardHead title="เกณฑ์คะแนนเจ้าหน้าที่" dirty={cardDirty("score")} info="นับเวลาเฉพาะเวลาทำการ ตอบช้ากว่าขั้นสุดท้ายได้ 0 คะแนน" />
-              {scoreRules.speed.map((tier, i) => (
-                <label key={i} className="inline">
-                  ตอบภายใน
-                  <input type="number" min={0} value={tier.maxSeconds / 60} aria-label={`นาทีของขั้นที่ ${i + 1}`} onChange={(e) => {
-                    const speed = [...scoreRules.speed];
-                    speed[i] = { ...tier, maxSeconds: Number(e.target.value) * 60 };
-                    setScoreRules({ ...scoreRules, speed });
-                  }} /> นาที ได้
-                  <input type="number" min={0} step={0.5} value={tier.points} aria-label={`คะแนนของขั้นที่ ${i + 1}`} onChange={(e) => {
-                    const speed = [...scoreRules.speed];
-                    speed[i] = { ...tier, points: Number(e.target.value) };
-                    setScoreRules({ ...scoreRules, speed });
-                  }} /> คะแนน
-                </label>
-              ))}
-              <label className="inline">คำตอบสั้นกว่า
-                <input type="number" min={0} value={scoreRules.shortChars} onChange={(e) => setScoreRules({ ...scoreRules, shortChars: Number(e.target.value) })} /> ตัวอักษร ได้ครึ่งเดียว
-              </label>
-              <label className="inline">ข้อความถูกกดดาว ได้
-                <input type="number" min={0} step={0.5} value={scoreRules.starPoints} onChange={(e) => setScoreRules({ ...scoreRules, starPoints: Number(e.target.value) })} /> คะแนน
-              </label>
-              <label className="inline">กดเสร็จแล้ว คนที่ตอบล่าสุดได้
-                <input type="number" min={0} step={0.5} value={scoreRules.closePoints} onChange={(e) => setScoreRules({ ...scoreRules, closePoints: Number(e.target.value) })} /> คะแนน
-              </label>
-            </section>
-            <section className="card">
-              <CardHead title="การเก็บรูปภาพ" dirty={cardDirty("retention")} info="ข้อความยังอยู่ แต่รูปจะขึ้นว่า “รูปถูกลบตามนโยบายเก็บข้อมูล” การลบกู้คืนไม่ได้ รูปที่ใช้บ่อยไม่ถูกลบ" />
-              <label className="inline">
-                ลบรูปในแชทอัตโนมัติเมื่อเก่ากว่า
-                <input type="number" min={1} max={3650} value={retentionDays} onChange={(e) => setRetentionDays(Number(e.target.value))} /> วัน
-              </label>
-            </section>
-          </div>
-        ))}
-
         <div className={`settings-savebar ${dirty ? "dirty" : ""}`} role="region" aria-label="บันทึกการตั้งค่า">
           <button className="btn primary" onClick={saveAll} disabled={saving || baseline === null || !dirty}>{saving ? "กำลังบันทึก…" : "บันทึกการตั้งค่า"}</button>
           {dirty
-            ? <span className="settings-dirty" title={dirtyLabels.join(", ")}>● มีการแก้ไขที่ยังไม่บันทึก: {dirtyLabels.join(", ")}</span>
+            ? <span className="settings-dirty" title={dirtyLabels.join(", ")}>● มีการแก้ไขที่ยังไม่บันทึก ({dirtySections.length} หมวด: {dirtySections.map(([, l]) => l).join(", ")})</span>
             : <span className={saved.startsWith("บันทึกไม่สำเร็จ") ? "error small" : "muted small"}>{saved || "บันทึกแล้วทั้งหมด"}</span>}
           {dirty && saved.startsWith("บันทึกไม่สำเร็จ") && <span className="error small">{saved}</span>}
         </div>
       </div>
     </SettingsContext.Provider>
   );
+}
+
+/** "ยืนยันนัด ใช้ {บริการ} {วัน}" → ["ยืนยันนัด", "ใช้ {บริการ} {วัน}"] */
+function splitBookingLabel(label: string): [string, string | undefined] {
+  const i = label.indexOf(" ใช้ ");
+  return i < 0 ? [label, undefined] : [label.slice(0, i), label.slice(i + 1)];
 }

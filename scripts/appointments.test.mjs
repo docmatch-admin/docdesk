@@ -1585,77 +1585,72 @@ test("หน้าเว็บไม่ใช้ th-TH แสดงเวลา 
   }
 });
 
-test("ตั้งค่า → นัดหมาย: กลุ่มหัวข้อ กริดตามความกว้างการ์ด ชิปตัวแปรแทรกได้ บันทึกรวมปุ่มเดียว ตารางกะทัดรัด", () => {
-  const src = readFileSync("src/app/(staff)/settings/appointment-settings.tsx", "utf8");
-  for (const h of ["การติดต่อ", "LINE", "ที่อยู่", "ภาษาอังกฤษ (ใบนัด EN)", "การส่งข้อความ", "ข้อความนัด (template)"]) assert.match(src, new RegExp(`<h4>${h.replace(/[()]/g, "\\$&")}</h4>`), h);
-  assert.match(src, /className="var-chip".*onClick=\{\(\) => insertVar\(v\)\}/);
-  // ไม่มีปุ่มบันทึกในการ์ด ลงทะเบียนกับปุ่ม "บันทึกการตั้งค่า" ของหน้าแทน
-  assert.doesNotMatch(src, /className="set-save"/);
-  assert.doesNotMatch(src, /ปุ่มนี้บันทึกทุกการ์ดยกเว้น/);
-  assert.match(src, /useSaveUnit\("appointment-settings"/);
-  assert.match(src, /ใช้ข้อความแนะนำ/);
-  assert.match(src, /ดูตัวอย่างข้อความ/);
-  // ข้อความแนะนำแทนเฉพาะ template ที่ยังไม่มี {mobile} ไม่ทับข้อความที่ admin แก้เองโดยอัตโนมัติ
-  assert.match(src, /template_th\.includes\("\{mobile\}"\) \? \{\} : \{ template_th: SUGGESTED_TEMPLATE_TH \}/);
-  // ชื่อฟิลด์เดิมทั้งหมด
-  for (const f of ["reminder_time", "clinic_phone", "clinic_mobile", "line_oa_id", "clinic_address", "clinic_name_en", "clinic_address_en", "send_purpose_in_message", "send_on_create", "template_th", "template_en"]) assert.match(src, new RegExp(`s\\.${f}`), f);
-  const css = readFileSync("src/app/globals.css", "utf8");
-  assert.match(css, /container-name: apptset/);
-  assert.match(css, /@container apptset \(min-width: 760px\) \{ \.settings-page \.set-grid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
-  assert.match(css, /@container apptset \(min-width: 536px\) \{ \.settings-page \.set-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
-  // แถบบันทึกพื้นทึบ เส้นบน เงาบาง · masonry 1/2/3 คอลัมน์ การ์ดกว้างกินเต็มแถว · รายการยาวเลื่อนในการ์ด
-  assert.match(css, /\.settings-savebar \{ position: sticky; bottom: 0;[^}]*background: var\(--card\); border-top: 1px solid var\(--line\); box-shadow:/);
-  assert.doesNotMatch(css, /backdrop-filter: blur\(6px\)/);
-  assert.match(css, /@media \(min-width: 1100px\) \{ \.settings-masonry \{ columns: 2; \} \}/);
-  assert.match(css, /@media \(min-width: 1600px\) \{ \.settings-masonry \{ columns: 3; \} \}/);
-  assert.match(css, /\.settings-masonry > \* \{ break-inside: avoid; margin: 0 0 16px;/);
-  assert.match(css, /\.settings-masonry > \.set-wide \{ column-span: all; \}/);
-  assert.match(css, /\.card-scroll \{ max-height: 480px; overflow: auto;/);
-  assert.match(css, /\.settings-top \{ position: sticky; top: 0;/);
-  // ช่องกรอกสูงอย่างน้อย 44px ทั้งหน้า แถวตารางจึงสูง 52px
-  assert.match(css, /\.set-table td, \.set-table tbody th \{ height: 52px;/);
-  // สเกลตัวอักษรกลางของหน้าตั้งค่า
-  for (const v of ["--fs-card-title: 20px", "--fs-group: 16px", "--fs-label: 15px", "--fs-body: 16px", "--fs-help: 14px", "--fs-badge: 13px", "--field-h: 44px", "--field-px: 14px", "--gap-label: 6px", "--gap-field: 16px", "--gap-group: 24px", "--check-size: 20px"]) assert.ok(css.includes(v), v);
-  // กฎเฉพาะหน้าตั้งค่าไม่กำหนดขนาดตัวอักษรตายตัวรายคอมโพเนนต์
-  const scoped = css.split(/\r?\n/).filter((l) => /^\.(set-|health-|line-usage|ai-models|var-chip|info-tip|tiny-note|settings-|preset-table|hours-grid)/.test(l.trim()));
-  assert.deepEqual(scoped.filter((l) => /font-size: [\d.]+px/.test(l)), []);
-  const page = readFileSync("src/app/(staff)/settings/settings-client.tsx", "utf8");
-  assert.doesNotMatch(page, /settings-grid/);
-  assert.match(page, /มีการแก้ไขที่ยังไม่บันทึก/);
-  assert.match(page, /beforeunload/);
-  // แท็บ 5 หมวด จำแท็บใน URL ?tab=
-  for (const t of ["ภาพรวม", "AI", "แชทและแท็ก", "นัดหมายและข้อความ", "ทีมและระบบ"]) assert.ok(page.includes(`"${t}"`), t);
-  assert.match(page, /searchParams/);
-  assert.match(page, /replaceState/);
+test("หน้าตั้งค่ามาตรฐาน: เมนูหมวดซ้าย ?section= กลุ่ม+แถว ไม่มีการ์ด/masonry/ส่วนพับ บันทึกรวมปุ่มเดียว", () => {
+  const dir = "src/app/(staff)/settings/";
+  const read = (f) => readFileSync(dir + f, "utf8");
+  const files = ["settings-client.tsx", "appointment-settings.tsx", "appointment-presets.tsx", "series-templates.tsx", "health-panel.tsx", "line-usage-panel.tsx", "ai-models-panel.tsx", "price-alerts.tsx", "tag-settings.tsx"];
+  for (const f of files) {
+    const src = read(f);
+    // ไม่มีกรอบการ์ด ไม่มี masonry ไม่มีส่วนพับ ไม่มีอีโมจิในหัวข้อ
+    assert.doesNotMatch(src, /className="card[ "]/, f);
+    assert.doesNotMatch(src, /settings-masonry|CardHead/, f);
+    assert.doesNotMatch(src, /<details|<summary/, f);
+    assert.doesNotMatch(src, /title="[^"]*[💬🤖🔒📅⚠]/u, f);
+    // ไม่มีปุ่มบันทึกย่อย
+    assert.doesNotMatch(src, />บันทึก(เวลาเปิด| template|โมเดล)?</, f);
+    assert.doesNotMatch(src, /className="set-save"|ปุ่มนี้บันทึกทุกการ์ดยกเว้น/, f);
+  }
+  const page = read("settings-client.tsx");
+  for (const t of ["ภาพรวม", "AI", "แชทและแท็ก", "นัดหมาย", "ทีมและระบบ"]) assert.ok(page.includes(`"${t}"`), t);
+  assert.match(page, /searchParams\.set\("section", t\)/);
+  assert.match(page, /get\("section"\)/);
   assert.match(page, /tab-dot red/);
   assert.match(page, /tab-dot yellow/);
+  assert.match(page, /beforeunload/);
+  assert.match(page, /มีการแก้ไขที่ยังไม่บันทึก \(\{dirtySections\.length\} หมวด/);
+  assert.match(page, /className="settings-nav"/);
   const body = page.slice(page.indexOf("<SettingsContext.Provider"));
   const order = (...names) => { let at = 0; return names.every((n) => { const i = body.indexOf(n, at); if (i < 0) return false; at = i; return true; }); };
-  assert.ok(order('panel("overview"', "<HealthPanel", "<LineUsagePanel", "การใช้ AI", 'panel("ai"', "<AiModelsPanel", "โหมด AI ทั้งระบบ", "บุคลิก", "รายช่องทาง",
-    'panel("chat"', "เวลาทำการ", "ย้ายไปเสร็จแล้วอัตโนมัติ", "แชทลับ", "<TagSettings", 'panel("appointments"', "<AppointmentSettings", "ข้อความการจอง",
-    'panel("team"', "เกณฑ์คะแนน", "การเก็บรูปภาพ"), "การ์ดอยู่ในแท็บตามสเปก");
-  // หัวการ์ดไม่มีอีโมจิ
-  for (const f of ["settings-client.tsx", "line-usage-panel.tsx", "ai-models-panel.tsx", "price-alerts.tsx", "tag-settings.tsx", "health-panel.tsx", "appointment-settings.tsx"]) {
-    const s = readFileSync(`src/app/(staff)/settings/${f}`, "utf8");
-    assert.doesNotMatch(s, /<h3>[^<]*[💬🤖🔒📅⚠]/u, f);
-    assert.doesNotMatch(s, /CardHead title="[^"]*[💬🤖🔒📅⚠]/u, f);
-  }
-  // เวลาทำการ (AI) กับเวลาเปิดคลินิก (นัด) เป็นข้อมูลคนละชุด มีหมายเหตุบอกทั้งสองที่
+  assert.ok(order('panel("overview"', "<HealthPanel", "<LineUsagePanel", "การใช้ AI", 'panel("ai"', "<AiModelsPanel", "โหมด AI ทั้งระบบ", "รายช่องทาง", "บุคลิกการตอบ",
+    'panel("chat"', "เวลาทำการ", "ย้ายไปเสร็จแล้วอัตโนมัติ", "<TagSettings", "แชทลับ", 'panel("appointments"', "<AppointmentSettings", "ข้อความการจอง",
+    'panel("team"', "เกณฑ์คะแนน", "การเก็บรูปภาพ"), "กลุ่มอยู่ในหมวดตามสเปก");
   assert.match(page, /set-other-note[^]*เวลาเปิดคลินิก/);
-  const presets = readFileSync("src/app/(staff)/settings/appointment-presets.tsx", "utf8");
+
+  const appt = read("appointment-settings.tsx");
+  const apptOrder = (...names) => { let at = 0; return names.every((n) => { const i = appt.indexOf(n, at); if (i < 0) return false; at = i; return true; }); };
+  assert.ok(apptOrder('title="การติดต่อ"', "เวลาส่งเตือน", "เบอร์คลินิก", "เบอร์มือถือคลินิก", "LINE OA ID", "ที่อยู่คลินิก (ไทย)", "ชื่อคลินิกภาษาอังกฤษ", "ที่อยู่ภาษาอังกฤษ",
+    'title="การส่งข้อความ"', 'title="ข้อความนัด"', "<PurposePresets", "<ClinicHoursSettings", "<SeriesTemplates", "{children}"), "ลำดับกลุ่มนัดหมาย");
+  assert.match(appt, /className="var-chip".*onClick=\{\(\) => insertVar\(v\)\}/);
+  assert.match(appt, /className="tpl-pair"/);
+  assert.match(appt, /ดูตัวอย่างข้อความ/);
+  assert.match(appt, /ใช้ข้อความแนะนำ/);
+  assert.match(appt, /template_th\.includes\("\{mobile\}"\) \? \{\} : \{ template_th: SUGGESTED_TEMPLATE_TH \}/);
+  assert.match(appt, /useSaveUnit\("appointment-settings"/);
+  for (const f of ["reminder_time", "clinic_phone", "clinic_mobile", "line_oa_id", "clinic_address", "clinic_name_en", "clinic_address_en", "send_purpose_in_message", "send_on_create", "template_th", "template_en"]) assert.match(appt, new RegExp(`s\\.${f}`), f);
+
+  const presets = read("appointment-presets.tsx");
   assert.match(presets, /<table className="set-table preset-table">/);
   assert.match(presets, /<table className="set-table hours-grid">/);
-  // preset: พับเป็นค่าเริ่มต้น บันทึกเมื่อออกจากช่อง ไม่มีปุ่มบันทึกรายแถว
-  assert.match(presets, /<details className="appt-settings-block set-fold preset-fold"/);
-  assert.match(presets, /เหตุผลนัด · \{rows\.length\} รายการ/);
-  assert.match(presets, /onBlur=\{\(\) => saveRow\(r\)\}/);
-  assert.match(presets, /✓ บันทึกแล้ว/);
-  assert.doesNotMatch(presets, /onClick=\{\(\) => saveRow\(r\)\}>บันทึก</);
-  // เวลาเปิด: 3 แถว + สวิตช์แยกรายวัน บันทึกผ่านปุ่มรวม
-  assert.match(presets, /แยกตั้งรายวัน/);
+  assert.match(presets, /useSaveUnit\("purpose-presets"/);
   assert.match(presets, /useSaveUnit\("clinic-hours"/);
-  assert.doesNotMatch(presets, />บันทึกเวลาเปิด</);
-  assert.match(presets, /set-other-note[^]*เวลาทำการ/);
+  assert.doesNotMatch(presets, /saveRow|onBlur/);
+  assert.match(presets, /แยกตั้งรายวัน/);
+  assert.match(presets, /title="วันหยุดพิเศษ"/);
+  assert.match(presets, /แยกจาก “เวลาทำการ”/);
+  assert.match(read("series-templates.tsx"), /useSaveUnit\("series-templates"/);
+
+  const css = readFileSync("src/app/globals.css", "utf8");
+  assert.match(css, /\.settings-layout \{ display: grid; grid-template-columns: 220px minmax\(0, 1fr\);/);
+  assert.match(css, /\.settings-nav \{ position: sticky;/);
+  assert.match(css, /\.settings-page \.set-group2-head h2 \{ font-size: 18px; font-weight: 700;/);
+  assert.match(css, /\.set-line \{ display: grid; grid-template-columns: minmax\(0, 35fr\) minmax\(0, 65fr\);/);
+  assert.match(css, /@media \(max-width: 1023px\) \{\n  \.set-line \{ grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(css, /\.settings-savebar \{ position: sticky; bottom: 0;[^}]*background: var\(--card\); border-top: 1px solid var\(--line\);/);
+  assert.doesNotMatch(css, /settings-masonry|backdrop-filter: blur\(6px\)/);
+  assert.match(css, /\.set-table td, \.set-table tbody th \{ height: 52px;/);
+  for (const v of ["--fs-card-title: 20px", "--fs-group: 16px", "--fs-label: 15px", "--fs-body: 16px", "--fs-help: 14px", "--fs-badge: 14px", "--field-h: 44px", "--field-px: 14px", "--gap-label: 6px", "--gap-field: 16px", "--gap-group: 24px", "--check-size: 20px"]) assert.ok(css.includes(v), v);
+  const scoped = css.split(/\r?\n/).filter((l) => /^\.(set-|health-|line-usage|ai-models|var-chip|info-tip|tiny-note|settings-|preset-table|hours-grid)/.test(l.trim()));
+  assert.deepEqual(scoped.filter((l) => /font-size: [\d.]+px/.test(l) && !/^\.settings-page \.set-group2-head h2/.test(l.trim())), []);
 });
 
 test("เวลาเปิดคลินิกแบบยุบแถว: จันทร์–ศุกร์เท่ากัน = 3 แถว แก้แถวกลุ่มเขียนทุกวัน ไม่เท่ากัน = ต้องแสดงรายวัน", async () => {

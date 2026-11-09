@@ -1011,7 +1011,7 @@ body > .appt-slip { display: none; }
   --fs-label: 15px;
   --fs-body: 16px;
   --fs-help: 14px;
-  --fs-badge: 13px;
+  --fs-badge: 14px;
   --lh: 1.55;
   --field-h: 44px;
   --field-px: 14px;
@@ -1079,82 +1079,116 @@ body > .appt-slip { display: none; }
 .settings-page .chip, .settings-page .var-chip { line-height: 1.5; }
 .settings-page .set-field textarea { height: auto; min-height: 150px; }
 
-/* ===== หน้าตั้งค่า: แท็บ + masonry + หัวการ์ดแบบเดียวกัน + แถบบันทึกทึบ ===== */
-.settings-page { --savebar-h: 68px; }
-.settings-top { position: sticky; top: 0; z-index: 25; display: flex; flex-direction: column; gap: 10px; margin: -24px -28px 0; padding: 20px 28px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
-.settings-top h1 { margin: 0; }
-.settings-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-.settings-tabs::-webkit-scrollbar { display: none; }
-.settings-tabs [role=tab] { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); font: inherit; font-size: var(--fs-body); font-weight: 600; white-space: nowrap; cursor: pointer; }
-.settings-tabs [role=tab]:hover { color: var(--ink); }
-.settings-tabs [role=tab].on { color: var(--blue); border-bottom-color: var(--blue); }
-.settings-tabs [role=tab]:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; border-radius: 6px 6px 0 0; }
-.tab-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+
+/* ===== หน้าตั้งค่ามาตรฐาน: เมนูหมวดซ้าย · กลุ่ม (หัวข้อ + เส้นคั่น ไม่มีกรอบ) · แถว ชื่อ 35% | ช่อง 65% ===== */
+.page.settings-page { max-width: none; padding: 0; display: block; }
+.settings-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0 40px; max-width: 1440px; padding: 24px 28px 0; }
+.settings-nav { position: sticky; top: 24px; align-self: start; min-width: 0; }
+.settings-nav-title { font-size: var(--fs-page-title); font-weight: 700; line-height: 1.4; margin: 0 0 12px 12px; }
+.settings-nav-list { display: flex; flex-direction: column; gap: 2px; }
+.settings-nav-list [role=tab] { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: inherit; font-size: var(--fs-body); text-align: left; cursor: pointer; white-space: nowrap; }
+.settings-nav-list [role=tab]:hover { background: var(--card); }
+.settings-nav-list [role=tab].on { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+.settings-nav-list [role=tab]:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.settings-nav-label { flex: 1; }
+.tab-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .tab-dot.red { background: #dc2626; }
 .tab-dot.yellow { background: #f59e0b; }
+.settings-content { min-width: 0; max-width: 1080px; padding-bottom: 32px; container-type: inline-size; container-name: setcontent; }
 .settings-panel[hidden] { display: none !important; }
-/* masonry: 1 / 2 / 3 คอลัมน์ การ์ดสั้นไม่ถูกยืด ช่องห่าง 16px · การ์ดกว้างกินเต็มแถว */
-.settings-masonry { columns: 1; column-gap: 16px; }
-@media (min-width: 1100px) { .settings-masonry { columns: 2; } }
-@media (min-width: 1600px) { .settings-masonry { columns: 3; } }
-.settings-masonry > * { break-inside: avoid; margin: 0 0 16px; min-width: 0; width: 100%; box-sizing: border-box; display: block; }
-.settings-masonry > .set-wide { column-span: all; }
-.settings-masonry > .card.appt-settings { display: flex; }
-/* หัวการ์ด: หัวข้อ · ป้ายชิดขวา · ⓘ → เส้นบาง → เนื้อหา */
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
-.card-head h3 { margin: 0 !important; min-width: 0; }
-.card-head-side { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.settings-page .settings-section-title { font-size: var(--fs-page-title); font-weight: 700; line-height: 1.4; margin: 0 0 4px; }
+.set-group2 { padding-top: 28px; }
+.set-group2-head { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.settings-page .set-group2-head h2 { font-size: 18px; font-weight: 700; line-height: 1.4; margin: 0; }
+.set-group2-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 .dirty-badge { font-size: var(--fs-badge, 13px); font-weight: 600; color: #8a5a00; background: #fff4d6; border-radius: 999px; padding: 1px 10px; white-space: nowrap; }
-/* รายการยาว (แท็ก, กฎติดแท็ก): เลื่อนในการ์ด */
-.card-scroll { max-height: 480px; overflow: auto; overscroll-behavior: contain; padding-right: 4px; }
-/* เวลาทำการ (AI) */
-.business-hours { display: flex; flex-direction: column; }
-.business-hours-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; border-top: 1px solid var(--line); }
-.business-hours-row:first-child { border-top: 0; }
-.business-hours-row > label.raw { min-width: 120px; }
+.set-line { display: grid; grid-template-columns: minmax(0, 35fr) minmax(0, 65fr); gap: 8px 32px; align-items: start; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.set-line:last-child { border-bottom: 0; }
+.set-line-label { min-width: 0; padding-top: 10px; }
+.settings-page .set-line-name { display: block; font-size: var(--fs-body); font-weight: 600; color: var(--ink); line-height: var(--lh); }
+.settings-page .set-line-desc { margin-top: 2px; font-size: var(--fs-help); color: #5d6478; line-height: var(--lh); overflow-wrap: anywhere; }
+.set-line-control { min-width: 0; display: flex; flex-direction: column; gap: 8px; justify-content: center; min-height: var(--field-h); }
+.set-line-control > input:not([type=checkbox]):not([type=radio]), .set-line-control > select, .set-line-control > textarea { width: 100%; }
+.set-line-control > .w-md { max-width: 360px; }
+.set-line-control > .w-time { max-width: 180px; }
+.settings-page input.w-num { width: 104px; }
+.settings-page .set-line-hint { font-size: var(--fs-help); color: #5d6478; }
+.inline-field { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* สวิตช์ */
+.settings-page label.switch { display: inline-flex; flex-direction: row; align-items: center; gap: 10px; cursor: pointer; font-size: var(--fs-body); font-weight: 400; min-height: var(--field-h); width: fit-content; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch-track { position: relative; width: 44px; height: 24px; border-radius: 999px; background: #cfd4df; transition: background .15s; flex-shrink: 0; }
+.switch-thumb { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s; }
+.switch input:checked + .switch-track { background: var(--blue); }
+.switch input:checked + .switch-track .switch-thumb { transform: translateX(20px); }
+.switch input:focus-visible + .switch-track { outline: 2px solid var(--blue); outline-offset: 2px; }
+.switch input:disabled + .switch-track { opacity: .6; }
+.settings-page label.switch:has(input:disabled) { cursor: not-allowed; }
+/* ภาพรวม */
+.health-summary { display: inline-flex; align-items: baseline; gap: 4px; flex-wrap: wrap; font-size: var(--fs-body); }
+.health-summary.ok b { color: #15803d; }
+.health-summary.bad b { color: #b91c1c; }
+.health-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: var(--field-h); }
+.health-status.ok b { color: #15803d; }
+.health-status.bad b { color: #b91c1c; }
+.set-group2.has-bad .set-group2-head h2 { color: #b91c1c; }
+.line-usage-stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.line-usage-stat { display: flex; flex-direction: column; gap: 2px; min-width: 104px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); }
+.line-usage-stat.total { background: var(--blue-soft); border-color: transparent; }
+.settings-page .line-usage-bar { max-width: none; height: 10px; margin: 6px 0 4px; }
+.mode-cards { margin: 0; }
+.channel-controls { gap: 16px; flex-wrap: wrap; }
+.channel-controls select { width: auto; min-width: 200px; }
+.business-hours-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .business-hours-times { display: inline-flex; align-items: center; gap: 6px; }
-.settings-page .business-hours-times input[type=time] { width: 130px; }
-.set-other-note { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--bg); color: #5d6478; font-size: var(--fs-help); line-height: var(--lh); }
-/* การ์ดนัดหมาย: 2 คอลัมน์ในการ์ด แต่ละคอลัมน์เป็น container ของตัวเอง */
-.appt-settings { container-type: normal; }
-.appt-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 28px; }
-@media (min-width: 1100px) { .appt-body { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); } }
-.appt-col { container-type: inline-size; container-name: apptset; min-width: 0; display: flex; flex-direction: column; }
-.appt-col > .appt-settings-block:first-child, .appt-col > .set-group:first-child { border-top: 0; padding-top: 0; }
-@media (min-width: 1100px) { .appt-col + .appt-col { border-left: 1px solid var(--line); padding-left: 28px; } }
-@media (max-width: 1099px) { .appt-col + .appt-col { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; } }
-.set-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
-.set-group-head h4 { margin: 0 !important; }
-.set-suggest { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: #eef4ff; color: #1e3a8a; font-size: var(--fs-help); }
+.settings-page .business-hours-times input[type=time] { width: 140px; }
+.set-other-note { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); color: #5d6478; font-size: var(--fs-help); line-height: var(--lh); }
+.tag-row { border-bottom: 0; padding: 4px 0; }
+/* นัดหมาย */
+.set-suggest { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: #eef4ff; color: #1e3a8a; font-size: var(--fs-help); }
 .set-suggest .btn { margin-left: auto; }
-.tpl-preview { margin-top: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--bg); }
+.set-vars { margin: 0; }
+.tpl-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.settings-page .tpl-pair textarea { width: 100%; height: 190px; min-height: 190px; resize: vertical; }
+.tpl-preview { border: 1px solid var(--line); border-radius: 10px; padding: 12px; background: var(--card); }
 .tpl-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-.tpl-preview-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-@container apptset (min-width: 536px) { .tpl-preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.tpl-preview-item { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.tpl-preview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.tpl-preview-item { background: var(--bg); border-radius: 8px; padding: 8px 10px; min-width: 0; }
 .tpl-preview-item b { display: block; font-size: var(--fs-help); color: #5d6478; margin-bottom: 4px; }
 .tpl-preview-item pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: var(--fs-help); line-height: var(--lh); }
-.switch-row { display: inline-flex !important; flex-direction: row !important; align-items: center; gap: 8px; cursor: pointer; white-space: nowrap; font-weight: 500; }
-.switch-row input:disabled + * , .switch-row:has(input:disabled) { cursor: not-allowed; opacity: .75; }
-/* preset เหตุผลนัด: พับได้ บันทึกอัตโนมัติ */
-.set-fold > summary { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; cursor: pointer; min-height: 44px; list-style: none; }
-.set-fold > summary::-webkit-details-marker { display: none; }
-.set-fold > summary::before { content: "▸"; color: var(--muted); transition: transform .15s; }
-.set-fold[open] > summary::before { transform: rotate(90deg); }
-.settings-page .set-fold > summary > b { font-size: var(--fs-group); }
-.row-status { display: inline-block; min-width: 96px; margin-left: 6px; font-size: var(--fs-help); text-align: left; white-space: nowrap; }
-.row-status.ok { color: #15803d; }
-.row-status.saving { color: var(--muted); }
-.row-status.error { color: #b91c1c; white-space: normal; min-width: 140px; }
-.preset-table input[aria-invalid=true] { border-color: #dc2626; }
-/* แถบบันทึก: พื้นทึบสีการ์ด เส้นบน เงาบาง · ตัวแถบติดท้าย flow จึงกันที่ให้เนื้อหาเท่าความสูงของแถบเสมอ */
-.settings-savebar { position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: var(--savebar-h); box-sizing: border-box; margin: 0 -28px; padding: 12px 28px; background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -4px 12px rgba(29, 34, 51, .06); }
-.settings-savebar .settings-dirty { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.page.settings-page { gap: 16px; }
-@media (max-width: 640px) {
-  .settings-top { margin: -16px -16px 0; padding: 12px 16px 0; }
-  .settings-savebar { margin: 0 -16px; padding: 10px 16px; }
+.set-closure { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.set-closure > input[type=date] { width: 180px; }
+.set-closure > input:not([type=date]) { flex: 1; min-width: 180px; width: auto; }
+.closure-row { justify-content: space-between; min-height: 40px; border-bottom: 1px solid var(--line); }
+.test-send { gap: 8px; flex-wrap: wrap; }
+.test-send > input, .test-send > select { flex: 1; min-width: 180px; width: auto; }
+.settings-page .preset-table td input[aria-invalid=true] { border-color: #dc2626; }
+.settings-page .template-editor { display: flex; flex-direction: column; gap: 8px; }
+/* แถบบันทึก: พื้นทึบ เส้นขอบบน ติดล่างเสมอ (ตัวแถบอยู่ท้าย flow จึงไม่บังเนื้อหา) */
+.settings-savebar { position: sticky; bottom: 0; z-index: 20; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 68px; box-sizing: border-box; margin: 0; padding: 12px 28px 12px 316px; background: var(--card); border-top: 1px solid var(--line); box-shadow: 0 -4px 12px rgba(29, 34, 51, .06); }
+.settings-savebar .settings-dirty { min-width: 0; flex: 1; }
+/* เนื้อหาแคบ: แถวซ้อนบน-ล่าง */
+@container setcontent (max-width: 639px) {
+  .set-line { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .set-line-label { padding-top: 0; }
+  .tpl-pair, .tpl-preview-grid { grid-template-columns: minmax(0, 1fr); }
 }
-/* คอลัมน์ในการ์ดนัดหมาย 536–811px: LINE | ที่อยู่ อยู่แถวเดียวกัน */
-@container apptset (min-width: 536px) and (max-width: 811px) { .settings-page .set-row { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); } .settings-page .set-row > .set-group + .set-group { border-top: 0; } .settings-page .set-row > .span-2 { grid-column: auto; } }
-.appt-col > .set-group:first-child { border-top: 0; }
+/* จอ < 1024px: แถวซ้อนบน-ล่าง · จอ < 760px: เมนูหมวดเป็นแถบเลื่อนแนวนอนด้านบน */
+@media (max-width: 1023px) {
+  .set-line { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .set-line-label { padding-top: 0; }
+  .settings-layout { grid-template-columns: 180px minmax(0, 1fr); gap: 0 24px; padding: 20px 20px 0; }
+  .settings-savebar { padding-left: 224px; }
+}
+@media (max-width: 759px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); padding: 0 16px; }
+  .settings-nav { position: sticky; top: 0; z-index: 15; margin: 0 -16px; padding: 12px 16px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .settings-nav-title { margin: 0 0 4px; font-size: var(--fs-card-title); }
+  .settings-nav-list { flex-direction: row; overflow-x: auto; scrollbar-width: none; gap: 4px; }
+  .settings-nav-list::-webkit-scrollbar { display: none; }
+  .settings-nav-list [role=tab] { border-radius: 8px 8px 0 0; border-bottom: 3px solid transparent; }
+  .settings-nav-list [role=tab].on { background: none; border-bottom-color: var(--blue); }
+  .settings-content { padding-top: 16px; }
+  .settings-savebar { padding: 10px 16px; }
+  .set-group2 { padding-top: 20px; }
+}

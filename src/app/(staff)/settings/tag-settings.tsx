@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CardHead } from "./settings-save";
+import { SetGroup, SetLine } from "./settings-save";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { DEFAULT_TAG_COLOR, NON_THAI_MIN_MESSAGES, TAG_GROUP_LABEL, type Tag, type TagGroup, type TagRule } from "@/lib/tags";
 
@@ -82,77 +82,78 @@ export function TagSettings() {
 
   return (
     <>
-      <section className="card">
-        <CardHead title="แท็ก" info="เปลี่ยนชื่อแท็กไม่ได้ เพราะแชทและรายงานอ้างอิงตามชื่อ ถ้าไม่ใช้แล้วให้ปิดใช้ แชทเดิมยังเห็นแท็กนี้อยู่ · แก้แล้วบันทึกทันที">
-          <span className="chip">{tags.length} แท็ก</span>
-        </CardHead>
-        {/* รายการยาว: เลื่อนในการ์ด ไม่ให้คอลัมน์ยาว */}
-        <div className="card-scroll">
-        {GROUPS.map((g) => (
-          <div key={g}>
-            <div className="muted small tag-pop-group"><b>{TAG_GROUP_LABEL[g]}</b></div>
-            {tags.filter((t) => t.group === g).map((t, i, list) => (
-              <div key={t.id} className={`tag-row ${t.active ? "" : "off"}`}>
-                <input type="color" value={t.color} aria-label={`สีของแท็ก ${t.name}`} onChange={(e) => patchTag(t, { color: e.target.value })} />
-                <span className="grow">{t.name}</span>
-                <button className="btn ghost small" disabled={i === 0} aria-label={`เลื่อน ${t.name} ขึ้น`} onClick={() => move(t, -1)}>↑</button>
-                <button className="btn ghost small" disabled={i === list.length - 1} aria-label={`เลื่อน ${t.name} ลง`} onClick={() => move(t, 1)}>↓</button>
-                <label className="raw"><input type="checkbox" checked={t.active} onChange={(e) => patchTag(t, { active: e.target.checked })} /> เปิดใช้</label>
-              </div>
-            ))}
-          </div>
-        ))}
-        </div>
-        <form className="tag-row" onSubmit={addTag}>
-          <input type="color" value={color} aria-label="สีของแท็กใหม่" onChange={(e) => setColor(e.target.value)} />
-          <input className="grow" value={name} maxLength={40} placeholder="ชื่อแท็กใหม่" aria-label="ชื่อแท็กใหม่" onChange={(e) => setName(e.target.value)} />
-          <select value={group} aria-label="กลุ่มของแท็กใหม่" onChange={(e) => setGroup(e.target.value as TagGroup)}>
-            {GROUPS.map((g) => <option key={g} value={g}>{TAG_GROUP_LABEL[g]}</option>)}
-          </select>
-          <button className="btn primary small">เพิ่มแท็ก</button>
-        </form>
-        {msg && <div className="error small">{msg}</div>}
-      </section>
+      <SetGroup title="แท็ก" side={<span className="chip">{tags.length} แท็ก</span>}
+        info="เปลี่ยนชื่อแท็กไม่ได้ เพราะแชทและรายงานอ้างอิงตามชื่อ ถ้าไม่ใช้แล้วให้ปิดใช้ แชทเดิมยังเห็นแท็กนี้อยู่ · สี ลำดับ และเปิด/ปิดใช้ มีผลทันที">
+        {GROUPS.map((g) => {
+          const list = tags.filter((t) => t.group === g);
+          return (
+            <SetLine key={g} label={TAG_GROUP_LABEL[g]} desc={`${list.length} แท็ก`}>
+              {list.length === 0 && <span className="muted small">ยังไม่มีแท็ก</span>}
+              {list.map((t, i) => (
+                <div key={t.id} className={`tag-row ${t.active ? "" : "off"}`}>
+                  <input type="color" value={t.color} aria-label={`สีของแท็ก ${t.name}`} onChange={(e) => patchTag(t, { color: e.target.value })} />
+                  <span className="grow">{t.name}</span>
+                  <button className="btn ghost small" disabled={i === 0} aria-label={`เลื่อน ${t.name} ขึ้น`} onClick={() => move(t, -1)}>↑</button>
+                  <button className="btn ghost small" disabled={i === list.length - 1} aria-label={`เลื่อน ${t.name} ลง`} onClick={() => move(t, 1)}>↓</button>
+                  <label className="raw"><input type="checkbox" checked={t.active} onChange={(e) => patchTag(t, { active: e.target.checked })} /> เปิดใช้</label>
+                </div>
+              ))}
+            </SetLine>
+          );
+        })}
+        <SetLine label="เพิ่มแท็ก" desc="เลือกสีและกลุ่ม">
+          <form className="tag-row" onSubmit={addTag}>
+            <input type="color" value={color} aria-label="สีของแท็กใหม่" onChange={(e) => setColor(e.target.value)} />
+            <input className="grow" value={name} maxLength={40} placeholder="ชื่อแท็กใหม่" aria-label="ชื่อแท็กใหม่" onChange={(e) => setName(e.target.value)} />
+            <select value={group} aria-label="กลุ่มของแท็กใหม่" onChange={(e) => setGroup(e.target.value as TagGroup)}>
+              {GROUPS.map((g) => <option key={g} value={g}>{TAG_GROUP_LABEL[g]}</option>)}
+            </select>
+            <button className="btn primary small">เพิ่มแท็ก</button>
+          </form>
+          {msg && <div className="error small">{msg}</div>}
+        </SetLine>
+      </SetGroup>
 
-      <section className="card">
-        <CardHead title="กฎติดแท็กอัตโนมัติ" info="ไม่ใช้ AI คั่นหลายคำด้วย | เช่น พนักงาน|โรงงาน ถ้าข้อความมีคำยกเว้นจะไม่ติดแท็ก ถ้าเอาแท็กออกจากแชทเอง กฎจะไม่ติดกลับให้แชทนั้น · แก้แล้วบันทึกทันที">
-          <span className="chip">{rules.length} กฎ</span>
-        </CardHead>
-        <div className="card-scroll">
-        {rules.map((r) => (
-          <div key={r.id} className="tag-row">
-            {r.kind === "non_thai"
-              ? <span className="grow">ลูกค้าใช้ภาษาอื่นอย่างน้อย {NON_THAI_MIN_MESSAGES} ข้อความ</span>
-              : <>
-                  <input className="grow" defaultValue={r.keyword} aria-label="คำสำคัญ" placeholder="คำสำคัญ" onBlur={(e) => {
-                    const v = e.target.value.trim();
-                    if (v && v !== r.keyword) patchRule(r.id, { keyword: v });
-                  }} />
-                  <input className="grow" defaultValue={r.exclude_keywords ?? ""} aria-label="คำยกเว้น" placeholder="คำยกเว้น (ไม่ใส่ก็ได้)" onBlur={(e) => {
-                    const v = e.target.value.trim();
-                    if (v !== (r.exclude_keywords ?? "")) patchRule(r.id, { exclude_keywords: v });
-                  }} />
-                </>}
+      <SetGroup title="กฎติดแท็กอัตโนมัติ" side={<span className="chip">{rules.length} กฎ</span>}
+        info="ไม่ใช้ AI คั่นหลายคำด้วย | เช่น พนักงาน|โรงงาน ถ้าข้อความมีคำยกเว้นจะไม่ติดแท็ก ถ้าเอาแท็กออกจากแชทเอง กฎจะไม่ติดกลับให้แชทนั้น · แก้แล้วมีผลทันที">
+        <SetLine label="กฎที่ใช้อยู่" desc="คำสำคัญ · คำยกเว้น → แท็ก" full>
+          {rules.length === 0 && <span className="muted small">ยังไม่มีกฎ</span>}
+          {rules.map((r) => (
+            <div key={r.id} className="tag-row">
+              {r.kind === "non_thai"
+                ? <span className="grow">ลูกค้าใช้ภาษาอื่นอย่างน้อย {NON_THAI_MIN_MESSAGES} ข้อความ</span>
+                : <>
+                    <input className="grow" defaultValue={r.keyword} aria-label="คำสำคัญ" placeholder="คำสำคัญ" onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v && v !== r.keyword) patchRule(r.id, { keyword: v });
+                    }} />
+                    <input className="grow" defaultValue={r.exclude_keywords ?? ""} aria-label="คำยกเว้น" placeholder="คำยกเว้น (ไม่ใส่ก็ได้)" onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== (r.exclude_keywords ?? "")) patchRule(r.id, { exclude_keywords: v });
+                    }} />
+                  </>}
+              <span aria-hidden>→</span>
+              <select value={r.tag} aria-label="แท็กที่จะติด" onChange={(e) => patchRule(r.id, { tag: e.target.value })}>
+                {!tagOptions.some((t) => t.name === r.tag) && <option value={r.tag}>{r.tag} (ปิดใช้)</option>}
+                {tagOptions.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
+              </select>
+              <button className="btn ghost small" onClick={() => removeRule(r.id)}>ลบ</button>
+            </div>
+          ))}
+        </SetLine>
+        <SetLine label="เพิ่มกฎ" full>
+          <form className="tag-row" onSubmit={addRule}>
+            <input className="grow" value={ruleKeyword} placeholder="คำสำคัญใหม่" aria-label="คำสำคัญใหม่" onChange={(e) => setRuleKeyword(e.target.value)} />
+            <input className="grow" value={ruleExclude} placeholder="คำยกเว้น (ไม่ใส่ก็ได้)" aria-label="คำยกเว้นของกฎใหม่" onChange={(e) => setRuleExclude(e.target.value)} />
             <span aria-hidden>→</span>
-            <select value={r.tag} aria-label="แท็กที่จะติด" onChange={(e) => patchRule(r.id, { tag: e.target.value })}>
-              {!tagOptions.some((t) => t.name === r.tag) && <option value={r.tag}>{r.tag} (ปิดใช้)</option>}
+            <select value={ruleTag} aria-label="แท็กของกฎใหม่" onChange={(e) => setRuleTag(e.target.value)}>
+              <option value="">เลือกแท็ก</option>
               {tagOptions.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
             </select>
-            <button className="btn ghost small" onClick={() => removeRule(r.id)}>ลบ</button>
-          </div>
-        ))}
-        </div>
-        <form className="tag-row" onSubmit={addRule}>
-          <input className="grow" value={ruleKeyword} placeholder="คำสำคัญใหม่" aria-label="คำสำคัญใหม่" onChange={(e) => setRuleKeyword(e.target.value)} />
-          <input className="grow" value={ruleExclude} placeholder="คำยกเว้น (ไม่ใส่ก็ได้)" aria-label="คำยกเว้นของกฎใหม่" onChange={(e) => setRuleExclude(e.target.value)} />
-          <span aria-hidden>→</span>
-          <select value={ruleTag} aria-label="แท็กของกฎใหม่" onChange={(e) => setRuleTag(e.target.value)}>
-            <option value="">เลือกแท็ก</option>
-            {tagOptions.map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-          </select>
-          <button className="btn primary small">เพิ่มกฎ</button>
-        </form>
-      </section>
+            <button className="btn primary small">เพิ่มกฎ</button>
+          </form>
+        </SetLine>
+      </SetGroup>
     </>
   );
 }

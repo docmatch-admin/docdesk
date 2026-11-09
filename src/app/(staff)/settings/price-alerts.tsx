@@ -3,7 +3,7 @@
 import { thaiDateTime } from "@/lib/time-format";
 import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { CardHead, useTabAlert } from "./settings-save";
+import { SetGroup, useTabAlert } from "./settings-save";
 
 interface Alert { code: string; name: string; message: string; at: string }
 interface Status { error: string | null; alerts?: Alert[] }
@@ -25,8 +25,7 @@ export function PriceAlerts() {
   if (!alerts.length && !status?.error) return null;
 
   return (
-    <section className="card">
-      <CardHead title="ราคาจากเว็บ" info="แสดงเมื่อราคาแพ็กเกจในระบบไม่ตรงกับเว็บไซต์ หรือซิงก์ล้มเหลว"><span className="chip red">{alerts.length || "!"} รายการ</span></CardHead>
+    <SetGroup title="ราคาจากเว็บ" info="แสดงเมื่อราคาแพ็กเกจในระบบไม่ตรงกับเว็บไซต์ หรือซิงก์ล้มเหลว" side={<span className="chip red">{alerts.length || "!"} รายการ</span>}>
       {status?.error && <p className="small">ซิงก์ล่าสุดไม่สำเร็จ: {status.error}</p>}
       {alerts.map((a) => (
         <p key={`${a.code}${a.at}`} className="small"><b>{a.name}</b> {a.message} <span className="muted">({timeTh(a.at)})</span></p>
@@ -37,6 +36,6 @@ export function PriceAlerts() {
           setStatus({ error: status?.error ?? null, alerts: [] });
         }}>รับทราบ</button>
       )}
-    </section>
+    </SetGroup>
   );
 }

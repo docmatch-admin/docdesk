@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { SetGroup, SetLine, useSaveUnit } from "./settings-save";
 
 interface TemplateItem { label: string; offset_value: number; offset_unit: "day" | "week" | "month"; from: "first" | "previous" }
 interface Template { id?: string; name: string; purpose_id: string | null; items: TemplateItem[]; active: boolean; sort_order: number }
@@ -9,12 +10,16 @@ interface Template { id?: string; name: string; purpose_id: string | null; items
 const UNIT_TH = { day: "วัน", week: "สัปดาห์", month: "เดือน" } as const;
 const emptyTemplate = (): Template => ({ name: "", purpose_id: null, active: true, sort_order: 0, items: [{ label: "เข็ม 1", offset_value: 0, offset_unit: "day", from: "first" }] });
 
-/** template ชุดนัด (เช่น วัคซีนหลายเข็ม) แอดมิน/แพทย์สร้างเอง รายการแรกนับจากวันที่ทำนัด */
+/** template ชุดนัด (เช่น วัคซีนหลายเข็ม) แอดมิน/แพทย์สร้างเอง รายการแรกนับจากวันที่ทำนัด · บันทึกด้วยปุ่ม "บันทึกการตั้งค่า" ของหน้า */
 export function SeriesTemplates() {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [rows, setRows] = useState<Template[]>([]);
   const [purposes, setPurposes] = useState<{ id: string; name: string }[]>([]);
-  const [editing, setEditing] = useState<Template | null>(null);
+  const [editing, setEditingRaw] = useState<Template | null>(null);
+  // ค่าตอนเริ่มแก้ เทียบหา "ยังไม่บันทึก"
+  const [origin, setOrigin] = useState("");
+  const setEditing = (t: Template | null | ((t: Template | null) => Template | null)) => setEditingRaw(t);
+  const startEdit = (t: Template) => { setEditingRaw(t); setOrigin(JSON.stringify(t)); };
   const [msg, setMsg] = useState("");
 
   const load = useCallback(async () => {
@@ -29,10 +34,11 @@ export function SeriesTemplates() {
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(""), 3000); };
 
-  async function save() {
-    if (!editing) return;
-    if (!editing.name.trim()) return flash("ตั้งชื่อ template");
-    if (editing.items.length < 2) return flash("ชุดนัดต้องมีอย่างน้อย 2 นัด");
+  const dirty = editing !== null && JSON.stringify(editing) !== origin;
+  async function save(): Promise<string | null> {
+    if (!editing) return null;
+    if (!editing.name.trim()) { flash("ตั้งชื่อ template"); return "ตั้งชื่อ template"; }
+    if (editing.items.length < 2) { flash("ชุดนัดต้องมีอย่างน้อย 2 นัด"); return "ชุดนัดต้องมีอย่างน้อย 2 นัด"; }
     const body = {
       name: editing.name.trim(), purpose_id: editing.purpose_id || null, active: editing.active, updated_at: new Date().toISOString(),
       items: editing.items.map((it, i) => ({ ...it, label: it.label.trim() || `เข็ม ${i + 1}`, offset_value: i === 0 ? 0 : Math.max(0, Math.floor(Number(it.offset_value) || 0)), ...(i === 0 ? { from: "first" as const } : {}) })),
@@ -40,11 +46,13 @@ export function SeriesTemplates() {
     const { error } = editing.id
       ? await sb.from("appointment_series_templates").update(body).eq("id", editing.id)
       : await sb.from("appointment_series_templates").insert({ ...body, sort_order: (rows.at(-1)?.sort_order ?? 0) + 10 });
-    if (error) return flash(`บันทึกไม่สำเร็จ: ${error.message}`);
+    if (error) { flash(`บันทึกไม่สำเร็จ: ${error.message}`); return error.message; }
     setEditing(null);
     flash("บันทึกแล้ว ✓");
     load();
+    return null;
   }
+  useSaveUnit("series-templates", "Template ชุดนัด", "appointments", dirty, save);
 
   async function remove(id: string) {
     await sb.from("appointment_series_templates").delete().eq("id", id);
@@ -55,18 +63,18 @@ export function SeriesTemplates() {
     setEditing((t) => (t ? { ...t, items: t.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) } : t));
 
   return (
-    <div className="appt-settings-block">
-      <h3>Template ชุดนัด</h3>
-      <p className="muted small">เช่น วัคซีนหลายเข็ม — ใส่ทุกเข็มรวมเข็ม 1 (วันอ้างอิง) เข็มถัดไปนับจากวันฉีดเข็ม 1 หรือจากเข็มก่อนหน้า ตอนทำนัดระบบข้ามเข็มที่ฉีดไปแล้วให้ (ระบบไม่ได้ใส่ตารางวัคซีนให้ สร้างเองตามแนวทางของคลินิก)</p>
+    <SetGroup title="Template ชุดนัด" dirty={dirty} info="เช่น วัคซีนหลายเข็ม — ใส่ทุกเข็มรวมเข็ม 1 (วันอ้างอิง) เข็มถัดไปนับจากวันฉีดเข็ม 1 หรือจากเข็มก่อนหน้า ตอนทำนัดระบบข้ามเข็มที่ฉีดไปแล้วให้ (ระบบไม่ได้ใส่ตารางวัคซีนให้ สร้างเองตามแนวทางของคลินิก)">
+      <SetLine label="ชุดนัด" desc="เช่น วัคซีนหลายเข็ม">
+      {rows.length === 0 && !editing && <div className="muted small">ยังไม่มี template</div>}
       {rows.map((t) => (
         <div key={t.id} className={`preset-row ${t.active ? "" : "off"}`}>
           <b style={{ flex: 1 }}>{t.name}</b>
           <span className="muted small">{t.items.map((it, i) => (i === 0 ? it.label : `${it.label} +${it.offset_value} ${UNIT_TH[it.offset_unit]}`)).join(" → ")}</span>
-          <button type="button" className="btn ghost small" onClick={() => setEditing(structuredClone(t))}>แก้ไข</button>
+          <button type="button" className="btn ghost small" onClick={() => startEdit(structuredClone(t))}>แก้ไข</button>
           <button type="button" className="btn ghost small danger" onClick={() => t.id && remove(t.id)}>ลบ</button>
         </div>
       ))}
-      {!editing && <button type="button" className="btn ghost small" onClick={() => setEditing(emptyTemplate())}>+ สร้าง template ชุดนัด</button>}
+      {!editing && <button type="button" className="btn ghost small" onClick={() => startEdit(emptyTemplate())}>+ สร้าง template ชุดนัด</button>}
       {editing && (
         <div className="template-editor">
           <div className="row">
@@ -100,12 +108,12 @@ export function SeriesTemplates() {
           ))}
           <div className="row">
             <button type="button" className="btn ghost small" onClick={() => setEditing({ ...editing, items: [...editing.items, { label: `เข็ม ${editing.items.length + 1}`, offset_value: 1, offset_unit: "month", from: "previous" }] })}>+ เพิ่มนัด</button>
-            <button type="button" className="btn primary small" onClick={save}>บันทึก template</button>
             <button type="button" className="btn ghost small" onClick={() => setEditing(null)}>ยกเลิก</button>
           </div>
         </div>
       )}
       {msg && <div className="small">{msg}</div>}
-    </div>
+      </SetLine>
+    </SetGroup>
   );
 }
