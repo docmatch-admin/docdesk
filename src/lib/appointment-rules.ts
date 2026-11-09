@@ -101,12 +101,16 @@ export interface AppointmentSettings {
 
 export const TEMPLATE_VARIABLES = ["{name}", "{date}", "{time}", "{clinic}", "{phone}", "{mobile}"];
 
+/** ข้อความแนะนำ: บรรทัดติดต่อมีทั้งเบอร์คลินิกและเบอร์มือถือ (มือถือว่าง ส่วน " · มือถือ ..." หายเอง) */
+export const SUGGESTED_TEMPLATE_TH = "เรียน คุณ{name}\nนัดหมายครั้งต่อไปที่ {clinic}\n{date}\n{time}\nสอบถามโทร {phone} · มือถือ {mobile}";
+export const SUGGESTED_TEMPLATE_EN = "Dear {name},\nYour next appointment at {clinic}\n{date}\n{time}\nQuestions? Call {phone} · Mobile {mobile}";
+
 export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
   reminder_time: "10:00",
   send_purpose_in_message: false,
   send_on_create: true,
-  template_th: "เรียน คุณ{name}\nนัดหมายครั้งต่อไปที่ {clinic}\n{date}\n{time}\nสอบถามโทร {phone}",
-  template_en: "Dear {name},\nYour next appointment at {clinic}\n{date}\n{time}\nQuestions? Call {phone}",
+  template_th: SUGGESTED_TEMPLATE_TH,
+  template_en: SUGGESTED_TEMPLATE_EN,
   clinic_phone: "02-000-4586",
   clinic_mobile: "",
   clinic_address: "",
@@ -547,8 +551,17 @@ function previousText(input: MessageInput): string {
 export function fillVariables(template: string, values: Record<string, string>): string {
   const mobile = values.mobile?.trim() ?? "";
   let t = template;
-  if (!mobile) t = t.split("\n").filter((line) => !line.includes("{mobile}")).join("\n");
+  if (!mobile) {
+    // ไม่มีเบอร์มือถือ: ตัดเฉพาะส่วน " · มือถือ {mobile}" ในบรรทัดเดียวกับเบอร์คลินิก แล้วตัดบรรทัดที่เหลือแต่ {mobile}
+    t = t.replace(/[ \t]*[·•,/|][ \t]*(?:โทร\/)?(?:มือถือ|Mobile|mobile)?[ \t]*\{mobile\}/g, "");
+    t = t.split("\n").filter((line) => !line.includes("{mobile}")).join("\n");
+  }
   else if (!t.includes("{mobile}")) t = `${t}\n${values.mobileLabel ?? "โทร/มือถือ"} {mobile}`;
+  if (!values.phone?.trim()) {
+    // ไม่มีเบอร์คลินิก: "โทร {phone} · มือถือ {mobile}" → "โทร {mobile}" แล้วตัดบรรทัดที่เหลือแต่ {phone}
+    t = t.replace(/\{phone\}[ \t]*[·•,/|][ \t]*(?:มือถือ|Mobile|mobile)?[ \t]*/g, "");
+    t = t.split("\n").filter((line) => !line.includes("{phone}")).join("\n");
+  }
   return t.replace(/\{(name|date|time|clinic|phone|mobile)\}/g, (all, key: string) => values[key] ?? all);
 }
 

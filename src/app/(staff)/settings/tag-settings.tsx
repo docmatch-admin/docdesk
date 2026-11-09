@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CardHead } from "./settings-save";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { DEFAULT_TAG_COLOR, NON_THAI_MIN_MESSAGES, TAG_GROUP_LABEL, type Tag, type TagGroup, type TagRule } from "@/lib/tags";
 
@@ -82,8 +83,11 @@ export function TagSettings() {
   return (
     <>
       <section className="card">
-        <h3>แท็ก</h3>
-        <p className="muted small">เปลี่ยนชื่อแท็กไม่ได้ เพราะแชทและรายงานอ้างอิงตามชื่อ ถ้าไม่ใช้แล้วให้ปิดใช้ แชทเดิมยังเห็นแท็กนี้อยู่</p>
+        <CardHead title="แท็ก" info="เปลี่ยนชื่อแท็กไม่ได้ เพราะแชทและรายงานอ้างอิงตามชื่อ ถ้าไม่ใช้แล้วให้ปิดใช้ แชทเดิมยังเห็นแท็กนี้อยู่ · แก้แล้วบันทึกทันที">
+          <span className="chip">{tags.length} แท็ก</span>
+        </CardHead>
+        {/* รายการยาว: เลื่อนในการ์ด ไม่ให้คอลัมน์ยาว */}
+        <div className="card-scroll">
         {GROUPS.map((g) => (
           <div key={g}>
             <div className="muted small tag-pop-group"><b>{TAG_GROUP_LABEL[g]}</b></div>
@@ -98,6 +102,7 @@ export function TagSettings() {
             ))}
           </div>
         ))}
+        </div>
         <form className="tag-row" onSubmit={addTag}>
           <input type="color" value={color} aria-label="สีของแท็กใหม่" onChange={(e) => setColor(e.target.value)} />
           <input className="grow" value={name} maxLength={40} placeholder="ชื่อแท็กใหม่" aria-label="ชื่อแท็กใหม่" onChange={(e) => setName(e.target.value)} />
@@ -110,8 +115,10 @@ export function TagSettings() {
       </section>
 
       <section className="card">
-        <h3>กฎติดแท็กอัตโนมัติ</h3>
-        <p className="muted small">ไม่ใช้ AI คั่นหลายคำด้วย | เช่น พนักงาน|โรงงาน ถ้าข้อความมีคำยกเว้นจะไม่ติดแท็ก ถ้าเอาแท็กออกจากแชทเอง กฎจะไม่ติดกลับให้แชทนั้น</p>
+        <CardHead title="กฎติดแท็กอัตโนมัติ" info="ไม่ใช้ AI คั่นหลายคำด้วย | เช่น พนักงาน|โรงงาน ถ้าข้อความมีคำยกเว้นจะไม่ติดแท็ก ถ้าเอาแท็กออกจากแชทเอง กฎจะไม่ติดกลับให้แชทนั้น · แก้แล้วบันทึกทันที">
+          <span className="chip">{rules.length} กฎ</span>
+        </CardHead>
+        <div className="card-scroll">
         {rules.map((r) => (
           <div key={r.id} className="tag-row">
             {r.kind === "non_thai"
@@ -134,6 +141,7 @@ export function TagSettings() {
             <button className="btn ghost small" onClick={() => removeRule(r.id)}>ลบ</button>
           </div>
         ))}
+        </div>
         <form className="tag-row" onSubmit={addRule}>
           <input className="grow" value={ruleKeyword} placeholder="คำสำคัญใหม่" aria-label="คำสำคัญใหม่" onChange={(e) => setRuleKeyword(e.target.value)} />
           <input className="grow" value={ruleExclude} placeholder="คำยกเว้น (ไม่ใส่ก็ได้)" aria-label="คำยกเว้นของกฎใหม่" onChange={(e) => setRuleExclude(e.target.value)} />

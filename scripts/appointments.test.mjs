@@ -1548,7 +1548,9 @@ test("ข้อความ LINE/FB และใบนัดไม่มีเ�
   }
   const th = rules.appointmentText({ kind: "new", lang: "th", appointment: base, settings, clinicName: "คลินิก", includePurpose: false });
   assert.match(th, /เวลา 08:00–12:00 น\. \(ตรวจตามลำดับคิว\)/);
-  assert.match(th, /โทร\/มือถือ 081-234-5678/);
+  // บรรทัดติดต่อเดียวมีทั้งเบอร์คลินิกและมือถือ
+  assert.match(th, /สอบถามโทร 02-000-4586 · มือถือ 081-234-5678/);
+  assert.doesNotMatch(th, /·\s*$|โทร\s+·/m);
   const en = rules.appointmentText({ kind: "new", lang: "en", appointment: base, settings, clinicName: "Clinic", includePurpose: false });
   assert.match(en, /Time 08:00–12:00 \(Seen in queue order\)/);
   assert.match(rules.appointmentText({ kind: "new", lang: "th", appointment: exact, settings, clinicName: "คลินิก", includePurpose: false }), /เวลา 14:30 น\./);
@@ -1583,18 +1585,33 @@ test("หน้าเว็บไม่ใช้ th-TH แสดงเวลา 
   }
 });
 
-test("ตั้งค่า → นัดหมาย: กลุ่มหัวข้อ กริดตามความกว้างการ์ด ชิปตัวแปรแทรกได้ ปุ่มบันทึกติดล่าง ตารางกะทัดรัด", () => {
+test("ตั้งค่า → นัดหมาย: กลุ่มหัวข้อ กริดตามความกว้างการ์ด ชิปตัวแปรแทรกได้ บันทึกรวมปุ่มเดียว ตารางกะทัดรัด", () => {
   const src = readFileSync("src/app/(staff)/settings/appointment-settings.tsx", "utf8");
   for (const h of ["การติดต่อ", "LINE", "ที่อยู่", "ภาษาอังกฤษ (ใบนัด EN)", "การส่งข้อความ", "ข้อความนัด (template)"]) assert.match(src, new RegExp(`<h4>${h.replace(/[()]/g, "\\$&")}</h4>`), h);
   assert.match(src, /className="var-chip".*onClick=\{\(\) => insertVar\(v\)\}/);
-  assert.match(src, /<div className="set-save">/);
+  // ไม่มีปุ่มบันทึกในการ์ด ลงทะเบียนกับปุ่ม "บันทึกการตั้งค่า" ของหน้าแทน
+  assert.doesNotMatch(src, /className="set-save"/);
+  assert.doesNotMatch(src, /ปุ่มนี้บันทึกทุกการ์ดยกเว้น/);
+  assert.match(src, /useSaveUnit\("appointment-settings"/);
+  assert.match(src, /ใช้ข้อความแนะนำ/);
+  assert.match(src, /ดูตัวอย่างข้อความ/);
+  // ข้อความแนะนำแทนเฉพาะ template ที่ยังไม่มี {mobile} ไม่ทับข้อความที่ admin แก้เองโดยอัตโนมัติ
+  assert.match(src, /template_th\.includes\("\{mobile\}"\) \? \{\} : \{ template_th: SUGGESTED_TEMPLATE_TH \}/);
   // ชื่อฟิลด์เดิมทั้งหมด
   for (const f of ["reminder_time", "clinic_phone", "clinic_mobile", "line_oa_id", "clinic_address", "clinic_name_en", "clinic_address_en", "send_purpose_in_message", "send_on_create", "template_th", "template_en"]) assert.match(src, new RegExp(`s\\.${f}`), f);
   const css = readFileSync("src/app/globals.css", "utf8");
   assert.match(css, /container-name: apptset/);
-  assert.match(css, /@container apptset \(min-width: 1024px\) \{ \.set-grid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
-  assert.match(css, /@container apptset \(min-width: 640px\) \{ \.set-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
-  assert.match(css, /\.set-save \{ position: sticky;/);
+  assert.match(css, /@container apptset \(min-width: 760px\) \{ \.settings-page \.set-grid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
+  assert.match(css, /@container apptset \(min-width: 536px\) \{ \.settings-page \.set-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+  // แถบบันทึกพื้นทึบ เส้นบน เงาบาง · masonry 1/2/3 คอลัมน์ การ์ดกว้างกินเต็มแถว · รายการยาวเลื่อนในการ์ด
+  assert.match(css, /\.settings-savebar \{ position: sticky; bottom: 0;[^}]*background: var\(--card\); border-top: 1px solid var\(--line\); box-shadow:/);
+  assert.doesNotMatch(css, /backdrop-filter: blur\(6px\)/);
+  assert.match(css, /@media \(min-width: 1100px\) \{ \.settings-masonry \{ columns: 2; \} \}/);
+  assert.match(css, /@media \(min-width: 1600px\) \{ \.settings-masonry \{ columns: 3; \} \}/);
+  assert.match(css, /\.settings-masonry > \* \{ break-inside: avoid; margin: 0 0 16px;/);
+  assert.match(css, /\.settings-masonry > \.set-wide \{ column-span: all; \}/);
+  assert.match(css, /\.card-scroll \{ max-height: 480px; overflow: auto;/);
+  assert.match(css, /\.settings-top \{ position: sticky; top: 0;/);
   // ช่องกรอกสูงอย่างน้อย 44px ทั้งหน้า แถวตารางจึงสูง 52px
   assert.match(css, /\.set-table td, \.set-table tbody th \{ height: 52px;/);
   // สเกลตัวอักษรกลางของหน้าตั้งค่า
@@ -1603,11 +1620,84 @@ test("ตั้งค่า → นัดหมาย: กลุ่มหัว�
   const scoped = css.split(/\r?\n/).filter((l) => /^\.(set-|health-|line-usage|ai-models|var-chip|info-tip|tiny-note|settings-|preset-table|hours-grid)/.test(l.trim()));
   assert.deepEqual(scoped.filter((l) => /font-size: [\d.]+px/.test(l)), []);
   const page = readFileSync("src/app/(staff)/settings/settings-client.tsx", "utf8");
-  assert.match(page, /<div className="settings-grid">/);
+  assert.doesNotMatch(page, /settings-grid/);
   assert.match(page, /มีการแก้ไขที่ยังไม่บันทึก/);
-  assert.ok(page.indexOf("<HealthPanel") < page.indexOf("<LineUsagePanel") && page.indexOf("<LineUsagePanel") < page.indexOf("<AiModelsPanel"), "แถวบน: สุขภาพ | โควตา | โมเดล");
-  assert.ok(page.indexOf("<AppointmentSettings") > page.indexOf("ข้อความการจอง"), "นัดหมายอยู่ท้ายสุด");
+  assert.match(page, /beforeunload/);
+  // แท็บ 5 หมวด จำแท็บใน URL ?tab=
+  for (const t of ["ภาพรวม", "AI", "แชทและแท็ก", "นัดหมายและข้อความ", "ทีมและระบบ"]) assert.ok(page.includes(`"${t}"`), t);
+  assert.match(page, /searchParams/);
+  assert.match(page, /replaceState/);
+  assert.match(page, /tab-dot red/);
+  assert.match(page, /tab-dot yellow/);
+  const body = page.slice(page.indexOf("<SettingsContext.Provider"));
+  const order = (...names) => { let at = 0; return names.every((n) => { const i = body.indexOf(n, at); if (i < 0) return false; at = i; return true; }); };
+  assert.ok(order('panel("overview"', "<HealthPanel", "<LineUsagePanel", "การใช้ AI", 'panel("ai"', "<AiModelsPanel", "โหมด AI ทั้งระบบ", "บุคลิก", "รายช่องทาง",
+    'panel("chat"', "เวลาทำการ", "ย้ายไปเสร็จแล้วอัตโนมัติ", "แชทลับ", "<TagSettings", 'panel("appointments"', "<AppointmentSettings", "ข้อความการจอง",
+    'panel("team"', "เกณฑ์คะแนน", "การเก็บรูปภาพ"), "การ์ดอยู่ในแท็บตามสเปก");
+  // หัวการ์ดไม่มีอีโมจิ
+  for (const f of ["settings-client.tsx", "line-usage-panel.tsx", "ai-models-panel.tsx", "price-alerts.tsx", "tag-settings.tsx", "health-panel.tsx", "appointment-settings.tsx"]) {
+    const s = readFileSync(`src/app/(staff)/settings/${f}`, "utf8");
+    assert.doesNotMatch(s, /<h3>[^<]*[💬🤖🔒📅⚠]/u, f);
+    assert.doesNotMatch(s, /CardHead title="[^"]*[💬🤖🔒📅⚠]/u, f);
+  }
+  // เวลาทำการ (AI) กับเวลาเปิดคลินิก (นัด) เป็นข้อมูลคนละชุด มีหมายเหตุบอกทั้งสองที่
+  assert.match(page, /set-other-note[^]*เวลาเปิดคลินิก/);
   const presets = readFileSync("src/app/(staff)/settings/appointment-presets.tsx", "utf8");
   assert.match(presets, /<table className="set-table preset-table">/);
   assert.match(presets, /<table className="set-table hours-grid">/);
+  // preset: พับเป็นค่าเริ่มต้น บันทึกเมื่อออกจากช่อง ไม่มีปุ่มบันทึกรายแถว
+  assert.match(presets, /<details className="appt-settings-block set-fold preset-fold"/);
+  assert.match(presets, /เหตุผลนัด · \{rows\.length\} รายการ/);
+  assert.match(presets, /onBlur=\{\(\) => saveRow\(r\)\}/);
+  assert.match(presets, /✓ บันทึกแล้ว/);
+  assert.doesNotMatch(presets, /onClick=\{\(\) => saveRow\(r\)\}>บันทึก</);
+  // เวลาเปิด: 3 แถว + สวิตช์แยกรายวัน บันทึกผ่านปุ่มรวม
+  assert.match(presets, /แยกตั้งรายวัน/);
+  assert.match(presets, /useSaveUnit\("clinic-hours"/);
+  assert.doesNotMatch(presets, />บันทึกเวลาเปิด</);
+  assert.match(presets, /set-other-note[^]*เวลาทำการ/);
+});
+
+test("เวลาเปิดคลินิกแบบยุบแถว: จันทร์–ศุกร์เท่ากัน = 3 แถว แก้แถวกลุ่มเขียนทุกวัน ไม่เท่ากัน = ต้องแสดงรายวัน", async () => {
+  const g = await import("../src/lib/clinic-hours-group.ts");
+  const day = (d, id, s, e) => ({ weekday: d, slot_id: id, label: id === "morning" ? "ช่วงเช้า" : "ช่วงบ่าย", start_time: s, end_time: e, sort_order: 10 });
+  const week = [1, 2, 3, 4, 5].flatMap((d) => [day(d, "morning", "08:00", "12:00"), day(d, "afternoon", "13:00", "18:00")]).concat([day(6, "morning", "08:00", "12:00")]);
+  assert.equal(g.weekdaysUniform(week), true);
+  assert.deepEqual(g.HOUR_GROUPS.map((x) => x.label), ["จันทร์–ศุกร์", "เสาร์", "อาทิตย์"]);
+  assert.deepEqual(g.DAY_ORDER, [1, 2, 3, 4, 5, 6, 0]);
+  // แก้แถวจันทร์–ศุกร์ → ทุกวันในกลุ่มเปลี่ยน เสาร์ไม่เปลี่ยน ฐานข้อมูลยังรายวัน
+  const edited = g.patchGroupSlot(week, [1, 2, 3, 4, 5], "morning", { start_time: "09:00" });
+  assert.deepEqual([1, 2, 3, 4, 5].map((d) => g.slotsOfDay(edited, d)[0].start_time), ["09:00", "09:00", "09:00", "09:00", "09:00"]);
+  assert.equal(g.slotsOfDay(edited, 6)[0].start_time, "08:00");
+  assert.equal(edited.length, week.length);
+  assert.notEqual(g.hoursSignature(edited), g.hoursSignature(week));
+  // ลำดับในอาร์เรย์ไม่ทำให้เป็น "แก้แล้ว"
+  assert.equal(g.hoursSignature([...week].reverse()), g.hoursSignature(week));
+  // เพิ่ม/ลบช่วงในกลุ่ม
+  const added = g.addGroupSlot(week, [6]);
+  assert.deepEqual(g.slotsOfDay(added, 6).map((s) => s.slot_id), ["morning", "afternoon"]);
+  assert.equal(g.removeGroupSlot(week, [1, 2, 3, 4, 5], "afternoon").filter((s) => s.slot_id === "afternoon").length, 0);
+  // พุธต่างจากวันอื่น → ไม่ยุบ (ห้ามทับค่า)
+  const odd = g.patchGroupSlot(week, [3], "afternoon", { end_time: "16:00" });
+  assert.equal(g.weekdaysUniform(odd), false);
+  assert.equal(g.weekdaysUniform([]), true);
+  assert.match(g.validateHours([day(1, "morning", "12:00", "08:00")]), /จันทร์: ช่วงเวลาไม่ถูกต้อง/);
+  assert.match(g.validateHours([day(1, "morning", "08:00", "12:00"), day(1, "morning", "13:00", "14:00")]), /ซ้ำ/);
+  assert.equal(g.validateHours(week), null);
+});
+
+test("ข้อความนัด: บรรทัดติดต่อมีทั้งโทรและมือถือ ไม่มีมือถือ/ไม่มีเบอร์คลินิก ตัดเฉพาะส่วนนั้น (TH/EN)", () => {
+  const f = rules.fillVariables;
+  assert.equal(f("สอบถามโทร {phone} · มือถือ {mobile}", { phone: "02-111", mobile: "081-2" }), "สอบถามโทร 02-111 · มือถือ 081-2");
+  assert.equal(f("สอบถามโทร {phone} · มือถือ {mobile}", { phone: "02-111", mobile: "" }), "สอบถามโทร 02-111");
+  assert.equal(f("Questions? Call {phone} · Mobile {mobile}", { phone: "02-111", mobile: "" }), "Questions? Call 02-111");
+  assert.equal(f("สอบถามโทร {phone} · มือถือ {mobile}", { phone: "", mobile: "081-2" }), "สอบถามโทร 081-2");
+  assert.equal(f("Questions? Call {phone} · Mobile {mobile}", { phone: "", mobile: "081-2" }), "Questions? Call 081-2");
+  // template เก่าที่ไม่มี {mobile}: ยังต่อท้ายเบอร์มือถือให้เหมือนเดิม
+  assert.equal(f("สอบถามโทร {phone}", { phone: "02-111", mobile: "081-2", mobileLabel: "โทร/มือถือ" }), "สอบถามโทร 02-111\nโทร/มือถือ 081-2");
+  assert.ok(rules.SUGGESTED_TEMPLATE_TH.includes("สอบถามโทร {phone} · มือถือ {mobile}"));
+  assert.ok(rules.SUGGESTED_TEMPLATE_EN.includes("Call {phone} · Mobile {mobile}"));
+  assert.equal(rules.DEFAULT_APPOINTMENT_SETTINGS.template_th, rules.SUGGESTED_TEMPLATE_TH);
+  // ค่าที่ admin แก้เองไม่ถูกเปลี่ยนตอน normalize
+  assert.equal(rules.normalizeAppointmentSettings({ template_th: "ข้อความเอง {name}" }).template_th, "ข้อความเอง {name}");
 });

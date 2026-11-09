@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CardHead, useTabAlert } from "./settings-save";
 import { LINE_KIND_LABEL, LINE_KINDS, quotaForecast, type LineUsageSummary } from "@/lib/line-usage-rules";
 
 export type Usage = LineUsageSummary & { quota: { type: string; limit: number | null; used: number | null; error: string | null } };
@@ -21,9 +22,12 @@ export function LineUsagePanel({ initial }: { initial?: Usage } = {}) {
   }, [initial]);
 
   const pct = u?.quota.limit ? Math.min(100, ((u.quota.used ?? 0) / Math.max(1, u.quota.limit)) * 100) : 0;
+  useTabAlert("quota", "overview", pct >= 80);
   return (
     <section className="card line-usage">
-      <h3>💬 โควตาข้อความ LINE เดือนนี้</h3>
+      <CardHead title="โควตาข้อความ LINE เดือนนี้" info="ตัวเลขโควตาจาก LINE รวมการส่งจากระบบอื่นและ LINE OA Manager · reply ฟรีไม่นับโควตา">
+        {u?.quota.limit != null && <span className={`chip ${pct >= 80 ? "red" : ""}`}>{Math.round(pct)}%</span>}
+      </CardHead>
       {!u ? <div className="muted small">{err || "กำลังโหลด…"}</div> : (
         <>
           {u.quota.error ? <span className="error small">{u.quota.error}</span> : (
@@ -38,7 +42,6 @@ export function LineUsagePanel({ initial }: { initial?: Usage } = {}) {
                 </div>
               )}
               <Forecast limit={u.quota.limit} used={u.quota.used ?? 0} />
-              <div className="muted tiny-note">ตัวเลขจาก LINE รวมการส่งจากระบบอื่นและ LINE OA Manager</div>
             </div>
           )}
           <div className="line-usage-stats" aria-label={`DocDesk ส่ง push เดือน ${u.month}`}>

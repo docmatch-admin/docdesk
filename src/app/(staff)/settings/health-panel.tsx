@@ -4,6 +4,7 @@ import { bangkokClock, thaiDateTime } from "@/lib/time-format";
 import { useEffect, useMemo, useState } from "react";
 import { HEALTH_LABEL, type HealthRow } from "@/lib/health-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { CardHead, useTabAlert } from "./settings-save";
 
 /**
  * สุขภาพระบบ: ปกติทั้งหมด = สรุปบรรทัดเดียว กดขยายดูรายละเอียด
@@ -24,17 +25,17 @@ export function HealthPanel({ initial }: { initial?: HealthRow[] } = {}) {
   const sorted = [...bad, ...ordered.filter((r) => r.ok)];
   const latest = ordered.map((r) => r.checked_at).sort().at(-1);
   const expanded = open ?? bad.length > 0;
+  useTabAlert("health", "overview", bad.length > 0);
 
   return (
     <section className={`card health-card ${bad.length ? "has-bad" : ""}`}>
-      <div className="health-head">
-        <h3>สุขภาพระบบ</h3>
+      <CardHead title="สุขภาพระบบ" info="ระบบตรวจการเชื่อมต่อทุก 5 นาที (ฐานข้อมูล OpenAI LINE Meta เว็บไซต์)">
         {ordered.length > 0 && (
           <button type="button" className="link-btn" aria-expanded={expanded} onClick={() => setOpen(!expanded)}>
             {expanded ? "ซ่อน" : "ดูรายละเอียด"}
           </button>
         )}
-      </div>
+      </CardHead>
       {ordered.length === 0 ? <p className="muted small">ยังไม่มีผลตรวจ</p> : (
         <div className={`health-summary ${bad.length ? "bad" : "ok"}`}>
           <i className={`health-dot ${bad.length ? "bad" : "ok"}`} aria-hidden />
@@ -51,7 +52,6 @@ export function HealthPanel({ initial }: { initial?: HealthRow[] } = {}) {
               <span className={`health-detail ${r.ok ? "muted" : "error"}`} title={r.detail}>{r.ok ? "ปกติ" : "ผิดปกติ"}{r.detail ? `: ${r.detail}` : ""}</span>
             </li>
           ))}
-          <li className="health-foot muted small">ระบบตรวจทุก 5 นาที</li>
         </ul>
       )}
     </section>
