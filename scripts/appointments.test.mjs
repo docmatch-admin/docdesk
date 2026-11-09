@@ -846,7 +846,7 @@ test("ชุดนัด 3 นัด: การ์ดเดียวทุกน
   items()[1].reminder_attempted_at = null;
   items()[1].confirm_sent_at = new Date(Date.now() - 5 * 86_400_000).toISOString();
   await store.runAppointmentReminders(Date.parse(`${today}T16:00:00+07:00`));
-  assert.match(linePosts()[0].body.messages[0].altText, /เตือนนัดพรุ่งนี้ · เข็ม 2 \(2 จาก 2\)/);
+  assert.match(linePosts()[0].body.messages[0].altText, /เตือนนัดพรุ่งนี้ · เข็ม 2 จาก 2/);
 });
 
 test("ยกเลิกทั้งชุด: นัดที่ยังเปิดอยู่ทั้งหมดถูกยกเลิก ข้อความเดียว", async () => {
@@ -861,4 +861,56 @@ test("ยกเลิกทั้งชุด: นัดที่ยังเป
   assert.ok(state.tables.appointments.filter((a) => a.series_id === r.appointment.series_id).every((a) => a.status === "cancelled"));
   assert.equal(linePosts().length, 1);
   assert.match(linePosts()[0].body.messages[0].altText, /ยกเลิกนัด[\s\S]*เข็ม 2/);
+});
+
+// ---------------------------------------------------------------------------
+// วันนี้ฉีดเข็มที่ N: นัดแรกเป็นเข็ม N+1 และเข็มที่ฉีดแล้วอยู่ในตารางชุด
+// ---------------------------------------------------------------------------
+const TEMPLATE_5 = [
+  { label: "เข็ม 1", offset_value: 0, offset_unit: "day", from: "first" },
+  { label: "เข็ม 2", offset_value: 1, offset_unit: "month", from: "first" },
+  { label: "เข็ม 3", offset_value: 6, offset_unit: "month", from: "first" },
+  { label: "เข็ม 4", offset_value: 2, offset_unit: "week", from: "previous" },
+  { label: "เข็ม 5", offset_value: 1, offset_unit: "month", from: "previous" },
+];
+
+test("template: ข้ามเข็มที่ฉีดแล้ว นับจากเข็ม 1 หรือเข็มก่อนหน้า (เข็ม N+1 นับจากวันนี้)", () => {
+  const plan = rules.planFromTemplate(TEMPLATE_5, 3, "2030-07-01", "2030-01-01");
+  assert.deepEqual(plan.map((x) => [x.dose, x.date]), [[4, "2030-07-15"], [5, "2030-08-15"]]);
+  const fromToday = rules.planFromTemplate(TEMPLATE_5, 1, "2030-01-01", null);
+  assert.deepEqual(fromToday.map((x) => [x.dose, x.date]), [[2, "2030-02-01"], [3, "2030-07-01"], [4, "2030-07-15"], [5, "2030-08-15"]]);
+  assert.deepEqual(rules.planFromTemplate(TEMPLATE_5, 5, "2030-01-01", null), []);
+});
+
+test("วันนี้ฉีดเข็ม 3 (รู้วันเข็ม 1): บันทึกเข็ม 1, 3 ฉีดแล้ว นัดเข็ม 4, 5 การ์ดมี ✓ และเตือนบอก เข็ม 4 จาก 5", async () => {
+  const d4 = inDays(14);
+  const firstDose = rules.addDays(today, -180);
+  const r = await store.createAppointment({
+    patient_name: "สมชาย", hn: "HN950", appoint_date: d4, time_mode: "slot", slot_id: "morning", conversation_id: "conv-line",
+    series_start_seq: 4, series_label: "เข็ม 4",
+    series_done: [{ seq: 3, date: today }, { seq: 1, date: firstDose }, { seq: 9, date: today }, { seq: 2, date: inDays(5) }],
+    series_items: [{ label: "เข็ม 5", appoint_date: rules.addDays(d4, 30), time_mode: "slot", slot_id: "morning", from: "previous", offset_value: 1, offset_unit: "month" }],
+  }, "nurse");
+  const all = state.tables.appointments.filter((a) => a.series_id === r.appointment.series_id).sort((a, b) => a.series_seq - b.series_seq);
+  assert.deepEqual(all.map((a) => [a.series_seq, a.series_label, a.status, !!a.series_done]),
+    [[1, "เข็ม 1", "attended", true], [3, "เข็ม 3", "attended", true], [4, "เข็ม 4", "scheduled", false], [5, "เข็ม 5", "scheduled", false]],
+    "เข็ม 9 (เกินนัดแรก) และเข็ม 2 (วันในอนาคต) ไม่ถูกบันทึก");
+  const flex = linePosts()[0].body.messages[0];
+  assert.match(flex.altText, /✓ เข็ม 1: ฉีดแล้ว [\s\S]*✓ เข็ม 3: ฉีดแล้ว [\s\S]*• เข็ม 4: [\s\S]*• เข็ม 5: /);
+  assert.equal(flex.contents.footer.contents[0].action.data, `appt:confirm:${r.appointment.id}`);
+
+  // เข็มที่ฉีดแล้วไม่อยู่ในรายการนัด ไม่นับในนัดไว้แล้ว
+  const list = await store.listAppointments({ tab: "all", from: rules.addDays(today, -365) });
+  assert.ok(list.every((x) => !x.series_done));
+  assert.equal(list.find((x) => x.id === r.appointment.id).series_total, 5);
+  const counts = await store.appointmentDayCounts(today, today);
+  assert.equal(counts[today]?.total ?? 0, 0);
+
+  // เตือนเข็ม 4
+  outbound = [];
+  const d = all[2];
+  d.appoint_date = inDays(1);
+  d.confirm_sent_at = new Date(Date.now() - 5 * 86_400_000).toISOString();
+  await store.runAppointmentReminders(Date.parse(`${today}T16:00:00+07:00`));
+  assert.match(linePosts()[0].body.messages[0].altText, /เตือนนัดพรุ่งนี้ · เข็ม 4 จาก 5/);
 });

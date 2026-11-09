@@ -45,6 +45,8 @@ export interface Appointment {
   series_from?: SeriesFrom | null;
   series_offset_value?: number | null;
   series_offset_unit?: DateUnit | null;
+  /** เข็มที่ฉีดแล้ว (ไม่ใช่นัด) */
+  series_done?: boolean;
   cancelled_by?: string | null;
   cancelled_at?: string | null;
   created_at?: string;
@@ -192,6 +194,26 @@ export const defaultSeriesLabel = (seq: number) => `เข็ม ${seq}`;
 /** preset ที่มี default_days: หาร 30 ลงตัวใส่ช่องเดือน ไม่งั้นใส่ช่องวัน */
 export const offsetFromDays = (days: number): { value: number; unit: DateUnit } =>
   days % 30 === 0 ? { value: days / 30, unit: "month" } : { value: days, unit: "day" };
+
+/**
+ * template ชุดเข็ม (รายการแรก = เข็ม 1 วันอ้างอิง offset 0) วันนี้ฉีดเข็ม N:
+ * ข้ามเข็ม ≤ N เข็มที่เหลือ from=first นับจากวันฉีดเข็ม 1, from=previous เข็ม N+1 นับจากวันนี้ เข็มถัดไปนับจากเข็มก่อนหน้า
+ */
+export function planFromTemplate(
+  items: { label: string; offset_value: number; offset_unit: DateUnit; from: SeriesFrom }[],
+  doseToday: number, today: string, firstDoseDate: string | null,
+): { dose: number; label: string; date: string; from: SeriesFrom; value: number; unit: DateUnit }[] {
+  const firstBase = firstDoseDate || today;
+  const out: { dose: number; label: string; date: string; from: SeriesFrom; value: number; unit: DateUnit }[] = [];
+  items.forEach((it, i) => {
+    const dose = i + 1;
+    if (dose <= doseToday) return;
+    const base = it.from === "first" ? firstBase : (out.at(-1)?.date ?? today);
+    const date = relativeDate(base, it.offset_value, it.offset_unit) ?? base;
+    out.push({ dose, label: it.label || defaultSeriesLabel(dose), date, from: it.from, value: it.offset_value, unit: it.offset_unit });
+  });
+  return out;
+}
 
 export interface SeriesItemRule { seq: number; date: string; from: SeriesFrom | null; value: number | null; unit: DateUnit | null }
 
@@ -452,22 +474,27 @@ export interface MessageInput {
   /** เปลี่ยนนัด: วันเวลาเดิม */
   previous?: { appoint_date: string; time_mode: TimeMode; time_start: string; time_end: string | null };
   /** นัดเป็นชุด: ทุกนัดในชุด (การ์ดตอนลงนัด/เปลี่ยน/ยกเลิก) */
-  series?: { label: string; appoint_date: string; time_mode: TimeMode; time_start: string; time_end: string | null }[];
-  /** เตือนนัดในชุด: เข็ม N จาก M */
+  series?: { label: string; appoint_date: string; time_mode: TimeMode; time_start: string; time_end: string | null; done?: boolean }[];
+  /** เตือนนัดในชุด: เข็ม X จาก M */
   seriesPosition?: { label: string; seq: number; total: number };
 }
 
 function seriesLines(input: MessageInput): string[] {
   if (!input.series?.length) return [];
-  return input.series.map((s) => input.lang === "en"
-    ? `• ${s.label}: ${englishDate(s.appoint_date)} (${timeShort(s).replace(/\./g, ":")})`
-    : `• ${s.label}: ${thaiMediumDate(s.appoint_date)} (${timeShort(s)} น.)`);
+  return input.series.map((s) => {
+    if (s.done) return input.lang === "en" ? `✓ ${s.label}: given ${englishDate(s.appoint_date)}` : `✓ ${s.label}: ฉีดแล้ว ${thaiMediumDate(s.appoint_date)}`;
+    return input.lang === "en"
+      ? `• ${s.label}: ${englishDate(s.appoint_date)} (${timeShort(s).replace(/\./g, ":")})`
+      : `• ${s.label}: ${thaiMediumDate(s.appoint_date)} (${timeShort(s)} น.)`;
+  });
 }
 
 function positionText(input: MessageInput): string {
   const p = input.seriesPosition;
   if (!p) return "";
-  return input.lang === "en" ? `${p.label} (${p.seq} of ${p.total})` : `${p.label} (${p.seq} จาก ${p.total})`;
+  const standard = p.label === defaultSeriesLabel(p.seq);
+  if (input.lang === "en") return standard ? `Dose ${p.seq} of ${p.total}` : `${p.label} (${p.seq} of ${p.total})`;
+  return standard ? `เข็ม ${p.seq} จาก ${p.total}` : `${p.label} (${p.seq} จาก ${p.total})`;
 }
 
 function previousText(input: MessageInput): string {

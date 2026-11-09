@@ -64,9 +64,11 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
         <table className="appt-slip-series">
           <tbody>
             {slip.series.map((x) => (
-              <tr key={x.id}>
-                <th>{x.series_label}</th>
-                <td><b>{thaiMediumDate(x.appoint_date)}</b><br />{timeShort(x)} น.{x.time_mode === "slot" ? " (ตามคิว)" : ""}</td>
+              <tr key={x.id} className={x.series_done ? "done" : ""}>
+                <th>{x.series_done ? "✓ " : ""}{x.series_label}</th>
+                {x.series_done
+                  ? <td>ฉีดแล้ว {thaiMediumDate(x.appoint_date)}</td>
+                  : <td><b>{thaiMediumDate(x.appoint_date)}</b><br />{timeShort(x)} น.{x.time_mode === "slot" ? " (ตามคิว)" : ""}</td>}
               </tr>
             ))}
           </tbody>

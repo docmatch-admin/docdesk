@@ -116,7 +116,7 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
         {a && (
           <div className="drawer-body">
             <div className="drawer-summary">
-              {a.series_id && <span className="chip tiny appt-series-chip">{a.series_label ?? "นัดในชุด"} · {series.findIndex((x) => x.id === a.id) + 1}/{series.length}</span>}
+              {a.series_id && <span className="chip tiny appt-series-chip">{a.series_label ?? "นัดในชุด"} · {a.series_seq}/{Math.max(...series.map((x) => x.series_seq ?? 0))}</span>}
               <div className={`drawer-name ${a.status === "cancelled" ? "struck" : ""}`}>{a.patient_name}{a.hn && <span className="muted small"> · HN {a.hn.replace(/^0+(?=\d)/, "")}</span>}</div>
               <div className={`drawer-when ${a.status === "cancelled" ? "struck" : ""}`}>{thaiFullDate(a.appoint_date)}</div>
               <div className="muted">{timePhrase(a)}</div>
@@ -197,8 +197,9 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
                 <ol>
                   {series.map((x) => (
                     <li key={x.id} className={x.id === a.id ? "current" : ""}>
-                      <b>{x.series_label}</b> {thaiShortDateFull(x.appoint_date)} · {timeShort(x)} น.
-                      <span className="muted small"> · {STATUS_LABEL[x.status]}</span>
+                      {x.series_done ? <>✓ <b>{x.series_label}</b> ฉีดแล้ว {thaiShortDateFull(x.appoint_date)}</> : (
+                        <><b>{x.series_label}</b> {thaiShortDateFull(x.appoint_date)} · {timeShort(x)} น.<span className="muted small"> · {STATUS_LABEL[x.status]}</span></>
+                      )}
                     </li>
                   ))}
                 </ol>

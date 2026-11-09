@@ -21,7 +21,7 @@ import type { ChannelType } from "./types";
  */
 export const APPOINTMENT_SENDER_NAME = "ระบบนัด";
 
-export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, created_by, created_at, updated_at";
+export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, series_done, created_by, created_at, updated_at";
 
 export const loadAppointmentSettings = async (): Promise<AppointmentSettings> =>
   normalizeAppointmentSettings(await getSetting<unknown>("appointment_settings", {}));
@@ -218,16 +218,17 @@ export async function loadSeries(seriesId: string): Promise<Appointment[]> {
 const seriesView = (items: Appointment[]): NonNullable<MessageInput["series"]> =>
   items.filter((a) => a.status !== "cancelled").map((a) => ({
     label: a.series_label || defaultSeriesLabel(a.series_seq ?? 1),
-    appoint_date: a.appoint_date, time_mode: a.time_mode, time_start: a.time_start, time_end: a.time_end,
+    appoint_date: a.appoint_date, time_mode: a.time_mode, time_start: a.time_start, time_end: a.time_end, done: !!a.series_done,
   }));
 
 /** เข็ม N จาก M (นับเฉพาะนัดที่ไม่ได้ยกเลิก) */
 async function seriesPosition(a: Appointment): Promise<MessageInput["seriesPosition"]> {
   if (!a.series_id) return undefined;
   const active = (await loadSeries(a.series_id)).filter((x) => x.status !== "cancelled");
-  const index = active.findIndex((x) => x.id === a.id);
-  if (index < 0) return undefined;
-  return { label: a.series_label || defaultSeriesLabel(a.series_seq ?? index + 1), seq: index + 1, total: active.length };
+  if (!active.some((x) => x.id === a.id)) return undefined;
+  const seq = a.series_seq ?? 1;
+  const total = Math.max(seq, ...active.map((x) => x.series_seq ?? 0));
+  return { label: a.series_label || defaultSeriesLabel(seq), seq, total };
 }
 
 /** ข้อความตอบสั้นๆ หลังกดปุ่มหรือส่งรหัส ใช้ replyToken ของ LINE ก่อนเพื่อไม่กินโควตา */
@@ -255,6 +256,10 @@ export interface AppointmentInput {
   /** ชุดนัด: นัดแรกคือฟิลด์หลัก นัดถัดไปอยู่ใน series_items */
   series_title?: unknown; series_label?: unknown;
   series_items?: unknown;
+  /** เลขเข็มของนัดแรกที่สร้าง (วันนี้ฉีดเข็ม N → N+1) */
+  series_start_seq?: unknown;
+  /** เข็มที่ฉีดแล้ว [{seq, date}] */
+  series_done?: unknown;
   /** แก้วันนัดในชุด: เลื่อนนัดถัดไปตามด้วย */
   shift_following?: unknown;
 }
@@ -373,6 +378,11 @@ export async function createAppointment(b: AppointmentInput, staffId: string, op
 
   // นัดถัดไปในชุด ตรวจครบก่อนบันทึกอะไร
   const rawItems = Array.isArray(b.series_items) ? (b.series_items as Record<string, unknown>[]).slice(0, 20) : [];
+  const startSeq = Number.isInteger(b.series_start_seq) ? Math.max(1, Math.min(40, b.series_start_seq as number)) : 1;
+  // เข็มที่ฉีดแล้ว: วันที่ต้องไม่เกินวันนี้ เลขเข็มน้อยกว่านัดแรก
+  const doneRaw = Array.isArray(b.series_done) ? (b.series_done as Record<string, unknown>[]).slice(0, 20) : [];
+  const done = doneRaw.map((d) => ({ seq: Number(d.seq), date: parseDate(d.date) }))
+    .filter((d): d is { seq: number; date: string } => Number.isInteger(d.seq) && d.seq >= 1 && d.seq < startSeq && !!d.date && d.date <= bangkokToday(now));
   const followers = [];
   for (const [i, item] of rawItems.entries()) {
     const f = await resolveFields({ ...b, appoint_date: item.appoint_date, time_mode: item.time_mode, slot_id: item.slot_id, time_start: item.time_start }, bangkokToday(now))
@@ -380,10 +390,11 @@ export async function createAppointment(b: AppointmentInput, staffId: string, op
     const from = item.from === "first" || item.from === "previous" ? item.from : null;
     const unit = item.offset_unit === "day" || item.offset_unit === "week" || item.offset_unit === "month" ? item.offset_unit : null;
     const value = Number.isInteger(item.offset_value) ? Math.max(0, Math.min(3650, item.offset_value as number)) : null;
-    followers.push({ ...f, series_seq: i + 2, series_label: clip(item.label, 50) || defaultSeriesLabel(i + 2), series_from: from, series_offset_value: value, series_offset_unit: unit });
+    const seq = startSeq + i + 1;
+    followers.push({ ...f, series_seq: seq, series_label: clip(item.label, 50) || defaultSeriesLabel(seq), series_from: from, series_offset_value: value, series_offset_unit: unit });
   }
   let seriesId: string | null = null;
-  if (followers.length) {
+  if (followers.length || done.length || startSeq > 1) {
     const { data: series, error: sErr } = await db.from("appointment_series").insert({
       hn: fields.hn, conversation_id: conversationId, title: clip(b.series_title, 200) || fields.purpose_text, created_by: staffId,
     }).select("id").single();
@@ -394,8 +405,16 @@ export async function createAppointment(b: AppointmentInput, staffId: string, op
   const common = { name_from_his: b.name_from_his === true, source: "docdesk", conversation_id: conversationId, status: "scheduled", created_by: staffId, updated_at: nowIso() };
   const appointment = await insertWithCode({
     ...fields, ...common, booking_id: bookingId,
-    ...(seriesId ? { series_id: seriesId, series_seq: 1, series_label: clip(b.series_label, 50) || defaultSeriesLabel(1) } : {}),
+    ...(seriesId ? { series_id: seriesId, series_seq: startSeq, series_label: clip(b.series_label, 50) || defaultSeriesLabel(startSeq) } : {}),
   });
+  // เข็มที่ฉีดแล้ว: รายการในชุด ไม่ใช่นัด
+  for (const d of done) {
+    const row = await insertWithCode({
+      ...fields, ...common, appoint_date: d.date, time_mode: "exact", slot_id: null, time_start: "00:00", time_end: null,
+      status: "attended", series_id: seriesId, series_seq: d.seq, series_label: defaultSeriesLabel(d.seq), series_done: true,
+    });
+    await logAppointmentEvent(row.id, "dose_recorded", "staff", { staffId, detail: { series_seq: d.seq, date: d.date } });
+  }
   await logAppointmentEvent(appointment.id, "created", "staff", { staffId, detail: { from: fromChat ? "chat" : "appointments", booking_id: bookingId, ...(seriesId ? { series: followers.length + 1 } : {}) } });
   const followerIds: string[] = [];
   for (const f of followers) {
@@ -758,6 +777,7 @@ export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"
   }
   const q = searchTerm(opts.q ?? "");
   if (q) query = query.or(`patient_name.ilike.%${q}%,hn.ilike.%${q}%,phone.ilike.%${q}%`);
+  query = query.neq("series_done", true);
   if (opts.status && ["scheduled", "confirmed", "reschedule_requested", "cancelled", "attended", "no_show"].includes(opts.status)) query = query.eq("status", opts.status);
   if (opts.purpose === "none") query = query.is("purpose_id", null);
   else if (opts.purpose && UUID.test(opts.purpose)) query = query.eq("purpose_id", opts.purpose);
@@ -765,9 +785,9 @@ export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"
   const seriesIds = [...new Set(((data ?? []) as { series_id?: string | null }[]).map((r) => r.series_id).filter((x): x is string => !!x))];
   const seriesTotal = new Map<string, number>();
   if (seriesIds.length) {
-    const { data: sib } = await supabaseAdmin().from("appointments").select("series_id, status").in("series_id", seriesIds);
-    for (const r of (sib ?? []) as { series_id: string; status: string }[]) {
-      if (r.status !== "cancelled") seriesTotal.set(r.series_id, (seriesTotal.get(r.series_id) ?? 0) + 1);
+    const { data: sib } = await supabaseAdmin().from("appointments").select("series_id, status, series_seq").in("series_id", seriesIds);
+    for (const r of (sib ?? []) as { series_id: string; status: string; series_seq: number | null }[]) {
+      if (r.status !== "cancelled") seriesTotal.set(r.series_id, Math.max(seriesTotal.get(r.series_id) ?? 0, r.series_seq ?? 0));
     }
   }
   return ((data ?? []) as unknown as (Appointment & { conversations: unknown })[]).map(({ conversations, ...a }) => {
@@ -865,7 +885,7 @@ export async function appointmentTabCounts(now = Date.now()) {
   const today = bangkokToday(now);
   const tomorrow = addDays(today, 1);
   const { data } = await supabaseAdmin().from("appointments").select("appoint_date, status")
-    .gte("appoint_date", today).neq("status", "cancelled");
+    .gte("appoint_date", today).neq("status", "cancelled").neq("series_done", true);
   const rows = (data ?? []) as { appoint_date: string }[];
   return {
     today: rows.filter((r) => r.appoint_date === today).length,

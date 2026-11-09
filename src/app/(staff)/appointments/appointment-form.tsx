@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  bangkokToday, DEFAULT_CLINIC_HOURS, DEFAULT_SLOT_ID, defaultSeriesLabel, isClosedDate, isWithinOpenHours, nextOpenDate, offsetFromDays,
+  bangkokToday, DEFAULT_CLINIC_HOURS, DEFAULT_SLOT_ID, defaultSeriesLabel, isClosedDate, isWithinOpenHours, nextOpenDate, offsetFromDays, planFromTemplate,
   relativeDate, slotsForDate, thaiClock, thaiMediumDate,
   type Appointment, type ClinicSchedule, type DateUnit, type SeriesFrom, type TimeMode,
 } from "@/lib/appointment-rules";
@@ -165,15 +165,15 @@ interface SeriesBlock {
 }
 
 let blockKey = 0;
-const newBlock = (seq: number, o: Partial<SeriesBlock> = {}): SeriesBlock => ({
-  key: ++blockKey, label: defaultSeriesLabel(seq), from: "previous", offset: null, time_mode: "slot", slot_id: DEFAULT_SLOT_ID, time_start: "", ...o,
+const newBlock = (o: Partial<SeriesBlock> = {}): SeriesBlock => ({
+  key: ++blockKey, label: "", from: "previous", offset: null, time_mode: "slot", slot_id: DEFAULT_SLOT_ID, time_start: "", ...o,
 });
 
-/** วันของแต่ละบล็อก: นับจากนัดแรกหรือนัดก่อนหน้า */
-function blockDates(first: string, blocks: SeriesBlock[]): string[] {
+/** วันของแต่ละบล็อก: นับจากวันฉีดเข็ม 1 หรือนัดก่อนหน้า */
+function blockDates(firstAppointment: string, blocks: SeriesBlock[], firstDose: string): string[] {
   const out: string[] = [];
   blocks.forEach((b, i) => {
-    const base = b.from === "first" ? first : i === 0 ? first : out[i - 1];
+    const base = b.from === "first" ? firstDose : i === 0 ? firstAppointment : out[i - 1];
     out.push(offsetDate(base, b.offset) ?? "");
   });
   return out;
@@ -211,7 +211,11 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
   const [calendarMonth, setCalendarMonth] = useState(monthOf(initial.appoint_date || bangkokToday()));
   const [outsideOk, setOutsideOk] = useState(false);
   const [blocks, setBlocks] = useState<SeriesBlock[]>([]);
-  const [firstLabel, setFirstLabel] = useState(defaultSeriesLabel(1));
+  // ชุดฉีดหลายเข็ม: วันนี้ฉีดเข็มที่ N นัดแรกคือเข็ม N+1
+  const [seriesOn, setSeriesOn] = useState(false);
+  const [doseToday, setDoseToday] = useState(1);
+  const [firstDoseDate, setFirstDoseDate] = useState("");
+  const [firstLabel, setFirstLabel] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -237,7 +241,14 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
 
   const schedule: ClinicSchedule = data?.schedule ?? { hours: DEFAULT_CLINIC_HOURS, closures: {} };
   const slots = form.appoint_date ? slotsForDate(form.appoint_date, schedule) : [];
-  const dates = useMemo(() => blockDates(form.appoint_date, blocks), [form.appoint_date, blocks]);
+  const seriesMode = creating && (seriesOn || blocks.length > 0 || !!templateId);
+  // วันฉีดเข็ม 1: วันนี้ถ้าวันนี้ฉีดเข็ม 1 ไม่งั้นตามที่กรอก (ว่าง = ใช้วันนี้ และเตือนให้ตรวจ)
+  const firstDose = doseToday === 1 ? today : firstDoseDate || today;
+  const dates = useMemo(() => blockDates(form.appoint_date, blocks, firstDose), [form.appoint_date, blocks, firstDose]);
+  const mainLabel = firstLabel || defaultSeriesLabel(doseToday + 1);
+  const blockLabel = (b: SeriesBlock, i: number) => b.label || defaultSeriesLabel(doseToday + 2 + i);
+  const template = data?.templates?.find((t) => t.id === templateId);
+  const usesFirst = blocks.some((b) => b.from === "first") || !!template?.items.slice(doseToday).some((it) => it.from === "first");
 
   // จำนวนนัดต่อวัน: โหลดทีละเดือน
   const loadMonth = useCallback((month: string) => {
@@ -293,17 +304,31 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
     set({ appoint_date: d });
   }
 
-  function applyTemplate(id: string) {
-    setTemplateId(id);
+  /** ใช้ template: ข้ามเข็ม ≤ N แล้วคำนวณวันเข็มที่เหลือ */
+  function fillFromTemplate(id: string, n: number, firstDate: string) {
     const t = data?.templates?.find((x) => x.id === id);
     if (!t || !t.items.length) return;
-    const [first, ...rest] = t.items;
-    setFirstLabel(first.label || defaultSeriesLabel(1));
-    setOffset({ unit: first.offset_unit, value: first.offset_value });
-    setBlocks(rest.map((it, i) => newBlock(i + 2, { label: it.label || defaultSeriesLabel(i + 2), from: it.from, offset: { unit: it.offset_unit, value: it.offset_value } })));
-    const preset = presets.find((p) => p.id === t.purpose_id);
+    const plan = planFromTemplate(t.items, n, today, n === 1 ? today : firstDate || null);
+    if (!plan.length) { setErr(`template นี้มี ${t.items.length} เข็ม วันนี้ฉีดครบแล้ว`); setBlocks([]); return; }
+    setErr("");
+    const [main, ...rest] = plan;
+    setFirstLabel(main.label);
+    setOffset(null);
+    set({ appoint_date: main.date });
+    setBlocks(rest.map((p) => newBlock({ label: p.label, from: p.from, offset: { unit: p.unit, value: p.value } })));
+  }
+
+  function applyTemplate(id: string) {
+    setTemplateId(id);
+    if (!id) return;
+    setSeriesOn(true);
+    fillFromTemplate(id, doseToday, firstDoseDate);
+    const preset = presets.find((p) => p.id === data?.templates?.find((t) => t.id === id)?.purpose_id);
     if (preset) pickPurpose(preset);
   }
+
+  // เปลี่ยนเข็มที่ฉีดวันนี้หรือวันฉีดเข็ม 1 แล้วคำนวณจาก template ใหม่
+  useEffect(() => { if (templateId) fillFromTemplate(templateId, doseToday, firstDoseDate); }, [doseToday, firstDoseDate]);
 
   const setBlock = (key: number, patch: Partial<SeriesBlock>) => setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, ...patch } : b)));
   const outside = form.time_mode === "exact" && !!form.appoint_date && !!form.time_start && !isWithinOpenHours(form.appoint_date, form.time_start, schedule);
@@ -317,7 +342,9 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
     if (form.time_mode === "exact" && !form.time_start) return setErr("ระบุเวลา");
     if (outside && !outsideOk) return setErr("เวลานี้อยู่นอกเวลาทำการ — ติ๊กยืนยันก่อนบันทึก");
     const missing = blocks.findIndex((_, i) => !dates[i]);
-    if (missing >= 0) return setErr(`ใส่จำนวนวัน/สัปดาห์/เดือนของ${blocks[missing].label}`);
+    if (missing >= 0) return setErr(`ใส่จำนวนวัน/สัปดาห์/เดือนของ${blockLabel(blocks[missing], missing)}`);
+    // เข็มที่ฉีดแล้ว: วันนี้ (เข็ม N) และเข็ม 1 ถ้ารู้วัน
+    const doneDoses = [{ seq: doseToday, date: today }, ...(doseToday > 1 && firstDoseDate ? [{ seq: 1, date: firstDoseDate }] : [])];
     setBusy(true);
     setErr("");
     try {
@@ -329,11 +356,13 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
           purpose_id: form.purpose_id || null,
           ...(appointmentId ? { shift_following: shiftFollowing } : {
             conversation_id: conversationId, booking_id: bookingId, name_from_his: !!hisName && form.patient_name.trim() === hisName.trim(),
-            ...(blocks.length ? {
-              series_label: firstLabel,
-              series_title: data?.templates?.find((t) => t.id === templateId)?.name ?? form.purpose_text,
+            ...(seriesMode ? {
+              series_label: mainLabel,
+              series_start_seq: doseToday + 1,
+              series_done: doneDoses,
+              series_title: template?.name ?? form.purpose_text,
               series_items: blocks.map((b, i) => ({
-                label: b.label, appoint_date: dates[i], time_mode: b.time_mode, slot_id: b.slot_id, time_start: b.time_start,
+                label: blockLabel(b, i), appoint_date: dates[i], time_mode: b.time_mode, slot_id: b.slot_id, time_start: b.time_start,
                 from: b.from, offset_value: b.offset?.value === "" ? null : b.offset?.value ?? null, offset_unit: b.offset?.unit ?? null,
               })),
             } : {}),
@@ -376,17 +405,41 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
         <datalist id="appt-purposes">{data?.purposeHistory.map((p) => <option key={p} value={p} />)}</datalist>
       </fieldset>
 
-      {creating && !!data?.templates?.length && (
-        <label className="appt-template">ใช้ template ชุดนัด
-          <select value={templateId} onChange={(e) => applyTemplate(e.target.value)}>
-            <option value="">— ไม่ใช้ —</option>
-            {data.templates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.items.length} นัด)</option>)}
-          </select>
-        </label>
+      {creating && (
+        <div className="appt-series-setup">
+          <label className="raw">
+            <input type="checkbox" checked={seriesMode} disabled={blocks.length > 0 || !!templateId} onChange={(e) => setSeriesOn(e.target.checked)} />
+            ชุดฉีดหลายเข็ม (วัคซีน ฯลฯ)
+          </label>
+          {!!data?.templates?.length && (
+            <label className="appt-template">ใช้ template ชุดนัด
+              <select value={templateId} onChange={(e) => applyTemplate(e.target.value)}>
+                <option value="">— ไม่ใช้ —</option>
+                {data.templates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.items.length} เข็ม)</option>)}
+              </select>
+            </label>
+          )}
+          {seriesMode && (
+            <div className="appt-dose-row">
+              <label>วันนี้ฉีดเข็มที่
+                <input type="number" min={1} max={39} inputMode="numeric" value={doseToday}
+                  onChange={(e) => setDoseToday(Math.max(1, Math.min(39, Math.floor(Number(e.target.value)) || 1)))} />
+              </label>
+              <label>วันที่ฉีดเข็ม 1
+                <input type="date" max={today} value={doseToday === 1 ? today : firstDoseDate} disabled={doseToday === 1}
+                  onChange={(e) => setFirstDoseDate(e.target.value)} />
+              </label>
+              <span className="muted small">นัดแรกคือ{mainLabel} · บันทึกเข็ม {doseToday}{doseToday > 1 && firstDoseDate ? " และเข็ม 1" : ""} เป็น "ฉีดแล้ว"</span>
+            </div>
+          )}
+          {seriesMode && doseToday > 1 && !firstDoseDate && usesFirst && (
+            <div className="appt-warn">ยังไม่ได้กรอกวันที่ฉีดเข็ม 1 — นัดที่นับจากเข็ม 1 คำนวณจากวันนี้แทน ตรวจวันอีกครั้ง</div>
+          )}
+        </div>
       )}
 
-      <fieldset className={`appt-field ${blocks.length ? "appt-series-block first" : ""}`}>
-        <legend>{blocks.length ? <input className="series-label" aria-label="ชื่อนัดแรก" value={firstLabel} onChange={(e) => setFirstLabel(e.target.value)} /> : "วันนัด"}</legend>
+      <fieldset className={`appt-field ${seriesMode ? "appt-series-block first" : ""}`}>
+        <legend>{seriesMode ? <input className="series-label" aria-label="ชื่อนัดแรก" value={mainLabel} onChange={(e) => setFirstLabel(e.target.value)} /> : "วันนัด"}</legend>
         <div className="appt-date-row">
           <span className="muted small">นัดอีก</span>
           <DateOffsetField label="นัดอีกกี่วัน สัปดาห์ หรือเดือน นับจากวันนี้" offset={offset} onOffset={setOffset} />
@@ -411,15 +464,15 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
       {creating && blocks.map((b, i) => (
         <fieldset key={b.key} className="appt-field appt-series-block">
           <legend className="series-head">
-            <input className="series-label" aria-label={`ชื่อนัดที่ ${i + 2}`} value={b.label} onChange={(e) => setBlock(b.key, { label: e.target.value })} />
-            <button type="button" className="btn ghost small" aria-label={`ลบ ${b.label}`} onClick={() => setBlocks((bs) => bs.filter((x) => x.key !== b.key))}>ลบ</button>
+            <input className="series-label" aria-label={`ชื่อนัดที่ ${i + 2}`} value={blockLabel(b, i)} onChange={(e) => setBlock(b.key, { label: e.target.value })} />
+            <button type="button" className="btn ghost small" aria-label={`ลบ ${blockLabel(b, i)}`} onClick={() => setBlocks((bs) => bs.filter((x) => x.key !== b.key))}>ลบ</button>
           </legend>
           <div className="appt-date-row">
             <span className="muted small">อีก</span>
-            <DateOffsetField label={`${b.label} อีกกี่วัน สัปดาห์ หรือเดือน`} offset={b.offset} onOffset={(o) => setBlock(b.key, { offset: o })} />
+            <DateOffsetField label={`${blockLabel(b, i)} อีกกี่วัน สัปดาห์ หรือเดือน`} offset={b.offset} onOffset={(o) => setBlock(b.key, { offset: o })} />
             <label className="raw small">นับจาก
               <select value={b.from} onChange={(e) => setBlock(b.key, { from: e.target.value as SeriesFrom })}>
-                <option value="first">{firstLabel || "นัดแรก"}</option>
+                <option value="first">วันฉีดเข็ม 1</option>
                 <option value="previous">นัดก่อนหน้า</option>
               </select>
             </label>
@@ -430,7 +483,7 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
         </fieldset>
       ))}
       {creating && (
-        <button type="button" className="btn ghost small appt-add-next" onClick={() => setBlocks((bs) => [...bs, newBlock(bs.length + 2)])}>+ เพิ่มนัดถัดไป</button>
+        <button type="button" className="btn ghost small appt-add-next" onClick={() => setBlocks((bs) => [...bs, newBlock()])}>+ เพิ่มนัดถัดไป</button>
       )}
 
       <div className="appt-grid">
@@ -451,7 +504,7 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
           {conversationId ? "จะส่งข้อความนัดเข้าแชทนี้ทันทีที่บันทึก"
             : data?.linked ? `HN นี้มีแชท ${channelName(data.linked.channel)} แล้ว — จะส่งข้อความนัดทันทีที่บันทึก`
             : "ยังไม่มีแชท — ให้คนไข้สแกน QR บนใบนัด"}
-          {blocks.length > 0 && ` · ชุดนัด ${blocks.length + 1} นัด (ข้อความและใบนัดใบเดียวแสดงทุกนัด)`}
+          {seriesMode && ` · ชุดนัด ${blocks.length + 1} นัด (ข้อความและใบนัดใบเดียวแสดงทุกเข็ม)`}
         </div>
       )}
       {err && <div className="error small" role="alert">{err}</div>}
@@ -466,7 +519,7 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
         </div>
       ) : (
         <div className="row">
-          <button className="btn primary" disabled={busy}>{busy ? "กำลังบันทึก…" : saveLabel ?? (appointmentId ? "บันทึกการแก้ไข" : blocks.length ? `บันทึกชุดนัด (${blocks.length + 1} นัด)` : "บันทึกนัด")}</button>
+          <button className="btn primary" disabled={busy}>{busy ? "กำลังบันทึก…" : saveLabel ?? (appointmentId ? "บันทึกการแก้ไข" : seriesMode ? `บันทึกชุดนัด (${blocks.length + 1} นัด)` : "บันทึกนัด")}</button>
           <button type="button" className="btn ghost" onClick={onCancel}>ยกเลิก</button>
         </div>
       )}

@@ -35,7 +35,7 @@ export function SeriesTemplates() {
     if (editing.items.length < 2) return flash("ชุดนัดต้องมีอย่างน้อย 2 นัด");
     const body = {
       name: editing.name.trim(), purpose_id: editing.purpose_id || null, active: editing.active, updated_at: new Date().toISOString(),
-      items: editing.items.map((it, i) => ({ ...it, label: it.label.trim() || `เข็ม ${i + 1}`, offset_value: Math.max(0, Math.floor(Number(it.offset_value) || 0)) })),
+      items: editing.items.map((it, i) => ({ ...it, label: it.label.trim() || `เข็ม ${i + 1}`, offset_value: i === 0 ? 0 : Math.max(0, Math.floor(Number(it.offset_value) || 0)), ...(i === 0 ? { from: "first" as const } : {}) })),
     };
     const { error } = editing.id
       ? await sb.from("appointment_series_templates").update(body).eq("id", editing.id)
@@ -57,7 +57,7 @@ export function SeriesTemplates() {
   return (
     <div className="appt-settings-block">
       <h3>Template ชุดนัด</h3>
-      <p className="muted small">เช่น วัคซีนหลายเข็ม — นัดแรกนับจากวันที่ทำนัด นัดถัดไปนับจากนัดแรกหรือนัดก่อนหน้า (ระบบไม่ได้ใส่ตารางวัคซีนให้ สร้างเองตามแนวทางของคลินิก)</p>
+      <p className="muted small">เช่น วัคซีนหลายเข็ม — ใส่ทุกเข็มรวมเข็ม 1 (วันอ้างอิง) เข็มถัดไปนับจากวันฉีดเข็ม 1 หรือจากเข็มก่อนหน้า ตอนทำนัดระบบข้ามเข็มที่ฉีดไปแล้วให้ (ระบบไม่ได้ใส่ตารางวัคซีนให้ สร้างเองตามแนวทางของคลินิก)</p>
       {rows.map((t) => (
         <div key={t.id} className={`preset-row ${t.active ? "" : "off"}`}>
           <b style={{ flex: 1 }}>{t.name}</b>
@@ -80,14 +80,18 @@ export function SeriesTemplates() {
           {editing.items.map((it, i) => (
             <div key={i} className="preset-row">
               <input aria-label={`ชื่อนัดที่ ${i + 1}`} value={it.label} onChange={(e) => setItem(i, { label: e.target.value })} style={{ width: 110 }} />
-              <span className="small muted">{i === 0 ? "อีก" : "+"}</span>
-              <input aria-label="จำนวน" type="number" min={0} className="preset-days" value={it.offset_value} onChange={(e) => setItem(i, { offset_value: Number(e.target.value) })} />
-              <select aria-label="หน่วย" value={it.offset_unit} onChange={(e) => setItem(i, { offset_unit: e.target.value as TemplateItem["offset_unit"] })} style={{ width: "auto" }}>
-                {(Object.keys(UNIT_TH) as TemplateItem["offset_unit"][]).map((u) => <option key={u} value={u}>{UNIT_TH[u]}</option>)}
-              </select>
-              {i === 0 ? <span className="small muted">จากวันที่ทำนัด</span> : (
+              {i === 0 ? <span className="small muted">วันอ้างอิง (วันฉีดเข็ม 1)</span> : (
+                <>
+                  <span className="small muted">+</span>
+                  <input aria-label="จำนวน" type="number" min={0} className="preset-days" value={it.offset_value} onChange={(e) => setItem(i, { offset_value: Number(e.target.value) })} />
+                  <select aria-label="หน่วย" value={it.offset_unit} onChange={(e) => setItem(i, { offset_unit: e.target.value as TemplateItem["offset_unit"] })} style={{ width: "auto" }}>
+                    {(Object.keys(UNIT_TH) as TemplateItem["offset_unit"][]).map((u) => <option key={u} value={u}>{UNIT_TH[u]}</option>)}
+                  </select>
+                </>
+              )}
+              {i === 0 ? null : (
                 <select aria-label="นับจาก" value={it.from} onChange={(e) => setItem(i, { from: e.target.value as TemplateItem["from"] })} style={{ width: "auto" }}>
-                  <option value="first">นับจากนัดแรก</option>
+                  <option value="first">นับจากวันฉีดเข็ม 1</option>
                   <option value="previous">นับจากนัดก่อนหน้า</option>
                 </select>
               )}

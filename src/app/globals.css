@@ -749,3 +749,10 @@ body > .appt-slip { display: none; }
 .appt-slip-series th { text-align: left; font-weight: 700; padding: 1.5mm 2mm 1.5mm 0; vertical-align: top; white-space: nowrap; }
 .appt-slip-series td { padding: 1.5mm 0; border-bottom: 1px dotted #000; }
 @media (max-width: 640px) { .offset-field input { width: 44px; } .offset-step { width: 28px; } }
+
+.appt-series-setup { display: flex; flex-direction: column; gap: 8px; }
+.appt-dose-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; padding: 10px 12px; border-radius: 8px; background: var(--bg); }
+.appt-dose-row label { width: auto; }
+.appt-dose-row input[type="number"] { width: 80px; }
+.appt-dose-row input[type="date"] { width: auto; }
+.appt-slip-series tr.done td, .appt-slip-series tr.done th { font-weight: 500; }
