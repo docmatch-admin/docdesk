@@ -9,7 +9,8 @@ import {
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import type { ChannelType } from "@/lib/types";
 import { Icon } from "../icons";
-import { AppointmentForm, channelName, deliveryText, draftOf } from "./appointment-form";
+import { AppointmentDrawer } from "./appointment-drawer";
+import { channelName } from "./appointment-form";
 import { shortHn } from "./new-appointment";
 import { NewAppointment } from "./new-appointment";
 
@@ -37,8 +38,8 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   const [counts, setCounts] = useState({ mustCall: 0, reschedule: 0, total: 0 });
   const [tabCounts, setTabCounts] = useState<Record<Tab, number> | null>(null);
   const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [status, setStatus] = useState("");
   const [toast, setToast] = useState("");
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
@@ -46,6 +47,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   const load = useCallback(async () => {
     const p = new URLSearchParams({ tab });
     if (purpose) p.set("purpose", purpose);
+    if (tab === "all" && status) p.set("status", status);
     if (tab === "all") {
       if (q.trim()) p.set("q", q.trim());
       if (from) p.set("from", from);
@@ -57,7 +59,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
     setRows(j.rows as Row[]);
     setCounts(j.counts);
     if (j.tabCounts) setTabCounts(j.tabCounts);
-  }, [tab, q, from, to, purpose]);
+  }, [tab, q, from, to, purpose, status]);
 
   useEffect(() => {
     fetch("/api/appointments/form-data").then((r) => (r.ok ? r.json() : null)).then((j) => j && setPresets(j.presets)).catch(() => {});
@@ -79,15 +81,6 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   async function patch(id: string, body: unknown) {
     const res = await fetch(`/api/appointments/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!res.ok) flash((await res.json().catch(() => ({}))).error ?? "บันทึกไม่สำเร็จ");
-    load();
-  }
-
-  async function cancel(id: string) {
-    setConfirmCancel(null);
-    const res = await fetch(`/api/appointments/${id}/cancel`, { method: "POST" });
-    const j = await res.json().catch(() => ({}));
-    if (!res.ok) flash(j.error ?? "ยกเลิกไม่สำเร็จ");
-    else flash(`ยกเลิกนัดแล้ว${j.delivery?.sent ? " · ส่งข้อความแจ้งยกเลิกแล้ว" : ""}`);
     load();
   }
 
@@ -130,6 +123,10 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
               </label>
               <label className="raw small">ตั้งแต่<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
               <label className="raw small">ถึง<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+              <select aria-label="กรองตามสถานะ" className="appt-purpose-filter" value={status} onChange={(e) => setStatus(e.target.value)}>
+                <option value="">ทุกสถานะ (รวมยกเลิก)</option>
+                {(Object.keys(STATUS_LABEL) as (keyof typeof STATUS_LABEL)[]).map((k) => <option key={k} value={k}>{STATUS_LABEL[k]}</option>)}
+              </select>
             </div>
           )}
         </div>
@@ -147,7 +144,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                 <tr>
                   {tab === "all" && <th scope="col">วัน</th>}
                   <th scope="col">เวลา</th><th scope="col">ชื่อ</th><th scope="col">HN</th><th scope="col">เบอร์</th>
-                  <th scope="col">ช่องทาง</th><th scope="col">สถานะส่ง</th><th scope="col">โทรแล้ว</th><th scope="col"><span className="sr-only">จัดการ</span></th>
+                  <th scope="col">ช่องทาง</th><th scope="col">สถานะ</th><th scope="col">โทรแล้ว</th>
                 </tr>
               </thead>
               <tbody>
@@ -155,20 +152,17 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                   const state = deliveryState(r);
                   const open = state !== "closed";
                   return (
-                    <tr key={r.id} className={open ? "" : "appt-closed"}>
+                    <tr key={r.id} className={`appt-row ${open ? "" : "appt-closed"} ${r.status === "cancelled" ? "appt-cancelled" : ""} ${openId === r.id ? "selected" : ""}`}
+                      onClick={() => setOpenId(r.id)} tabIndex={0} aria-label={`ดูรายละเอียดนัด ${r.patient_name}`}
+                      onKeyDown={(e) => { if (e.key === "Enter") setOpenId(r.id); }}>
                       {tab === "all" && <td>{thaiShortDate(r.appoint_date)}</td>}
                       <td>{r.time_mode === "slot" ? <>{slotLabel(r)}<div className="muted small">{timeShort(r)}</div></> : timeShort(r)}</td>
                       <td>
                         {r.patient_name}
                         {r.purpose_text && <div className="muted small">{r.purpose_text}</div>}
-                        {editing === r.id && (
-                          <AppointmentForm compact initial={draftOf(r)} appointmentId={r.id}
-                            onCancel={() => setEditing(null)}
-                            onSaved={(res) => { setEditing(null); flash(res.delivery ? `บันทึกแล้ว · ${deliveryText(res.delivery)}` : "บันทึกแล้ว"); load(); }} />
-                        )}
                       </td>
                       <td className="appt-hn">{r.hn ? shortHn(r.hn) : "–"}</td>
-                      <td>{r.phone ? <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`}>{r.phone}</a> : "–"}</td>
+                      <td>{r.phone ? <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()}>{r.phone}</a> : "–"}</td>
                       <td>
                         {r.channel ? <span className={`chip ch-${r.channel}`}>{channelName(r.channel)}</span> : <span className="muted small">ไม่มีแชท</span>}
                         {r.chat_name && <div className="name-platform">{r.chat_name}</div>}
@@ -176,20 +170,9 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                       <td>
                         <span className={STATE_CLASS[state]} title={r.last_send_error ?? undefined}>{state === "closed" ? STATUS_LABEL[r.status] : DELIVERY_LABEL[state]}</span>
                       </td>
-                      <td>
+                      <td onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" aria-label={`โทรหา ${r.patient_name} แล้ว`} checked={!!r.called_at} disabled={!open}
                           onChange={(e) => patch(r.id, { called: e.target.checked })} />
-                      </td>
-                      <td className="appt-actions">
-                        {canOpenChat && r.conversation_id && <Link className="btn ghost small" href={`/inbox?c=${r.conversation_id}`}>แชท</Link>}
-                        <Link className="btn ghost small" href={`/appointments/${r.id}/print?reprint=1`}>พิมพ์ซ้ำ</Link>
-                        {open && editing !== r.id && <button className="btn ghost small" onClick={() => setEditing(r.id)}>แก้ไข</button>}
-                        {open && (
-                          <button className={`btn ghost small ${confirmCancel === r.id ? "danger" : ""}`}
-                            onClick={() => (confirmCancel === r.id ? cancel(r.id) : setConfirmCancel(r.id))}>
-                            {confirmCancel === r.id ? "ยืนยันยกเลิก?" : "ยกเลิก"}
-                          </button>
-                        )}
                       </td>
                     </tr>
                   );
@@ -199,6 +182,10 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
           </div>
         )}
       </section>
+      {openId && (
+        <AppointmentDrawer id={openId} canOpenChat={canOpenChat} onClose={() => setOpenId(null)}
+          onChanged={(m) => { if (m) flash(m); load(); }} />
+      )}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

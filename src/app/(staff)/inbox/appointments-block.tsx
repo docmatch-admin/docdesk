@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DELIVERY_LABEL, deliveryState, thaiShortDate, timeShort, type Appointment } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
-import { AppointmentForm, deliveryText, draftOf, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
+import { AppointmentDrawer } from "../appointments/appointment-drawer";
+import { AppointmentForm, deliveryText, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
 import { Icon } from "../icons";
 
 interface Link_ { hn: string; patient_name: string | null; phone: string | null }
@@ -25,8 +26,7 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
   const [rows, setRows] = useState<Appointment[]>([]);
   const [link, setLink] = useState<Link_ | null>(null);
   const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   // แอดมินยืนยันการจับคู่ HN: ค้นชื่อจาก iService ก่อน แล้วกดยืนยัน
   const [linking, setLinking] = useState(false);
   const [hnInput, setHnInput] = useState("");
@@ -43,7 +43,7 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
   }, [conversationId]);
 
   useEffect(() => {
-    setRows([]); setLink(null); setCreating(false); setEditing(null); setConfirmCancel(null);
+    setRows([]); setLink(null); setCreating(false); setOpenId(null);
     setLinking(false); setHnInput(""); setPreview(null); setLinkErr(""); setConfirmUnlink(false);
     load();
     const ch = sb.channel(`appt-${conversationId}`)
@@ -54,19 +54,11 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
 
   function saved(r: SaveResult) {
     setCreating(false);
-    setEditing(null);
     onMessage(r.delivery ? `บันทึกนัดแล้ว · ${deliveryText(r.delivery)}` : "บันทึกนัดแล้ว");
     load();
     onChanged();
   }
 
-  async function cancel(id: string) {
-    setConfirmCancel(null);
-    const res = await fetch(`/api/appointments/${id}/cancel`, { method: "POST" });
-    const j = await res.json().catch(() => ({}));
-    onMessage(res.ok ? `ยกเลิกนัดแล้ว · ${deliveryText(j.delivery)}` : j.error ?? "ยกเลิกไม่สำเร็จ");
-    load();
-  }
 
   async function checkHn(e: React.FormEvent) {
     e.preventDefault();
@@ -133,26 +125,21 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
       {rows.length === 0 && !creating && <div className="muted small">ยังไม่มีนัด</div>}
       <div className={blurred ? "sensitive-blur" : ""}>
         {rows.map((a) => (
-          <div key={a.id} className="appt-side-card">
+          <div key={a.id} className="appt-side-card" onClick={() => setOpenId(a.id)} role="button" tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter") setOpenId(a.id); }}>
             <div className="booking-title">{thaiShortDate(a.appoint_date)} · {timeShort(a)} น.</div>
             <div className="booking-sub">{a.purpose_text || "ไม่ระบุเหตุผล"}{a.provider ? ` · ${a.provider}` : ""} · {DELIVERY_LABEL[deliveryState(a)] || a.status}</div>
-            {editing === a.id ? (
-              <AppointmentForm compact showPatient={false} initial={draftOf(a)} appointmentId={a.id} onCancel={() => setEditing(null)} onSaved={saved} />
-            ) : (
-              <div className="icon-row">
-                <button type="button" className="icon-btn" aria-label="แก้ไขนัด (แก้วันเวลาแล้วส่งข้อความนัดใหม่)" title="แก้ไขนัด (แก้วันเวลาแล้วส่งข้อความนัดใหม่)"
-                  onClick={() => setEditing(a.id)}><Icon name="pencil" /></button>
-                <Link className="icon-btn" aria-label="พิมพ์ใบนัด" title="พิมพ์ใบนัด" href={`/appointments/${a.id}/print?reprint=1`}><Icon name="printer" /></Link>
-                <button type="button" className={`icon-btn danger ${confirmCancel === a.id ? "confirm" : ""}`}
-                  aria-label={confirmCancel === a.id ? "ยืนยันยกเลิกนัด" : "ยกเลิกนัด"} title={confirmCancel === a.id ? "กดอีกครั้งเพื่อยกเลิก (ส่งข้อความแจ้งยกเลิกถึงคนไข้)" : "ยกเลิกนัด"}
-                  onClick={() => (confirmCancel === a.id ? cancel(a.id) : setConfirmCancel(a.id))}>
-                  <Icon name="x" />{confirmCancel === a.id && <span className="icon-btn-text">ยืนยัน</span>}
-                </button>
-              </div>
-            )}
+            <div className="icon-row">
+              <button type="button" className="btn ghost small" onClick={() => setOpenId(a.id)}>รายละเอียด · แก้ไข/ยกเลิก</button>
+              <Link className="icon-btn" aria-label="พิมพ์ใบนัด" title="พิมพ์ใบนัด" href={`/appointments/${a.id}/print?reprint=1`} onClick={(e) => e.stopPropagation()}><Icon name="printer" /></Link>
+            </div>
           </div>
         ))}
       </div>
+      {openId && (
+        <AppointmentDrawer id={openId} canOpenChat={false} onClose={() => setOpenId(null)}
+          onChanged={(m) => { if (m) onMessage(m); load(); onChanged(); }} />
+      )}
     </section>
   );
 }

@@ -37,7 +37,7 @@ export const draftOf = (a: Appointment): AppointmentDraft => ({
 });
 
 export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string }
-export interface SaveResult { appointment: Appointment; delivery: DeliveryResult | null }
+export interface SaveResult { appointment: Appointment; delivery: DeliveryResult | null; moved?: boolean }
 
 export interface PurposePreset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null }
 

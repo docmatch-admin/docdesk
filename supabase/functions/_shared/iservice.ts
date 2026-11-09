@@ -121,14 +121,24 @@ export async function diagnose(date: string, q = "") {
     };
     // patient_list: ลองชื่อพารามิเตอร์หลายแบบ รายงานแค่สถานะ จำนวน และโครงสร้าง
     if (q) {
-      const variants: Record<string, Record<string, string>> = {
-        none: {}, search: { search: q }, keyword: { keyword: q }, hn: { hn: q }, name: { name: q }, q: { q },
-        text: { text: q }, search_text: { search_text: q }, mobile: { mobile_phone_number: q },
+      // GET แบบมี page/limit และ POST แบบ JSON body
+      const variants: Record<string, { method: "GET" | "POST"; params: Record<string, string> }> = {
+        get_page: { method: "GET", params: { page: "1", limit: "20" } },
+        get_page_search: { method: "GET", params: { page: "1", limit: "20", search: q } },
+        get_page_hn: { method: "GET", params: { page: "1", limit: "20", hn: q } },
+        get_offset: { method: "GET", params: { offset: "0", limit: "20", search: q } },
+        get_perpage: { method: "GET", params: { page: "1", per_page: "20", search: q } },
+        post_search: { method: "POST", params: { search: q } },
+        post_hn: { method: "POST", params: { hn: q } },
+        post_page_search: { method: "POST", params: { page: "1", limit: "20", search: q } },
       };
       const results: Record<string, unknown> = {};
-      for (const [k, params] of Object.entries(variants)) {
-        const qs3 = new URLSearchParams({ cis_code: cisCode(), ...params }).toString();
-        const r3 = await fetch(`${BASE}/api/patient/v1/patient_list?${qs3}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
+      for (const [k, { method, params }] of Object.entries(variants)) {
+        const all = { cis_code: cisCode(), ...params };
+        const qs3 = new URLSearchParams(all).toString();
+        const r3 = method === "GET"
+          ? await fetch(`${BASE}/api/patient/v1/patient_list?${qs3}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: AbortSignal.timeout(20_000) })
+          : await fetch(`${BASE}/api/patient/v1/patient_list`, { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(all), signal: AbortSignal.timeout(20_000) });
         const t3 = await r3.text();
         let j3: unknown = null;
         try { j3 = JSON.parse(t3); } catch { /* ไม่ใช่ JSON */ }
@@ -137,7 +147,7 @@ export async function diagnose(date: string, q = "") {
           status: r3.status, rows: rows3.length,
           matches: rows3.filter((r) => String(r.hn ?? r.HN ?? "").replace(/^0+/, "") === q.replace(/^0+/, "")).length,
           message: j3 && typeof j3 === "object" && typeof (j3 as Record<string, unknown>).message === "string" ? ((j3 as Record<string, unknown>).message as string).slice(0, 160) : t3.slice(0, 80).replace(/[0-9]{6,}/g, "#"),
-          ...(k === "none" ? { shape: shapeOf(j3), rowKeys: rows3[0] ? Object.keys(rows3[0]) : [] } : {}),
+          ...(rows3.length ? { shape: shapeOf(j3), rowKeys: Object.keys(rows3[0]) } : {}),
         };
       }
       out.patient_list = results;

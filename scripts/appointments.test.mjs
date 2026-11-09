@@ -428,7 +428,7 @@ test("แก้วันนัดส่งข้อความนัดให�
   assert.equal(none.delivery, null, "แก้หมายเหตุไม่ส่งข้อความ");
   assert.equal(outbound.length, 0);
 
-  await store.cancelAppointment(a.id, "agent");
+  await store.cancelAppointment(a.id, "agent", { code: "patient" });
   assert.equal(appt(a.id).status, "cancelled");
   const flex = linePosts()[0].body.messages[0];
   assert.match(flex.altText, /ยกเลิกนัด/);
@@ -717,4 +717,58 @@ test("ปฏิเสธจับคู่ทุกข้อเสนอ: นั
   assert.deepEqual(await store.decideHnMatch("m3", false, "adm"), { status: "no_show" });
   assert.equal(appt(a.id).status, "no_show");
   assert.equal(contact("c-line").hn ?? null, null, "ไม่ผูก HN");
+});
+
+// ---------------------------------------------------------------------------
+// แก้ไข / ยกเลิก / กู้คืน
+// ---------------------------------------------------------------------------
+test("เปลี่ยนวันนัด: link_code เดิม เตือนใหม่ ข้อความแสดงวันเดิม→วันใหม่พร้อมปุ่ม และปิดงานเลื่อนนัด", async () => {
+  const a = addAppointment({ status: "reschedule_requested", reminder_sent_at: nextTime(), link_code: "KEEP01" });
+  state.tables.chat_tasks.push({ id: "t1", conversation_id: "conv-line", text: "เลื่อนนัด: คนไข้ขอเลื่อนนัด", done: false, created_at: nextTime() });
+  conv("conv-line").open_tasks = 1;
+  const r = await store.updateAppointment(a.id, { appoint_date: inDays(21) }, "nurse");
+  assert.equal(r.moved, true);
+  assert.deepEqual([appt(a.id).status, appt(a.id).reminder_sent_at, appt(a.id).link_code], ["scheduled", null, "KEEP01"]);
+  const flex = linePosts()[0].body.messages[0];
+  assert.match(flex.altText, /เปลี่ยนวันนัดใหม่\nจากเดิม /);
+  assert.ok(flex.contents.footer, "มีปุ่มยืนยัน/ขอเลื่อน");
+  assert.equal(state.tables.chat_tasks[0].done, true);
+  assert.equal(conv("conv-line").open_tasks, 0);
+
+  outbound = [];
+  const r2 = await store.updateAppointment(a.id, { note: "นำบัตรมาด้วย", purpose_text: "ติดตามอาการ" }, "nurse");
+  assert.equal(r2.moved, false);
+  assert.equal(r2.delivery, null);
+  assert.equal(outbound.length, 0, "แก้หมายเหตุ/เหตุผลไม่ส่งข้อความ");
+});
+
+test("ยกเลิกต้องมีเหตุผล ลงนัดผิดไม่ส่งข้อความ กู้คืนได้วันเดียวกันกลับสถานะเดิม", async () => {
+  const a = addAppointment({ status: "confirmed", link_code: "CAN100" });
+  await assert.rejects(store.cancelAppointment(a.id, "nurse", {}), /เลือกเหตุผล/);
+  await assert.rejects(store.cancelAppointment(a.id, "nurse", { code: "other" }), /พิมพ์เหตุผล/);
+  const r = await store.cancelAppointment(a.id, "nurse", { code: "mistake" });
+  assert.equal(r.delivery, null);
+  assert.equal(outbound.filter((o) => o.url.includes("api.line.me/v2/bot/message")).length, 0);
+  assert.deepEqual([appt(a.id).status, appt(a.id).cancel_reason, appt(a.id).cancel_reason_code, appt(a.id).cancelled_by], ["cancelled", "ลงนัดผิด", "mistake", "nurse"]);
+  assert.ok(appt(a.id).cancelled_at);
+  assert.equal(rules.deliveryState(appt(a.id)), "closed", "ไม่เข้าคิวโทร");
+
+  await store.restoreAppointment(a.id, "nurse");
+  assert.deepEqual([appt(a.id).status, appt(a.id).cancel_reason], ["confirmed", null]);
+  assert.ok(state.tables.appointment_events.some((e) => e.appointment_id === a.id && e.kind === "restored" && e.staff_id === "nurse"));
+
+  await store.cancelAppointment(a.id, "nurse", { code: "doctor" });
+  assert.match(linePosts().at(-1).body.messages[0].altText, /ยกเลิกนัด/, "แพทย์ยกเลิก = แจ้งคนไข้");
+  // ยกเลิกเมื่อวาน กู้คืนไม่ได้
+  appt(a.id).cancelled_at = new Date(Date.now() - 86_400_000 * 2).toISOString();
+  await assert.rejects(store.restoreAppointment(a.id, "nurse"), /เฉพาะนัดที่ยกเลิกวันนี้/);
+});
+
+test("นัดที่มาแล้ว/ไม่มา ดูได้อย่างเดียว", async () => {
+  for (const status of ["attended", "no_show"]) {
+    const a = addAppointment({ status, link_code: status === "attended" ? "ATT001" : "NOS001" });
+    await assert.rejects(store.updateAppointment(a.id, { note: "x" }, "nurse"), /แก้ไม่ได้/);
+    await assert.rejects(store.cancelAppointment(a.id, "nurse", { code: "patient" }), /ยกเลิกแล้ว|ไม่มา/);
+    assert.equal(rules.isEditable(a), false);
+  }
 });

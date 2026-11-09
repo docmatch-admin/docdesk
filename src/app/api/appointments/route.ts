@@ -20,6 +20,7 @@ export async function GET(req: Request) {
     from: parseDate(u.searchParams.get("from")),
     to: parseDate(u.searchParams.get("to")),
     purpose: u.searchParams.get("purpose"),
+    status: u.searchParams.get("status"),
   });
   const [counts, tabCounts] = await Promise.all([appointmentCallCounts(), appointmentTabCounts()]);
   return NextResponse.json({ rows, counts, tabCounts }, { headers: { "Cache-Control": "no-store" } });

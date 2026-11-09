@@ -37,8 +37,29 @@ export interface Appointment {
   last_send_error: string | null;
   called_at: string | null;
   called_by: string | null;
+  cancel_reason?: string | null;
+  cancel_reason_code?: CancelReason | null;
+  cancelled_by?: string | null;
+  cancelled_at?: string | null;
   created_at?: string;
 }
+
+/** เหตุผลยกเลิก: ลงนัดผิดไม่ส่งข้อความแจ้งคนไข้ */
+export type CancelReason = "patient" | "doctor" | "mistake" | "other";
+export const CANCEL_REASON_LABEL: Record<CancelReason, string> = {
+  patient: "คนไข้ขอยกเลิก",
+  doctor: "แพทย์ยกเลิก",
+  mistake: "ลงนัดผิด",
+  other: "อื่นๆ",
+};
+export const notifiesOnCancel = (reason: CancelReason) => reason !== "mistake";
+
+/** กู้คืนนัดที่ยกเลิกได้ภายในวันเดียวกัน (เวลาไทย) */
+export const canRestore = (a: { status: string; cancelled_at?: string | null }, now = Date.now()) =>
+  a.status === "cancelled" && !!a.cancelled_at && bangkokToday(Date.parse(a.cancelled_at)) === bangkokToday(now);
+
+/** แก้ไข/ยกเลิกได้เฉพาะนัดที่ยังเปิดอยู่ มาแล้ว/ไม่มา/ยกเลิก ดูได้อย่างเดียว */
+export const isEditable = (a: { status: string }) => a.status === "scheduled" || a.status === "confirmed" || a.status === "reschedule_requested";
 
 export const STATUS_LABEL: Record<AppointmentStatus, string> = {
   scheduled: "นัดแล้ว",
@@ -384,6 +405,16 @@ export interface MessageInput {
   clinicName: string;
   /** send_purpose_in_message และแชทไม่ใช่แชทลับ */
   includePurpose: boolean;
+  /** เปลี่ยนนัด: วันเวลาเดิม */
+  previous?: { appoint_date: string; time_mode: TimeMode; time_start: string; time_end: string | null };
+}
+
+function previousText(input: MessageInput): string {
+  const p = input.previous;
+  if (!p || input.kind !== "changed") return "";
+  return input.lang === "en"
+    ? `Previously: ${englishDate(p.appoint_date)} (${timeShort(p).replace(/\./g, ":")})`
+    : `จากเดิม ${thaiFullDate(p.appoint_date)} (${timeShort(p)} น.)`;
 }
 
 export const fillVariables = (template: string, values: Record<string, string>) =>
@@ -418,7 +449,8 @@ export function appointmentText(input: MessageInput): string {
   // การปฏิบัติตัวส่งเสมอ ไม่ขึ้นกับ send_purpose_in_message
   const instructions = input.appointment.instructions?.trim()
     ? `\n${input.lang === "en" ? "Before your visit" : "การปฏิบัติตัว"}: ${input.appointment.instructions.trim()}` : "";
-  return `${header}\n${fillVariables(input.lang === "en" ? input.settings.template_en : input.settings.template_th, v)}${purpose}${instructions}`;
+  const previous = previousText(input);
+  return `${header}${previous ? `\n${previous}` : ""}\n${fillVariables(input.lang === "en" ? input.settings.template_en : input.settings.template_th, v)}${purpose}${instructions}`;
 }
 
 type Json = Record<string, unknown>;
@@ -446,7 +478,8 @@ export function appointmentFlex(input: MessageInput): Json {
     {
       type: "box", layout: "vertical", margin: "md", spacing: "sm",
       contents: [
-        row(th ? "วันที่" : "Date", v.date, true),
+        ...(previousText(input) ? [row(th ? "เดิม" : "Was", previousText(input).replace(/^จากเดิม |^Previously: /, ""))] : []),
+        row(th ? (input.previous ? "ใหม่" : "วันที่") : (input.previous ? "New" : "Date"), v.date, true),
         row(th ? "เวลา" : "Time", v.time, true),
         ...(purpose ? [row(th ? "เรื่อง" : "Purpose", purpose)] : []),
         ...(instructions ? [row(th ? "ปฏิบัติตัว" : "Before visit", instructions, true)] : []),

@@ -2,7 +2,8 @@ import {
   addDays, appointmentFlex, callQueue, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
   metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT,
   reminderDecision, TEST_APPOINTMENT_ID, thaiShortDate, timeShort, weekdayOf,
-  type Appointment, type AppointmentSettings, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
+  canRestore, CANCEL_REASON_LABEL, notifiesOnCancel,
+  type Appointment, type AppointmentSettings, type CancelReason, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
 } from "./appointment-rules";
 import { sendPushToStaff } from "./booking-store";
 import { lineSendMessages } from "./channels/line";
@@ -20,7 +21,7 @@ import type { ChannelType } from "./types";
  */
 export const APPOINTMENT_SENDER_NAME = "ระบบนัด";
 
-export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, created_by, created_at, updated_at";
+export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, created_by, created_at, updated_at";
 
 export const loadAppointmentSettings = async (): Promise<AppointmentSettings> =>
   normalizeAppointmentSettings(await getSetting<unknown>("appointment_settings", {}));
@@ -163,7 +164,7 @@ async function pushAppointment(info: ConversationInfo, via: "line" | "facebook" 
  * ส่งข้อความนัดหนึ่งครั้ง บันทึกผลลง appointments และ appointment_events
  * ส่งไม่ได้ (นอก 24 ชม., ไม่มีแชท) บันทึกเป็น "ส่งไม่ได้-ต้องโทร" ไม่ throw
  */
-export async function deliverAppointment(appt: Appointment, kind: MessageKind, opts: { actor?: Actor; staffId?: string | null; replyToken?: string; now?: number } = {}): Promise<DeliveryResult> {
+export async function deliverAppointment(appt: Appointment, kind: MessageKind, opts: { actor?: Actor; staffId?: string | null; replyToken?: string; now?: number; previous?: MessageInput["previous"] } = {}): Promise<DeliveryResult> {
   const db = supabaseAdmin();
   const actor = opts.actor ?? "system";
   if (!appt.conversation_id) {
@@ -179,7 +180,7 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
     return { sent: false, via: info?.channelType, error };
   }
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
-  const input = messageInput(appt, kind, info, settings, clinic);
+  const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous };
   try {
     const mid = await pushAppointment(info, delivery.via, input, opts.replyToken);
     await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.lang, externalId: mid });
@@ -357,10 +358,17 @@ export async function createAppointment(b: AppointmentInput, staffId: string, op
 }
 
 /** แก้วันหรือเวลา = ส่งข้อความนัดใหม่อัตโนมัติ และเริ่มรอบเตือนใหม่ */
-export async function updateAppointment(id: string, b: AppointmentInput, staffId: string, now = Date.now()): Promise<{ appointment: Appointment; delivery: DeliveryResult | null }> {
-  const current = await loadAppointment(id);
+/**
+ * แก้นัด link_code คงเดิม
+ * เปลี่ยนวัน/เวลา: กลับเป็น scheduled เตือนใหม่ตามวันใหม่ ส่งข้อความ "เปลี่ยนนัด" (วันเดิม → วันใหม่) และปิดงาน "เลื่อนนัด" ในแชท
+ * แก้เหตุผล/หมายเหตุอย่างเดียว: ไม่ส่งข้อความ
+ */
+export async function updateAppointment(id: string, b: AppointmentInput, staffId: string, now = Date.now()): Promise<{ appointment: Appointment; delivery: DeliveryResult | null; moved: boolean }> {
+  // สำเนาค่าก่อนแก้ ใช้หลังบันทึก (สถานะเดิม วันเวลาเดิม)
+  const loaded = await loadAppointment(id);
+  const current = loaded ? { ...loaded } : null;
   if (!current) throw new AppointmentError("ไม่พบนัด", 404);
-  if (!OPEN_STATUSES.includes(current.status)) throw new AppointmentError("นัดนี้ปิดไปแล้ว แก้ไม่ได้", 409);
+  if (!OPEN_STATUSES.includes(current.status)) throw new AppointmentError("นัดนี้มาแล้ว ไม่มา หรือยกเลิกแล้ว แก้ไม่ได้", 409);
   const fields = await resolveFields({
     hn: current.hn, patient_name: current.patient_name, phone: current.phone, appoint_date: current.appoint_date,
     time_mode: current.time_mode, slot_id: current.slot_id, time_start: current.time_start.slice(0, 5),
@@ -381,17 +389,66 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
     staffId, detail: moved ? { from: `${current.appoint_date} ${timeShort(current)}`, to: `${fields.appoint_date} ${timeShort(fields)}` } : {},
   });
   const updated = (await loadAppointment(id)) as Appointment;
-  const delivery = moved ? await deliverAppointment(updated, "changed", { actor: "staff", staffId, now }) : null;
-  return { appointment: (await loadAppointment(id)) ?? updated, delivery };
+  if (moved && current.status === "reschedule_requested" && current.conversation_id) await closeRescheduleTasks(current.conversation_id, staffId);
+  const delivery = moved ? await deliverAppointment(updated, "changed", {
+    actor: "staff", staffId, now,
+    previous: { appoint_date: current.appoint_date, time_mode: current.time_mode, time_start: current.time_start, time_end: current.time_end },
+  }) : null;
+  return { appointment: (await loadAppointment(id)) ?? updated, delivery, moved };
 }
 
-export async function cancelAppointment(id: string, staffId: string): Promise<{ delivery: DeliveryResult }> {
+/** คนไข้ขอเลื่อนแล้วเจ้าหน้าที่นัดวันใหม่ให้: งาน "เลื่อนนัด" ในแชทเสร็จ แชทปิดได้ตามปกติ */
+async function closeRescheduleTasks(conversationId: string, staffId: string) {
+  const db = supabaseAdmin();
+  const { data } = await db.from("chat_tasks").select("id, text").eq("conversation_id", conversationId).eq("done", false);
+  const ids = ((data ?? []) as { id: string; text: string }[]).filter((t) => t.text.startsWith("เลื่อนนัด")).map((t) => t.id);
+  if (ids.length) await db.from("chat_tasks").update({ done: true, done_by: staffId, done_at: nowIso() }).in("id", ids);
+}
+
+const CANCEL_CODES: CancelReason[] = ["patient", "doctor", "mistake", "other"];
+
+/**
+ * ยกเลิกต้องมีเหตุผล ไม่ลบแถว นัดที่ยกเลิกไม่เตือน ไม่เข้าคิวโทร ไม่นับในจำนวนนัด
+ * ส่งข้อความแจ้งยกเลิกถ้ามีแชท ยกเว้น "ลงนัดผิด"
+ */
+export async function cancelAppointment(id: string, staffId: string, reason: { code?: unknown; text?: unknown } = {}): Promise<{ delivery: DeliveryResult | null }> {
+  const code = CANCEL_CODES.find((c) => c === reason.code);
+  if (!code) throw new AppointmentError("เลือกเหตุผลการยกเลิก");
+  const text = clip(reason.text, 300);
+  if (code === "other" && !text) throw new AppointmentError("พิมพ์เหตุผลการยกเลิก");
+  const loaded = await loadAppointment(id);
+  const current = loaded ? { ...loaded } : null;
+  if (!current) throw new AppointmentError("ไม่พบนัด", 404);
+  if (!OPEN_STATUSES.includes(current.status)) throw new AppointmentError("นัดนี้มาแล้ว ไม่มา หรือยกเลิกแล้ว", 409);
+  const at = nowIso();
+  const label = code === "other" ? text : CANCEL_REASON_LABEL[code];
+  const { data } = await supabaseAdmin().from("appointments").update({
+    status: "cancelled", cancel_reason_code: code, cancel_reason: label, cancelled_by: staffId, cancelled_at: at, updated_at: at,
+  }).eq("id", id).eq("status", current.status).select("id");
+  if (!data?.length) throw new AppointmentError("นัดเพิ่งถูกแก้ไข ลองใหม่อีกครั้ง", 409);
+  await logAppointmentEvent(id, "cancelled", "staff", { staffId, detail: { reason: label, code, previous_status: current.status } });
+  if (!notifiesOnCancel(code)) {
+    await logAppointmentEvent(id, "send_skipped", "staff", { staffId, detail: { kind: "cancelled", reason: "ลงนัดผิด ไม่แจ้งคนไข้" } });
+    return { delivery: null };
+  }
+  return { delivery: await deliverAppointment({ ...current, status: "cancelled" }, "cancelled", { actor: "staff", staffId }) };
+}
+
+/** กู้คืนนัดที่ยกเลิกภายในวันเดียวกัน กลับเป็นสถานะก่อนยกเลิก (ไม่ส่งข้อความอัตโนมัติ) */
+export async function restoreAppointment(id: string, staffId: string, now = Date.now()): Promise<{ appointment: Appointment }> {
   const current = await loadAppointment(id);
   if (!current) throw new AppointmentError("ไม่พบนัด", 404);
-  if (!OPEN_STATUSES.includes(current.status)) throw new AppointmentError("นัดนี้ปิดไปแล้ว", 409);
-  await supabaseAdmin().from("appointments").update({ status: "cancelled", updated_at: nowIso() }).eq("id", id);
-  await logAppointmentEvent(id, "cancelled", "staff", { staffId });
-  return { delivery: await deliverAppointment({ ...current, status: "cancelled" }, "cancelled", { actor: "staff", staffId }) };
+  if (!canRestore(current, now)) throw new AppointmentError("กู้คืนได้เฉพาะนัดที่ยกเลิกวันนี้", 409);
+  if (current.appoint_date < bangkokToday(now)) throw new AppointmentError("วันนัดผ่านไปแล้ว", 409);
+  const { data: ev } = await supabaseAdmin().from("appointment_events").select("detail, created_at")
+    .eq("appointment_id", id).eq("kind", "cancelled").order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const prev = (ev?.detail as { previous_status?: string } | null)?.previous_status;
+  const status = prev === "confirmed" || prev === "reschedule_requested" ? prev : "scheduled";
+  await supabaseAdmin().from("appointments").update({
+    status, cancel_reason: null, cancel_reason_code: null, cancelled_by: null, cancelled_at: null, updated_at: nowIso(),
+  }).eq("id", id).eq("status", "cancelled");
+  await logAppointmentEvent(id, "restored", "staff", { staffId, detail: { status } });
+  return { appointment: (await loadAppointment(id)) as Appointment };
 }
 
 export async function setCalled(id: string, called: boolean, staffId: string) {
@@ -566,7 +623,7 @@ export interface AppointmentListRow extends Appointment {
 const searchTerm = (q: string) => q.replace(/[,()%*\:"']/g, " ").trim().slice(0, 60);
 
 /** purpose: id ของ preset หรือ "none" = ไม่ได้เลือก preset */
-export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"; q?: string; from?: string | null; to?: string | null; purpose?: string | null }, now = Date.now()): Promise<AppointmentListRow[]> {
+export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"; q?: string; from?: string | null; to?: string | null; purpose?: string | null; status?: string | null }, now = Date.now()): Promise<AppointmentListRow[]> {
   const today = bangkokToday(now);
   let query = supabaseAdmin().from("appointments")
     .select(`${APPOINTMENT_COLUMNS}, conversations(channels(type), contacts(display_name, platform_name, hn, patient_full_name))`);
@@ -578,6 +635,7 @@ export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"
   }
   const q = searchTerm(opts.q ?? "");
   if (q) query = query.or(`patient_name.ilike.%${q}%,hn.ilike.%${q}%,phone.ilike.%${q}%`);
+  if (opts.status && ["scheduled", "confirmed", "reschedule_requested", "cancelled", "attended", "no_show"].includes(opts.status)) query = query.eq("status", opts.status);
   if (opts.purpose === "none") query = query.is("purpose_id", null);
   else if (opts.purpose && UUID.test(opts.purpose)) query = query.eq("purpose_id", opts.purpose);
   const { data } = await query.order("appoint_date").order("time_start").limit(500);
@@ -637,9 +695,14 @@ export async function appointmentSlip(id: string) {
 }
 
 export async function appointmentEvents(id: string) {
-  const { data } = await supabaseAdmin().from("appointment_events").select("id, kind, actor, staff_id, channel, detail, created_at")
+  const db = supabaseAdmin();
+  const { data } = await db.from("appointment_events").select("id, kind, actor, staff_id, channel, detail, created_at")
     .eq("appointment_id", id).order("created_at");
-  return data ?? [];
+  const rows = (data ?? []) as { staff_id: string | null }[];
+  const ids = [...new Set(rows.map((r) => r.staff_id).filter((x): x is string => !!x))];
+  const { data: staff } = ids.length ? await db.from("staff").select("id, display_name").in("id", ids) : { data: [] };
+  const name = new Map(((staff ?? []) as { id: string; display_name: string }[]).map((s) => [s.id, s.display_name]));
+  return rows.map((r) => ({ ...r, staff_name: r.staff_id ? name.get(r.staff_id) ?? null : null }));
 }
 
 export async function loadPurposes(): Promise<PurposeRow[]> {
