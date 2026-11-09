@@ -79,7 +79,7 @@ function shapeOf(v: unknown, depth = 0): unknown {
 }
 
 /** ตรวจการเชื่อม iService ทีละขั้น ไม่คืนค่าลับหรือข้อมูลคนไข้ */
-export async function diagnose(date: string) {
+export async function diagnose(date: string, q = "") {
   const secrets = Object.fromEntries(["ISERVICE_USERNAME", "ISERVICE_PASSWORD", "ISERVICE_CIS_CODE"].map((n) => [n, !!Deno.env.get(n)]));
   const out: Record<string, unknown> = { date, secrets };
   if (Object.values(secrets).some((v) => !v)) return out;
@@ -119,6 +119,29 @@ export async function diagnose(date: string) {
       vnTimes: rows.map((r) => timeFromVn(String(r.vn ?? ""), String(r.vstdate ?? "").slice(0, 10))).filter(Boolean).slice(0, 5),
       message: j2 && typeof j2 === "object" && typeof (j2 as Record<string, unknown>).message === "string" ? ((j2 as Record<string, unknown>).message as string).slice(0, 200) : undefined,
     };
+    // patient_list: ลองชื่อพารามิเตอร์หลายแบบ รายงานแค่สถานะ จำนวน และโครงสร้าง
+    if (q) {
+      const variants: Record<string, Record<string, string>> = {
+        none: {}, search: { search: q }, keyword: { keyword: q }, hn: { hn: q }, name: { name: q }, q: { q },
+        text: { text: q }, search_text: { search_text: q }, mobile: { mobile_phone_number: q },
+      };
+      const results: Record<string, unknown> = {};
+      for (const [k, params] of Object.entries(variants)) {
+        const qs3 = new URLSearchParams({ cis_code: cisCode(), ...params }).toString();
+        const r3 = await fetch(`${BASE}/api/patient/v1/patient_list?${qs3}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
+        const t3 = await r3.text();
+        let j3: unknown = null;
+        try { j3 = JSON.parse(t3); } catch { /* ไม่ใช่ JSON */ }
+        const rows3 = rowsOf(j3);
+        results[k] = {
+          status: r3.status, rows: rows3.length,
+          matches: rows3.filter((r) => String(r.hn ?? r.HN ?? "").replace(/^0+/, "") === q.replace(/^0+/, "")).length,
+          message: j3 && typeof j3 === "object" && typeof (j3 as Record<string, unknown>).message === "string" ? ((j3 as Record<string, unknown>).message as string).slice(0, 160) : t3.slice(0, 80).replace(/[0-9]{6,}/g, "#"),
+          ...(k === "none" ? { shape: shapeOf(j3), rowKeys: rows3[0] ? Object.keys(rows3[0]) : [] } : {}),
+        };
+      }
+      out.patient_list = results;
+    }
   } catch (e) {
     out.error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
   }

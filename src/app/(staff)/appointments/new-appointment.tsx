@@ -52,7 +52,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
   async function call<T>(body: Record<string, unknown>): Promise<T | null> {
     const { data, error } = await sb.functions.invoke("iservice", { body });
     if (error) {
-      setErr("เชื่อมต่อ iService ไม่สำเร็จ — ค้นหาคนไข้เก่าหรือกรอกเองได้");
+      setErr("เชื่อมต่อ iService ไม่สำเร็จ — ลองใหม่อีกครั้ง หรือคนไข้ใหม่ให้ทำนัดจากแชท");
       return null;
     }
     return data as T;

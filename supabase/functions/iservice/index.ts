@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
     // ตรวจการเชื่อมต่อ: เรียกได้เฉพาะ server ของ DocDesk (ผ่าน /api/appointments/iservice-check ของแอดมิน)
     if (b.action === "diagnose") {
       if (!isServer) return json({ error: "forbidden" }, 403);
-      return json(await diagnose(bangkokToday()));
+      return json(await diagnose(bangkokToday(), (b.q ?? "").trim().slice(0, 30)));
     }
     if (b.action === "visits") {
       const visits = await visitsOn(bangkokToday());

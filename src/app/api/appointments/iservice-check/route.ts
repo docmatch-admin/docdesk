@@ -8,7 +8,7 @@ export const maxDuration = 60;
  * แอดมินตรวจการเชื่อม iService ทีละขั้น (login → token → ovst_list วันนี้)
  * คืนเฉพาะสถานะ โครงสร้างคำตอบ และจำนวนรายการ ไม่มีค่าลับหรือข้อมูลคนไข้
  */
-export async function GET() {
+export async function GET(req: Request) {
   const { error } = await requireAdmin();
   if (error) return error;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -18,7 +18,7 @@ export async function GET() {
     const res = await fetch(`${url}/functions/v1/iservice`, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, apikey: key, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "diagnose" }),
+      body: JSON.stringify({ action: "diagnose", q: new URL(req.url).searchParams.get("q") ?? "" }),
       signal: AbortSignal.timeout(55_000),
     });
     const body = await res.json().catch(() => null);
