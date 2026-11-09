@@ -8,7 +8,7 @@ import { InfoTip } from "./info-tip";
  * แต่ละกลุ่มลงทะเบียนสถานะ "มีการแก้ไขที่ยังไม่บันทึก" และฟังก์ชันบันทึกของตัวเองที่นี่
  * ทุกหมวดยังอยู่ใน DOM แม้เลือกหมวดอื่น ค่าที่แก้ไม่หายเมื่อสลับหมวด
  */
-export type SettingsTab = "overview" | "ai" | "chat" | "appointments" | "team";
+export type SettingsTab = "overview" | "ai" | "chat" | "appointments" | "team" | "display";
 
 export interface SaveUnit {
   id: string;

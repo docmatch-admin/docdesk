@@ -187,6 +187,6 @@ test("CSS: แผงขวา 276px ตัวอักษร 13px หัวแ�
   assert.match(css, /\.chat-head\.compact \{ min-height: 46px;/);
   assert.match(css, /\.btn\.done\.head-done \{[^}]*height: 36px;/);
   assert.match(css, /\.icon-btn \{[^}]*min-width: 32px; height: 32px;/);
-  assert.match(css, /\.chat \{ flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; \}/);
+  assert.match(css, /\.chat \{ flex: 1; min-width: 0; display: flex; flex-direction: column; background: var\(--card\); \}/);
   assert.match(css, /@media \(max-width: 1279px\) \{\s*\.chat-area \{ flex-direction: column;/);
 });

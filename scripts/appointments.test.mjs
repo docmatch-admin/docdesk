@@ -1696,3 +1696,44 @@ test("ข้อความนัด: บรรทัดติดต่อมี
   // ค่าที่ admin แก้เองไม่ถูกเปลี่ยนตอน normalize
   assert.equal(rules.normalizeAppointmentSettings({ template_th: "ข้อความเอง {name}" }).template_th, "ข้อความเอง {name}");
 });
+
+test("ธีมสว่าง/มืด: ค่าเริ่มต้นตามเครื่อง เลือกเองได้ จำต่อเครื่อง โหลดก่อนวาดหน้า · เมนูชื่อ ตั้งค่า", async () => {
+  const theme = await import("../src/lib/theme.ts");
+  assert.equal(theme.normalizeTheme("dark"), "dark");
+  assert.equal(theme.normalizeTheme("light"), "light");
+  assert.equal(theme.normalizeTheme(null), "system");
+  assert.equal(theme.normalizeTheme("blue"), "system");
+  const root = { dataset: {} };
+  theme.applyTheme("dark", root);
+  assert.equal(root.dataset.theme, "dark");
+  theme.applyTheme("system", root);
+  assert.equal(root.dataset.theme, undefined, "ตามเครื่อง = ไม่ใส่ data-theme ให้ CSS ตาม prefers-color-scheme");
+  // สคริปต์บูตใส่ธีมที่เลือกเองก่อนวาดหน้า
+  const html = { dataset: {} };
+  const store = { getItem: (k) => (k === theme.THEME_KEY ? "dark" : null) };
+  new Function("localStorage", "document", theme.THEME_BOOT_SCRIPT)(store, { documentElement: html });
+  assert.equal(html.dataset.theme, "dark");
+  new Function("localStorage", "document", theme.THEME_BOOT_SCRIPT)({ getItem: () => { throw new Error("blocked"); } }, { documentElement: {} });
+
+  const layout = readFileSync("src/app/layout.tsx", "utf8");
+  assert.match(layout, /THEME_BOOT_SCRIPT/);
+  assert.match(layout, /suppressHydrationWarning/);
+  const css = readFileSync("src/app/globals.css", "utf8");
+  assert.match(css, /@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme="light"\]\) \{/);
+  assert.match(css, /:root\[data-theme="dark"\] \{/);
+  assert.match(css, /color-scheme: dark;/);
+  // ใบนัด/ใบแจ้งรหัสเป็นกระดาษ สว่างเสมอ
+  assert.match(css, /\.appt-slip, \.print-slip \{[^}]*--card: #fff;/);
+  // พื้นหลังสีขาวตายตัวเหลือไม่ได้ (ต้องใช้ var(--card))
+  assert.doesNotMatch(css, /background: #fff\b(?![0-9a-fA-F])/);
+
+  const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
+  assert.match(staff, /<span className="nav-label">ตั้งค่า<\/span>/);
+  const page = readFileSync("src/app/(staff)/settings/settings-client.tsx", "utf8");
+  assert.match(page, /settings-nav-title">ตั้งค่า</);
+  assert.match(page, /\["display", "การแสดงผล"\]/);
+  const ts = readFileSync("src/app/(staff)/settings/theme-settings.tsx", "utf8");
+  for (const l of ["ตามเครื่อง", "สว่าง", "มืด"]) assert.ok(readFileSync("src/lib/theme.ts", "utf8").includes(`"${l}"`), l);
+  assert.match(ts, /role="radiogroup"/);
+  assert.doesNotMatch(ts, /useSaveUnit/, "มีผลทันที ไม่รอปุ่มบันทึก");
+});

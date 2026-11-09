@@ -14,6 +14,7 @@ import { LineUsagePanel, type Usage } from "./line-usage-panel";
 import { PriceAlerts } from "./price-alerts";
 import { SetGroup, SetLine, SettingsContext, Switch, type SaveUnit, type SettingsCtx, type SettingsTab } from "./settings-save";
 import { TagSettings } from "./tag-settings";
+import { ThemeSettings } from "./theme-settings";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
 
 interface Channel { id: string; type: ChannelType; name: string; ai_mode: AiMode | null; enabled: boolean }
@@ -25,7 +26,7 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const MODES = Object.keys(AI_MODE_LABEL) as AiMode[];
 
 export const TABS: [SettingsTab, string][] = [
-  ["overview", "ภาพรวม"], ["ai", "AI"], ["chat", "แชทและแท็ก"], ["appointments", "นัดหมาย"], ["team", "ทีมและระบบ"],
+  ["overview", "ภาพรวม"], ["ai", "AI"], ["chat", "แชทและแท็ก"], ["appointments", "นัดหมาย"], ["team", "ทีมและระบบ"], ["display", "การแสดงผล"],
 ];
 const isTab = (v: unknown): v is SettingsTab => TABS.some(([k]) => k === v);
 
@@ -203,7 +204,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
       <div className="page settings-page">
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="หมวดการตั้งค่า">
-            <div className="settings-nav-title">ตั้งค่า AI</div>
+            <div className="settings-nav-title">ตั้งค่า</div>
             <div role="tablist" aria-orientation="vertical" className="settings-nav-list">
               {TABS.map(([k, label]) => (
                 <button key={k} id={`sectionbtn-${k}`} type="button" role="tab" aria-selected={tab === k} aria-controls={`section-${k}`}
@@ -370,6 +371,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
                 </SetGroup>
               </>
             ))}
+            {panel("display", <ThemeSettings />)}
           </div>
         </div>
 

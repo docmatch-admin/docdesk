@@ -52,7 +52,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         {chatStaff && <Link href="/reports" title="รายงาน"><span className="nav-icon" aria-hidden="true"><Icon name="chart" size={20} /></span><span className="nav-label">รายงาน</span></Link>}
         {isAdmin && <Link href="/staff" title="เจ้าหน้าที่"><span className="nav-icon" aria-hidden="true"><Icon name="users" size={20} /></span><span className="nav-label">เจ้าหน้าที่</span></Link>}
         {isAdmin && <Link href="/sensitive-log" title="ประวัติแชทลับ"><span className="nav-icon" aria-hidden="true"><Icon name="lock" size={20} /></span><span className="nav-label">ประวัติแชทลับ</span></Link>}
-        {isAdmin && <Link href="/settings" title="ตั้งค่า AI"><span className="nav-icon" aria-hidden="true"><Icon name="settings" size={20} /></span><span className="nav-label">ตั้งค่า AI</span></Link>}
+        {isAdmin && <Link href="/settings" title="ตั้งค่า"><span className="nav-icon" aria-hidden="true"><Icon name="settings" size={20} /></span><span className="nav-label">ตั้งค่า</span></Link>}
         {isAdmin && <Link href="/knowledge" title="ฐานข้อมูล & คำตอบ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ฐานข้อมูล &amp; คำตอบ</span></Link>}
         <div className="nav-foot">
           {/* ตอนย่อเมนูซ่อนส่วนนี้ เหลือแค่ปุ่มขยาย */}
