@@ -111,6 +111,12 @@ export async function diagnose(date: string) {
       sampleHasName: rows[0] ? !!toVisit(rows[0]).name : null,
       sampleHasDoctor: rows[0] ? !!toVisit(rows[0]).doctor : null,
       sampleHasTime: rows[0] ? !!toVisit(rows[0]).time : null,
+      // รูปแบบเท่านั้น ไม่มีค่าจริง
+      vsttimeFilled: rows.filter((r) => String(r.vsttime ?? "").trim()).length,
+      vnPattern: [...new Set(rows.map((r) => String(r.vn ?? "").replace(/\d/g, "9")))].slice(0, 3),
+      vstdatePattern: [...new Set(rows.map((r) => String(r.vstdate ?? "").replace(/\d/g, "9")))].slice(0, 3),
+      vnTimeParsed: rows.filter((r) => timeFromVn(String(r.vn ?? ""), String(r.vstdate ?? "").slice(0, 10))).length,
+      vnTimes: rows.map((r) => timeFromVn(String(r.vn ?? ""), String(r.vstdate ?? "").slice(0, 10))).filter(Boolean).slice(0, 5),
       message: j2 && typeof j2 === "object" && typeof (j2 as Record<string, unknown>).message === "string" ? ((j2 as Record<string, unknown>).message as string).slice(0, 200) : undefined,
     };
   } catch (e) {
@@ -130,6 +136,22 @@ const pick = (r: Record<string, unknown>, keys: string[]): string => {
 export interface Visit { hn: string; name: string; doctor: string; time: string; phone: string; seq: number }
 export interface Patient { hn: string; name: string; phone: string }
 
+/**
+ * VN ของ HOSxP รูปแบบ YYMMDDhhmmss (ปี พ.ศ. 2 หลัก) เช่น 691109075500 → 07:55
+ * ใช้เมื่อ ovst_list ไม่มีเวลา ตรวจว่าวันที่ใน VN ตรงกับวันที่ visit ก่อนเชื่อ
+ */
+export function timeFromVn(vn: string, visitDate?: string): string {
+  const m = vn.trim().match(/^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  if (!m) return "";
+  const [, yy, mo, dd, hh, mi] = m;
+  if (Number(hh) > 23 || Number(mi) > 59 || Number(mo) < 1 || Number(mo) > 12) return "";
+  if (visitDate && /^\d{4}-\d{2}-\d{2}$/.test(visitDate)) {
+    const be = String(Number(visitDate.slice(0, 4)) + 543).slice(2);
+    if (be !== yy || visitDate.slice(5, 7) !== mo || visitDate.slice(8, 10) !== dd) return "";
+  }
+  return `${hh}:${mi}`;
+}
+
 export function toVisit(r: Record<string, unknown>): Visit {
   return {
     hn: pick(r, ["hn"]),
@@ -137,7 +159,7 @@ export function toVisit(r: Record<string, unknown>): Visit {
     // ovst_list ของ iService ใช้ doctor_dx (แพทย์ผู้ตรวจ)
     doctor: pick(r, ["doctor_dx", "doctor", "doctor_name", "doctorname", "dr_name", "dname", "provider"]),
     // vsttime อาจว่าง ไม่ใช้ vstdate แทนเพราะเป็นวันที่ ไม่ใช่เวลา
-    time: pick(r, ["vsttime", "visit_time", "time", "vn_time", "regist_time"]),
+    time: pick(r, ["vsttime", "visit_time", "time", "vn_time", "regist_time"]) || timeFromVn(pick(r, ["vn"]), pick(r, ["vstdate"]).slice(0, 10)),
     // ลำดับคิวของวัน ใช้เรียงเมื่อไม่มีเวลา
     seq: Number(pick(r, ["oqueue", "no"])) || 0,
     phone: pick(r, ["mobile_phone_number", "phone", "mobile", "tel"]),
@@ -160,13 +182,36 @@ export async function visitsOn(date: string): Promise<Visit[]> {
   return rowsOf(json).map(toVisit).filter((v) => v.hn);
 }
 
-/** ค้นด้วย HN (ตัวเลข) หรือชื่อ ส่งทั้ง search และ keyword เผื่อ API ใช้ชื่อพารามิเตอร์ต่างกัน แล้วกรองซ้ำฝั่งนี้ */
+const digits = (s: string) => s.replace(/\D/g, "");
+/** เบอร์มือถือ/บ้านไทย 9–10 หลักขึ้นต้นด้วย 0 */
+const isPhone = (s: string) => /^0\d{8,9}$/.test(digits(s)) && digits(s).length === s.replace(/[\s-]/g, "").length;
+
+/**
+ * ค้นด้วย HN (ตัวเลข) ชื่อ หรือเบอร์ ส่งพารามิเตอร์หลายชื่อเผื่อ API ใช้ชื่อต่างกัน แล้วกรองซ้ำฝั่งนี้
+ * HN ค้นได้ทั้งแบบเต็มและแบบตัด 0 นำหน้า
+ */
 export async function searchPatients(q: string): Promise<Patient[]> {
   const term = q.trim();
-  const params: Record<string, string> = { search: term, keyword: term, ...(/^\d+$/.test(term) ? { hn: term } : { name: term }) };
+  const phone = isPhone(term) ? digits(term) : "";
+  const params: Record<string, string> = {
+    search: phone || term, keyword: phone || term,
+    ...(phone ? { phone, mobile_phone_number: phone } : /^\d+$/.test(term) ? { hn: term } : { name: term }),
+  };
   const json = await iserviceGet("/api/patient/v1/patient_list", params);
   const needle = term.toLowerCase();
+  const hnNeedle = term.replace(/^0+(?=\d)/, "");
   return rowsOf(json).map(toPatient)
-    .filter((p) => p.hn && (p.hn.includes(term) || p.name.toLowerCase().includes(needle)))
+    .filter((p) => p.hn && (
+      phone ? digits(p.phone).includes(phone)
+        : p.hn.includes(term) || p.hn.replace(/^0+(?=\d)/, "") === hnNeedle || p.name.toLowerCase().includes(needle)
+    ))
     .slice(0, 50);
 }
+
+/** ชื่อสำหรับเทียบ: ตัดคำนำหน้า ช่องว่าง และวรรณยุกต์ที่พิมพ์ต่างกันไม่ได้ (คงตัวอักษรไว้) */
+const TITLES = /^(นาย|นางสาว|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.|เด็กชาย|เด็กหญิง|mr\.?|mrs\.?|ms\.?|miss)\s*/i;
+export function normalizeName(name: string): string {
+  return name.trim().replace(TITLES, "").replace(/[\s.]+/g, "").toLowerCase();
+}
+
+export const samePhone = (a: string, b: string) => !!digits(a) && digits(a).slice(-9) === digits(b).slice(-9);

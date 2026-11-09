@@ -660,3 +660,80 @@ export async function appointmentDayCounts(from: string, to: string): Promise<Re
   }
   return out;
 }
+
+/** ตัวเลขบนแท็บหน้านัดหมาย (ไม่นับนัดที่ยกเลิก) all = ตั้งแต่วันนี้เป็นต้นไป */
+export async function appointmentTabCounts(now = Date.now()) {
+  const today = bangkokToday(now);
+  const tomorrow = addDays(today, 1);
+  const { data } = await supabaseAdmin().from("appointments").select("appoint_date, status")
+    .gte("appoint_date", today).neq("status", "cancelled");
+  const rows = (data ?? []) as { appoint_date: string }[];
+  return {
+    today: rows.filter((r) => r.appoint_date === today).length,
+    tomorrow: rows.filter((r) => r.appoint_date === tomorrow).length,
+    all: rows.length,
+  };
+}
+
+/** HN ที่มีนัดในอนาคตอยู่แล้ว ใช้แสดงป้าย "มีนัดแล้ว" ในรายการคนไข้วันนี้ */
+export async function upcomingAppointmentHns(now = Date.now()): Promise<string[]> {
+  const { data } = await supabaseAdmin().from("appointments").select("hn")
+    .gt("appoint_date", bangkokToday(now)).in("status", OPEN_STATUSES).not("hn", "is", null);
+  return [...new Set(((data ?? []) as { hn: string | null }[]).map((r) => r.hn?.trim()).filter((h): h is string => !!h))];
+}
+
+// ---------------------------------------------------------------------------
+// คนไข้ใหม่ที่นัดจากแชท: จับคู่ HN หลังมาตรวจครั้งแรก (mark-attendance เสนอ แอดมินยืนยัน)
+// ---------------------------------------------------------------------------
+export interface HnMatchRow {
+  id: string; hn: string; his_name: string | null; matched_by: "name" | "name_phone"; created_at: string;
+  appointment: { id: string; patient_name: string; phone: string | null; appoint_date: string; conversation_id: string | null } | null;
+}
+
+export async function listHnMatches(): Promise<HnMatchRow[]> {
+  const { data } = await supabaseAdmin().from("appointment_hn_matches")
+    .select("id, hn, his_name, matched_by, created_at, appointments(id, patient_name, phone, appoint_date, conversation_id)")
+    .eq("status", "pending").order("created_at");
+  return ((data ?? []) as unknown as (Omit<HnMatchRow, "appointment"> & { appointments: HnMatchRow["appointment"] | HnMatchRow["appointment"][] })[])
+    .map(({ appointments, ...m }) => ({ ...m, appointment: Array.isArray(appointments) ? appointments[0] ?? null : appointments }));
+}
+
+/**
+ * ยืนยัน: ผูก HN กับแชท (ชื่อจาก HIS) ใส่ HN/ชื่อจริงในนัด และนัดเป็น attended ข้อเสนออื่นของนัดเดียวกันถูกปัดตก
+ * ปฏิเสธ: ถ้าไม่เหลือข้อเสนออื่น นัดเป็น no_show ตามปกติ
+ */
+export async function decideHnMatch(matchId: string, accept: boolean, staffId: string): Promise<{ status: string }> {
+  const db = supabaseAdmin();
+  const { data: match } = await db.from("appointment_hn_matches").select("id, appointment_id, hn, his_name, status").eq("id", matchId).maybeSingle();
+  if (!match || match.status !== "pending") throw new AppointmentError("ข้อเสนอนี้ถูกตัดสินไปแล้ว", 409);
+  const appt = await loadAppointment(match.appointment_id as string);
+  if (!appt) throw new AppointmentError("ไม่พบนัด", 404);
+  const at = nowIso();
+  const hn = match.hn as string;
+
+  if (!accept) {
+    await db.from("appointment_hn_matches").update({ status: "rejected", decided_by: staffId, decided_at: at }).eq("id", matchId);
+    const { data: left } = await db.from("appointment_hn_matches").select("id").eq("appointment_id", appt.id).eq("status", "pending");
+    if (!left?.length && OPEN_STATUSES.includes(appt.status)) {
+      await db.from("appointments").update({ status: "no_show", updated_at: at }).eq("id", appt.id);
+      await logAppointmentEvent(appt.id, "no_show", "staff", { staffId, detail: { reason: "ปฏิเสธการจับคู่ HN" } });
+      return { status: "no_show" };
+    }
+    return { status: appt.status };
+  }
+
+  let name = (match.his_name as string | null)?.trim() || appt.patient_name;
+  if (appt.conversation_id) {
+    const linked = await linkConversationToHn(appt.conversation_id, hn, { via: "staff", staffId, fallbackName: name, fallbackFromHis: true, phone: appt.phone });
+    if (linked?.name) name = linked.name;
+  }
+  await db.from("appointments").update({
+    hn, patient_name: name, name_from_his: true,
+    ...(OPEN_STATUSES.includes(appt.status) ? { status: "attended" } : {}),
+    updated_at: at,
+  }).eq("id", appt.id);
+  await db.from("appointment_hn_matches").update({ status: "accepted", decided_by: staffId, decided_at: at }).eq("id", matchId);
+  await db.from("appointment_hn_matches").update({ status: "rejected", decided_by: staffId, decided_at: at }).eq("appointment_id", appt.id).eq("status", "pending");
+  await logAppointmentEvent(appt.id, "hn_match_accepted", "staff", { staffId, detail: { hn } });
+  return { status: "attended" };
+}

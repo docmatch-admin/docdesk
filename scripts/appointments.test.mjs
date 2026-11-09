@@ -683,3 +683,38 @@ test("ใบนัดและหน้าจอใช้คอลัมน์�
   assert.match(slip, /a\.instructions/);
   assert.match(slip, /a\.purpose_text/);
 });
+
+// ---------------------------------------------------------------------------
+// หน้านัดหมายเฉพาะคนไข้ที่มี HN / คนไข้ใหม่จับคู่ HN หลังมาตรวจ
+// ---------------------------------------------------------------------------
+test("หน้านัดหมายทำนัดได้เฉพาะคนไข้ที่มี HN คนไข้ใหม่ทำจากแชทได้", async () => {
+  const res = await appointmentsRoute.POST(jsonReq("POST", { patient_name: "คนใหม่", appoint_date: inDays(3), time_mode: "slot", slot_id: "morning" }));
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /คนไข้ใหม่ให้ทำนัดจากแชท/);
+  state.currentUser = { id: "agent", email: "a@test" };
+  const fromChat = await appointmentsRoute.POST(jsonReq("POST", { patient_name: "คนใหม่", phone: "0811112222", appoint_date: inDays(3), time_mode: "slot", slot_id: "morning", conversation_id: "conv-line" }));
+  assert.equal(fromChat.status, 200);
+  assert.equal((await fromChat.json()).appointment.hn, null);
+});
+
+test("ยืนยันจับคู่ HN: ผูกแชท ชื่อจริง·HN นัดเป็น attended และปัดตกข้อเสนออื่น", async () => {
+  his["000004714"] = { name: "นางมานี ใจดี", phone: "0811112222" };
+  const a = addAppointment({ hn: null, patient_name: "มานี", phone: "0811112222", appoint_date: today, link_code: "NEW001" });
+  state.tables.appointment_hn_matches = [
+    { id: "m1", appointment_id: a.id, hn: "000004714", his_name: "นางมานี ใจดี", matched_by: "name_phone", status: "pending" },
+    { id: "m2", appointment_id: a.id, hn: "000009999", his_name: "นางมานี ใจดี", matched_by: "name", status: "pending" },
+  ];
+  assert.deepEqual(await store.decideHnMatch("m1", true, "adm"), { status: "attended" });
+  assert.deepEqual([appt(a.id).hn, appt(a.id).patient_name, appt(a.id).status], ["000004714", "นางมานี ใจดี", "attended"]);
+  assert.equal(names.contactName(contact("c-line")), "นางมานี ใจดี · HN 000004714");
+  assert.deepEqual(state.tables.appointment_hn_matches.map((m) => m.status), ["accepted", "rejected"]);
+  await assert.rejects(store.decideHnMatch("m2", true, "adm"), /ตัดสินไปแล้ว/);
+});
+
+test("ปฏิเสธจับคู่ทุกข้อเสนอ: นัดเป็น no_show", async () => {
+  const a = addAppointment({ hn: null, patient_name: "ชูใจ", appoint_date: today, link_code: "NEW002" });
+  state.tables.appointment_hn_matches = [{ id: "m3", appointment_id: a.id, hn: "123", his_name: "ชูใจ", matched_by: "name", status: "pending" }];
+  assert.deepEqual(await store.decideHnMatch("m3", false, "adm"), { status: "no_show" });
+  assert.equal(appt(a.id).status, "no_show");
+  assert.equal(contact("c-line").hn ?? null, null, "ไม่ผูก HN");
+});

@@ -500,16 +500,7 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .btn.danger { color: #b3263a; border-color: #f3b8c0; }
 .nav-count { margin-left: auto; }
-.appt-page { display: flex; flex-direction: column; gap: 12px; }
-.appt-filters { margin-left: auto; }
-.appt-filters input[type="date"] { width: auto; }
 .appt-new { display: flex; flex-direction: column; gap: 10px; }
-.appt-pick-list { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
-.appt-pick-list:empty { display: none; }
-.appt-pick { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: #fff; padding: 10px 12px; cursor: pointer; min-height: 48px; }
-.appt-pick:hover, .appt-pick:focus-visible { background: var(--blue-soft); }
-.appt-pick-time { font-variant-numeric: tabular-nums; font-weight: 600; }
-.appt-pick-name { font-weight: 500; }
 .appt-form { display: flex; flex-direction: column; gap: 12px; }
 .appt-form.compact { gap: 8px; margin-top: 8px; font-size: 13px; }
 .appt-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; }
@@ -538,9 +529,6 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .appt-side-card { padding: 8px 10px; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 13px; }
 @media (max-width: 720px) {
   .appt-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .appt-filters { margin-left: 0; width: 100%; }
-  .appt-pick { grid-template-columns: 56px 1fr; }
-  .appt-pick > :last-child { grid-column: 2; }
 }
 
 /* ใบนัด thermal 80mm: กว้างพิมพ์ได้จริงราว 72mm ขาวดำล้วน ฟอนต์ไทยตัวหนาอ่านชัดบนกระดาษความร้อน */
@@ -606,3 +594,88 @@ body > .appt-slip { display: none; }
 .hours-slot { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; }
 .hours-slot input { width: auto; padding: 4px 6px; }
 .hours-slot input:first-child { width: 90px; }
+
+/* ---------- หน้านัดหมาย: เลย์เอาต์ (spacing 8/12/16/24, การ์ดโค้ง 12px) ---------- */
+.appt-page { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.appt-page > .card { border-radius: 12px; padding: 16px; }
+.appt-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.appt-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.appt-title h1 { margin: 0; }
+.appt-actions-top { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn.outline { background: #fff; border: 1px solid var(--blue); color: var(--blue); }
+.btn.outline:hover { background: var(--blue-soft); }
+
+/* ขั้นตอนทำนัด */
+.appt-new { display: flex; flex-direction: column; gap: 12px; }
+.appt-new-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.appt-steps { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--muted); flex-wrap: wrap; }
+.appt-steps li.on { color: var(--blue); font-weight: 600; }
+.appt-steps li.done { color: var(--ink); }
+.appt-steps-arrow { color: var(--muted); opacity: .6; }
+.appt-patient-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg); border-radius: 8px; }
+.appt-patient-name { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.appt-patient-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* segmented control และช่องค้นหา */
+.appt-pick-toolbar, .appt-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.appt-toolbar { margin-bottom: 12px; }
+.segmented { display: inline-flex; gap: 2px; padding: 2px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; flex-shrink: 0; }
+.segmented button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 4px 12px; border: 0; border-radius: 7px; background: none; color: var(--muted); font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.segmented button:hover { color: var(--ink); }
+.segmented button.on { background: #fff; color: var(--blue); font-weight: 600; box-shadow: 0 1px 2px rgba(29, 34, 51, .08); }
+.seg-badge { min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--line); color: var(--ink); font-size: 11px; text-align: center; }
+.segmented button.on .seg-badge { background: var(--blue-soft); color: var(--blue); }
+.search-box { flex: 1; min-width: 220px; height: 40px; display: flex; flex-direction: row; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); font-weight: 400; }
+.search-box:focus-within { border-color: var(--blue); outline: 2px solid var(--blue-soft); }
+.search-box input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent; }
+.search-box input:focus { outline: 0; }
+.search-box.with-button { padding-right: 4px; }
+.appt-toolbar .appt-purpose-filter { width: auto; height: 40px; }
+.appt-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; }
+.appt-filters .raw { margin-left: 0; }
+.appt-filters input[type="date"] { width: auto; }
+
+/* รายการคนไข้วันนี้ */
+.appt-pick-meta { font-size: 12px; color: var(--muted); }
+.appt-empty { padding: 16px; text-align: center; color: var(--muted); }
+.appt-pick-list { max-height: calc(48px * 8); overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.appt-pick-list::-webkit-scrollbar { width: 6px; }
+.appt-pick-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.appt-pick { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px 0 9px; border: 0; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; background: #fff; text-align: left; cursor: pointer; }
+.appt-pick:last-child { border-bottom: 0; }
+.appt-pick:hover, .appt-pick:focus-visible { background: var(--bg); }
+.appt-pick.selected { border-left-color: var(--blue); background: var(--blue-soft); }
+.appt-pick-time { width: 56px; flex-shrink: 0; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.appt-pick-main { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; }
+.appt-pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.appt-pick-hn { flex-shrink: 0; color: var(--muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.appt-pick-side { display: flex; align-items: center; gap: 8px; flex-shrink: 1; min-width: 0; max-width: 45%; }
+.appt-pick-doctor { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 13px; }
+.appt-pick-sub { display: none; }
+.appt-booked { flex-shrink: 0; background: var(--mint-soft); color: #0f7a5f; border-color: transparent; }
+
+/* รายการนัด */
+.appt-list-card { padding: 16px; }
+.appt-empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 32px 16px; color: var(--muted); }
+.appt-empty-state p { margin: 0; font-size: 15px; }
+.appt-hn { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .appt-page { gap: 12px; }
+  .appt-page > .card { padding: 12px; }
+  .search-box { min-width: 100%; }
+  .appt-pick { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 2px; padding: 8px 12px 8px 9px; min-height: 56px; }
+  .appt-pick-main, .appt-pick-side { display: contents; }
+  .appt-pick-time { grid-row: 1; grid-column: 1; width: auto; }
+  .appt-pick-name { grid-row: 1; grid-column: 2; }
+  .appt-booked { grid-row: 1; grid-column: 3; }
+  .appt-pick-hn, .appt-pick-doctor { display: none; }
+  .appt-pick-sub { display: block; grid-row: 2; grid-column: 2 / 4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+}
+/* ข้อเสนอจับคู่ HN */
+.appt-matches { display: flex; flex-direction: column; gap: 8px; border-color: #ffd2a1; }
+.appt-matches h3 { margin: 0; }
+.appt-match-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.appt-match-info { display: flex; flex-direction: column; min-width: 160px; flex: 1; }
+.appt-match-arrow { color: var(--muted); }
+.appt-match-actions { display: flex; gap: 8px; }

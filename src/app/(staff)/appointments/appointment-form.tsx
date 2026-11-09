@@ -71,10 +71,12 @@ const monthRange = (month: string) => {
  * ฟอร์มนัดเดียวกันทั้งหน้านัดหมายและกล่องขวาของแชท
  * เน้นกดน้อย: ปุ่มเหตุผลนัด (เลือกวันให้ตาม preset) ปุ่มลัดวัน ปุ่มช่วงเวลาตามเวลาเปิดคลินิก
  */
-export function AppointmentForm({ initial, hisName, conversationId, bookingId, appointmentId, showPatient = true, compact = false, saveLabel, onSaved, onCancel }: {
+export function AppointmentForm({ initial, hisName, lockHn = false, conversationId, bookingId, appointmentId, showPatient = true, compact = false, saveLabel, onSaved, onCancel }: {
   initial: AppointmentDraft;
   /** ชื่อที่ได้จาก iService ถ้าไม่ได้แก้ ระบบใช้เป็นชื่อ HIS ตอนผูกแชท */
   hisName?: string;
+  /** HN มาจาก iService แก้ไม่ได้ (หน้านัดหมาย) */
+  lockHn?: boolean;
   conversationId?: string;
   bookingId?: string;
   /** แก้นัดเดิม */
@@ -203,7 +205,7 @@ export function AppointmentForm({ initial, hisName, conversationId, bookingId, a
     <form className={`appt-form ${compact ? "compact" : ""}`} onSubmit={save}>
       {showPatient && (
         <div className="appt-grid">
-          <label>HN<input value={form.hn} onChange={(e) => set({ hn: e.target.value })} inputMode="numeric" autoComplete="off" /></label>
+          <label>HN<input value={form.hn} onChange={(e) => set({ hn: e.target.value })} inputMode="numeric" autoComplete="off" readOnly={lockHn} /></label>
           <label className="span2">ชื่อคนไข้<input required value={form.patient_name} onChange={(e) => set({ patient_name: e.target.value })} autoComplete="off" /></label>
           <label>เบอร์โทร<input value={form.phone} onChange={(e) => set({ phone: e.target.value })} inputMode="tel" autoComplete="off" /></label>
         </div>

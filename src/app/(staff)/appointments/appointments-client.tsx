@@ -8,7 +8,9 @@ import {
 } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import type { ChannelType } from "@/lib/types";
+import { Icon } from "../icons";
 import { AppointmentForm, channelName, deliveryText, draftOf } from "./appointment-form";
+import { shortHn } from "./new-appointment";
 import { NewAppointment } from "./new-appointment";
 
 type Row = Appointment & { channel: ChannelType | null; chat_name: string | null };
@@ -23,7 +25,7 @@ const STATE_CLASS: Record<DeliveryState, string> = {
   sent: "appt-state sent", pending: "appt-state", closed: "appt-state",
 };
 
-export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
+export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: boolean; isAdmin: boolean }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [tab, setTab] = useState<Tab>("tomorrow");
   const [q, setQ] = useState("");
@@ -33,6 +35,7 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
   const [presets, setPresets] = useState<{ id: string; name: string }[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [counts, setCounts] = useState({ mustCall: 0, reschedule: 0, total: 0 });
+  const [tabCounts, setTabCounts] = useState<Record<Tab, number> | null>(null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
@@ -53,6 +56,7 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
     const j = await res.json();
     setRows(j.rows as Row[]);
     setCounts(j.counts);
+    if (j.tabCounts) setTabCounts(j.tabCounts);
   }, [tab, q, from, to, purpose]);
 
   useEffect(() => {
@@ -89,38 +93,53 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
 
   return (
     <div className="page appt-page">
-      <div className="row between">
-        <h1>นัดหมาย</h1>
-        <div className="row">
+      <header className="appt-header">
+        <div className="appt-title">
+          <h1>นัดหมาย</h1>
           {counts.mustCall > 0 && <span className="chip red">ต้องโทร {counts.mustCall}</span>}
           {counts.reschedule > 0 && <span className="chip orange">ขอเลื่อน {counts.reschedule}</span>}
-          {canOpenChat && <Link className="btn ghost small" href="/bookings">นัดที่ AI รับไว้</Link>}
-          {!creating && <button className="btn primary" onClick={() => setCreating(true)}>+ ทำนัดใหม่</button>}
         </div>
-      </div>
+        <div className="appt-actions-top">
+          {canOpenChat && <Link className="btn outline" href="/bookings">นัดที่ AI รับไว้</Link>}
+          <button className="btn primary" onClick={() => setCreating(true)} disabled={creating}>+ ทำนัดใหม่</button>
+        </div>
+      </header>
 
       {creating && <NewAppointment onClose={() => setCreating(false)} />}
+      {isAdmin && <HnMatches onChanged={load} onMessage={flash} />}
 
-      <div className="tabs wide" role="tablist">
-        {TABS.map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
-        ))}
-        <select className="appt-purpose-filter" aria-label="กรองตามเหตุผลนัด" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
-          <option value="">ทุกเหตุผลนัด</option>
-          {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          <option value="none">ไม่ได้เลือก preset</option>
-        </select>
-        {tab === "all" && (
-          <div className="row appt-filters">
-            <input className="search" placeholder="ค้นหา ชื่อ / HN / เบอร์" value={q} onChange={(e) => setQ(e.target.value)} />
-            <label className="raw small">ตั้งแต่<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-            <label className="raw small">ถึง<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+      <section className="card appt-list-card">
+        <div className="appt-toolbar">
+          <div className="segmented" role="tablist" aria-label="ช่วงวันนัด">
+            {TABS.map(([k, label]) => (
+              <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
+                {label}{tabCounts && <span className="seg-badge">{tabCounts[k]}</span>}
+              </button>
+            ))}
+          </div>
+          <select className="appt-purpose-filter" aria-label="กรองตามเหตุผลนัด" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+            <option value="">ทุกเหตุผลนัด</option>
+            {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <option value="none">ไม่ได้เลือก preset</option>
+          </select>
+          {tab === "all" && (
+            <div className="appt-filters">
+              <label className="search-box">
+                <Icon name="search" size={16} />
+                <input type="search" aria-label="ค้นหานัด" placeholder="ชื่อ / HN / เบอร์" value={q} onChange={(e) => setQ(e.target.value)} />
+              </label>
+              <label className="raw small">ตั้งแต่<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+              <label className="raw small">ถึง<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+            </div>
+          )}
+        </div>
+        {rows.length === 0 && (
+          <div className="appt-empty-state">
+            <Icon name="calendar" size={32} />
+            <p>{tab === "tomorrow" ? "ยังไม่มีนัดพรุ่งนี้" : tab === "today" ? "ยังไม่มีนัดวันนี้" : "ไม่พบนัดตามเงื่อนไข"}</p>
+            {!creating && <button className="btn primary" onClick={() => setCreating(true)}>+ ทำนัดใหม่</button>}
           </div>
         )}
-      </div>
-
-      <section className="card">
-        {rows.length === 0 && <div className="muted small">ไม่มีนัด</div>}
         {rows.length > 0 && (
           <div className="report-table-wrap">
             <table className="report-table appt-table">
@@ -148,7 +167,7 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
                             onSaved={(res) => { setEditing(null); flash(res.delivery ? `บันทึกแล้ว · ${deliveryText(res.delivery)}` : "บันทึกแล้ว"); load(); }} />
                         )}
                       </td>
-                      <td>{r.hn || "–"}</td>
+                      <td className="appt-hn">{r.hn ? shortHn(r.hn) : "–"}</td>
                       <td>{r.phone ? <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`}>{r.phone}</a> : "–"}</td>
                       <td>
                         {r.channel ? <span className={`chip ch-${r.channel}`}>{channelName(r.channel)}</span> : <span className="muted small">ไม่มีแชท</span>}
@@ -182,5 +201,53 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
       </section>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
+  );
+}
+
+interface HnMatch {
+  id: string; hn: string; his_name: string | null; matched_by: "name" | "name_phone";
+  appointment: { id: string; patient_name: string; phone: string | null; appoint_date: string; conversation_id: string | null } | null;
+}
+
+/** คนไข้ใหม่ที่นัดจากแชทมาตรวจแล้ว ระบบเจอ visit ที่ชื่อตรง ให้แอดมินยืนยันผูก HN */
+function HnMatches({ onChanged, onMessage }: { onChanged: () => void; onMessage: (m: string) => void }) {
+  const [rows, setRows] = useState<HnMatch[]>([]);
+  const load = useCallback(async () => {
+    const r = await fetch("/api/appointments/hn-matches");
+    if (r.ok) setRows((await r.json()).matches as HnMatch[]);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function decide(id: string, accept: boolean) {
+    const r = await fetch(`/api/appointments/hn-matches/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accept }) });
+    const j = await r.json().catch(() => ({}));
+    onMessage(r.ok ? (accept ? "ผูก HN กับแชทแล้ว · นัดเป็นมาตามนัด" : "ปฏิเสธการจับคู่แล้ว") : j.error ?? "บันทึกไม่สำเร็จ");
+    load();
+    onChanged();
+  }
+
+  if (!rows.length) return null;
+  return (
+    <section className="card appt-matches">
+      <h3>รอยืนยันการจับคู่ HN ({rows.length})</h3>
+      <p className="muted small">คนไข้ใหม่ที่นัดจากแชทมาตรวจแล้ว ระบบพบ visit ที่ชื่อตรงกัน ยืนยันแล้วแชทจะแสดงชื่อจริง · HN และนัดเป็น "มาตามนัด"</p>
+      {rows.map((m) => (
+        <div key={m.id} className="appt-match-row">
+          <div className="appt-match-info">
+            <b>{m.appointment?.patient_name ?? "–"}</b>
+            <span className="muted small">{m.appointment?.phone ?? "ไม่มีเบอร์"} · นัด {m.appointment ? thaiShortDate(m.appointment.appoint_date) : "–"}</span>
+          </div>
+          <span className="appt-match-arrow" aria-hidden="true">→</span>
+          <div className="appt-match-info">
+            <b>{m.his_name ?? "–"}</b>
+            <span className="muted small">HN {shortHn(m.hn)} · {m.matched_by === "name_phone" ? "ชื่อและเบอร์ตรง" : "ชื่อตรง (เบอร์ยังไม่ยืนยัน)"}</span>
+          </div>
+          <div className="appt-match-actions">
+            <button className="btn primary small" onClick={() => decide(m.id, true)}>ยืนยันผูก HN</button>
+            <button className="btn ghost small" onClick={() => decide(m.id, false)}>ไม่ใช่คนนี้</button>
+          </div>
+        </div>
+      ))}
+    </section>
   );
 }

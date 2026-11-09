@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { denySensitiveChat, requireAppointmentStaff } from "@/lib/auth";
 import { appointmentErrorResponse } from "@/lib/appointment-http";
-import { appointmentCallCounts, createAppointment, listAppointments } from "@/lib/appointment-store";
+import { appointmentCallCounts, appointmentTabCounts, createAppointment, listAppointments, upcomingAppointmentHns } from "@/lib/appointment-store";
 import { parseDate } from "@/lib/appointment-rules";
 
 export const runtime = "nodejs";
@@ -11,6 +11,7 @@ export async function GET(req: Request) {
   const { error } = await requireAppointmentStaff();
   if (error) return error;
   const u = new URL(req.url);
+  if (u.searchParams.get("upcoming_hns")) return NextResponse.json({ hns: await upcomingAppointmentHns() }, { headers: { "Cache-Control": "no-store" } });
   if (u.searchParams.get("counts")) return NextResponse.json({ counts: await appointmentCallCounts() }, { headers: { "Cache-Control": "no-store" } });
   const tab = u.searchParams.get("tab");
   const rows = await listAppointments({
@@ -20,7 +21,8 @@ export async function GET(req: Request) {
     to: parseDate(u.searchParams.get("to")),
     purpose: u.searchParams.get("purpose"),
   });
-  return NextResponse.json({ rows, counts: await appointmentCallCounts() }, { headers: { "Cache-Control": "no-store" } });
+  const [counts, tabCounts] = await Promise.all([appointmentCallCounts(), appointmentTabCounts()]);
+  return NextResponse.json({ rows, counts, tabCounts }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**
@@ -31,6 +33,9 @@ export async function POST(req: Request) {
   const { user, role, canViewSensitive, error } = await requireAppointmentStaff();
   if (error) return error;
   const b = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!b.conversation_id && !(typeof b.hn === "string" && b.hn.trim())) {
+    return NextResponse.json({ error: "หน้านัดหมายทำนัดได้เฉพาะคนไข้ที่มี HN — คนไข้ใหม่ให้ทำนัดจากแชท" }, { status: 400 });
+  }
   if (b.conversation_id || b.booking_id) {
     if (role === "pharmacy") return NextResponse.json({ error: "forbidden" }, { status: 403 });
     if (typeof b.conversation_id === "string") {

@@ -5,5 +5,5 @@ import { AppointmentsClient } from "./appointments-client";
 export default async function AppointmentsPage() {
   const me = await getStaffContext();
   if (!me) redirect("/login");
-  return <AppointmentsClient canOpenChat={me.role !== "pharmacy"} />;
+  return <AppointmentsClient canOpenChat={me.role !== "pharmacy"} isAdmin={me.role === "admin"} />;
 }
