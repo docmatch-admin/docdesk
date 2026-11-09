@@ -1,13 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DELIVERY_LABEL, deliveryState, thaiShortDate, timeShort, type Appointment } from "@/lib/appointment-rules";
+import type { Appointment } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { AppointmentDrawer } from "../appointments/appointment-drawer";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
-import { Icon } from "../icons";
-import { LinkedAccounts, type LinkedAccountRow } from "../appointments/linked-accounts";
+import type { LinkedAccountRow } from "../appointments/linked-accounts";
+import { AppointmentsSideView } from "./appointments-side-view";
 
 interface Link_ { hn: string; patient_name: string | null; phone: string | null }
 
@@ -25,29 +24,30 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
 }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [rows, setRows] = useState<Appointment[]>([]);
+  const [past, setPast] = useState<Appointment[]>([]);
   const [link, setLink] = useState<Link_ | null>(null);
   const [accounts, setAccounts] = useState<LinkedAccountRow[]>([]);
   const [creating, setCreating] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [open, setOpen] = useState<{ id: string; edit: boolean } | null>(null);
   // แอดมินยืนยันการจับคู่ HN: ค้นชื่อจาก iService ก่อน แล้วกดยืนยัน
   const [linking, setLinking] = useState(false);
   const [hnInput, setHnInput] = useState("");
   const [preview, setPreview] = useState<{ hn: string; name: string } | null>(null);
   const [linkErr, setLinkErr] = useState("");
-  const [confirmUnlink, setConfirmUnlink] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/conversations/${conversationId}/appointments`);
     if (!res.ok) return;
     const j = await res.json();
     setRows(j.appointments as Appointment[]);
+    setPast((j.past ?? []) as Appointment[]);
     setLink(j.link as Link_ | null);
     setAccounts((j.accounts ?? []) as LinkedAccountRow[]);
   }, [conversationId]);
 
   useEffect(() => {
-    setRows([]); setLink(null); setAccounts([]); setCreating(false); setOpenId(null);
-    setLinking(false); setHnInput(""); setPreview(null); setLinkErr(""); setConfirmUnlink(false);
+    setRows([]); setPast([]); setLink(null); setAccounts([]); setCreating(false); setOpen(null);
+    setLinking(false); setHnInput(""); setPreview(null); setLinkErr("");
     load();
     const ch = sb.channel(`appt-${conversationId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "appointments", filter: `conversation_id=eq.${conversationId}` }, () => load())
@@ -61,7 +61,6 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
     load();
     onChanged();
   }
-
 
   async function checkHn(e: React.FormEvent) {
     e.preventDefault();
@@ -82,80 +81,53 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
     load(); onChanged();
   }
 
-  async function unlink() {
-    setConfirmUnlink(false);
-    const res = await fetch(`/api/conversations/${conversationId}/patient-link`, { method: "DELETE" });
+  /** ยกเลิกการผูก: แชทนี้ หรือบัญชีอื่นที่ผูก HN เดียวกัน */
+  async function unlink(target = conversationId) {
+    const res = await fetch(`/api/conversations/${target}/patient-link`, { method: "DELETE" });
     const j = await res.json().catch(() => ({}));
-    onMessage(res.ok ? "ยกเลิกการผูก HN แล้ว" : j.error ?? "ยกเลิกไม่สำเร็จ");
+    onMessage(res.ok ? (target === conversationId ? "ยกเลิกการผูก HN แล้ว" : "ยกเลิกการผูกบัญชีแล้ว") : j.error ?? "ยกเลิกไม่สำเร็จ");
+    load(); onChanged();
+  }
+
+  async function setRelation(acc: LinkedAccountRow, relation: "patient" | "relative") {
+    const r = await fetch(`/api/conversations/${acc.conversation_id}/patient-link`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relation }) });
+    onMessage(r.ok ? "แก้ป้ายบัญชีแล้ว" : (await r.json().catch(() => ({}))).error ?? "แก้ป้ายไม่สำเร็จ");
     load(); onChanged();
   }
 
   const initial = { ...EMPTY_DRAFT, hn: link?.hn ?? "", patient_name: link?.patient_name ?? contactName ?? "", phone: link?.phone ?? "" };
 
   return (
-    <section className="side-block">
-      <div className="side-head">
-        <h3>นัดครั้งต่อไป</h3>
-        {link && <span className="chip tiny">HN {link.hn}</span>}
-        {isAdmin && !link && (
-          <button type="button" className="btn ghost small" aria-expanded={linking} onClick={() => setLinking(!linking)}>ผูก HN</button>
-        )}
-        {isAdmin && link && (
-          <button type="button" className={`btn ghost small ${confirmUnlink ? "danger" : ""}`} title="ยกเลิกการผูก HN กลับไปใช้ชื่อเดิม"
-            onClick={() => (confirmUnlink ? unlink() : setConfirmUnlink(true))}>{confirmUnlink ? "ยืนยันยกเลิกผูก?" : "ยกเลิกผูก"}</button>
-        )}
-        <button type="button" className="icon-btn" aria-label="ทำนัด" title="ทำนัด" aria-expanded={creating}
-          onClick={() => setCreating(!creating)}><Icon name="plus" /></button>
-      </div>
-      {linking && (
-        <div className="appt-link-box">
-          <form className="row" onSubmit={checkHn}>
-            <input style={{ flex: 1, width: "auto" }} placeholder="HN" value={hnInput} onChange={(e) => { setHnInput(e.target.value); setPreview(null); }} inputMode="numeric" />
-            <button className="btn ghost small" disabled={!hnInput.trim()}>ค้นใน iService</button>
-          </form>
-          {preview && (
-            <div className="row">
-              <span className="small">ชื่อใน HIS: <b>{preview.name}</b></span>
-              <button type="button" className="btn primary small" onClick={confirmLink}>ยืนยันการจับคู่</button>
-            </div>
-          )}
-          {linkErr && <div className="error small" role="alert">{linkErr}</div>}
-        </div>
-      )}
-      {link && accounts.length > 0 && (
-        <LinkedAccounts accounts={accounts.map((a) => ({ ...a, primary: a.conversation_id === conversationId }))} isAdmin={isAdmin}
-          setRelation={async (acc, relation) => {
-            const r = await fetch(`/api/conversations/${acc.conversation_id}/patient-link`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relation }) });
-            onMessage(r.ok ? "แก้ป้ายบัญชีแล้ว" : (await r.json().catch(() => ({}))).error ?? "แก้ป้ายไม่สำเร็จ");
-            load(); onChanged();
-          }}
-          detach={async (acc) => {
-            const r = await fetch(`/api/conversations/${acc.conversation_id}/patient-link`, { method: "DELETE" });
-            onMessage(r.ok ? "ยกเลิกการผูกบัญชีแล้ว" : (await r.json().catch(() => ({}))).error ?? "ยกเลิกไม่สำเร็จ");
-            load(); onChanged();
-          }} />
-      )}
-      {creating && (
-        <AppointmentForm compact initial={initial} conversationId={conversationId} onCancel={() => setCreating(false)} onSaved={saved} />
-      )}
-      {rows.length === 0 && !creating && <div className="muted small">ยังไม่มีนัด</div>}
-      <div className={blurred ? "sensitive-blur" : ""}>
-        {rows.map((a) => (
-          <div key={a.id} className="appt-side-card" onClick={() => setOpenId(a.id)} role="button" tabIndex={0}
-            onKeyDown={(e) => { if (e.key === "Enter") setOpenId(a.id); }}>
-            <div className="booking-title">{thaiShortDate(a.appoint_date)} · {timeShort(a)} น.</div>
-            <div className="booking-sub">{a.purpose_text || "ไม่ระบุเหตุผล"}{a.provider ? ` · ${a.provider}` : ""} · {DELIVERY_LABEL[deliveryState(a)] || a.status}</div>
-            <div className="icon-row">
-              <button type="button" className="btn ghost small" onClick={() => setOpenId(a.id)}>รายละเอียด · แก้ไข/ยกเลิก</button>
-              <Link className="icon-btn" aria-label="พิมพ์ใบนัด" title="พิมพ์ใบนัด" href={`/appointments/${a.id}/print?reprint=1`} onClick={(e) => e.stopPropagation()}><Icon name="printer" /></Link>
-            </div>
+    <>
+      <AppointmentsSideView
+        isAdmin={isAdmin} link={link} accounts={link ? accounts : []} upcoming={rows} past={past} blurred={blurred} creating={creating}
+        onCreate={() => setCreating(!creating)} onLinkHn={() => setLinking(!linking)} onUnlink={() => unlink()}
+        onRelation={setRelation} onDetach={(a) => unlink(a.conversation_id)}
+        onOpen={(id) => setOpen({ id, edit: false })} onEdit={(id) => setOpen({ id, edit: true })}
+        printHref={(id) => `/appointments/${id}/print?reprint=1`}>
+        {linking && !link && (
+          <div className="appt-link-box">
+            <form className="row" onSubmit={checkHn}>
+              <input style={{ flex: 1, width: "auto", minWidth: 0 }} placeholder="HN" value={hnInput} onChange={(e) => { setHnInput(e.target.value); setPreview(null); }} inputMode="numeric" />
+              <button className="btn ghost small" disabled={!hnInput.trim()}>ค้นใน iService</button>
+            </form>
+            {preview && (
+              <div className="row">
+                <span className="small">ชื่อใน HIS: <b>{preview.name}</b></span>
+                <button type="button" className="btn primary small" onClick={confirmLink}>ยืนยันการจับคู่</button>
+              </div>
+            )}
+            {linkErr && <div className="error small" role="alert">{linkErr}</div>}
           </div>
-        ))}
-      </div>
-      {openId && (
-        <AppointmentDrawer id={openId} canOpenChat={false} isAdmin={isAdmin} onClose={() => setOpenId(null)}
+        )}
+        {creating && (
+          <AppointmentForm compact initial={initial} conversationId={conversationId} onCancel={() => setCreating(false)} onSaved={saved} />
+        )}
+      </AppointmentsSideView>
+      {open && (
+        <AppointmentDrawer id={open.id} canOpenChat={false} isAdmin={isAdmin} initialMode={open.edit ? "edit" : "view"} onClose={() => setOpen(null)}
           onChanged={(m) => { if (m) onMessage(m); load(); onChanged(); }} />
       )}
-    </section>
+    </>
   );
 }

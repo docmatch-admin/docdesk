@@ -819,3 +819,49 @@ body > .appt-slip { display: none; }
 .send-error { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #fde8eb; color: #9b1c2e; font-size: 13px; font-weight: 600; }
 .line-usage-forecast { margin: 4px 0 8px; font-size: 14px; }
 .appt-filter-note { margin: 4px 0 8px; }
+/* นัดครั้งต่อไป (กล่องขวาของแชท ~280–400px): 12px ระหว่างบล็อก 8px ในการ์ด ไม่ตัดหัวข้อทีละพยางค์ */
+.appt-side { gap: 12px; }
+.appt-side-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.appt-side-title { margin: 0; font-size: 14px; font-weight: 700; white-space: nowrap; min-width: max-content; flex: 1; }
+.appt-side-add { width: 32px; height: 32px; padding: 0; }
+.appt-side-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; margin-top: -8px; font-size: 12px; color: var(--muted); }
+.appt-side-sub > * { white-space: nowrap; }
+.appt-side-hn { font-variant-numeric: tabular-nums; }
+.appt-side-dot { opacity: .6; }
+.link-btn.danger-link { color: #c2414f; font-size: 12px; min-height: 24px; padding: 0 2px; }
+.link-btn.danger-link:hover { text-decoration: underline; }
+.appt-side-sub .link-btn { min-height: 24px; padding: 0 2px; }
+.appt-side-accounts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.appt-side-accounts li { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; }
+.appt-side-accounts li.off { opacity: .55; }
+.ch-icon { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 18px; padding: 0 4px; border-radius: 4px; font-size: 10px; font-weight: 700; color: #fff; background: #8a8f9c; }
+.ch-icon.ch-line { background: #06c755; }
+.ch-icon.ch-facebook { background: #1877f2; }
+.ch-icon.ch-instagram { background: #c13584; }
+.appt-side-acc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appt-side-rel { width: auto; flex-shrink: 0; padding: 1px 4px; font-size: 12px; height: 26px; min-height: 0; }
+.appt-side-rel-text { flex-shrink: 0; font-size: 12px; color: var(--muted); }
+.icon-btn.ghost-icon { border-color: transparent; background: transparent; color: var(--muted); min-width: 26px; width: 26px; height: 26px; padding: 0; }
+.icon-btn.ghost-icon:hover { color: #c2414f; background: var(--bg); }
+.appt-side-list { display: flex; flex-direction: column; gap: 8px; }
+.appt-side .appt-side-card { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 8px; cursor: default; }
+.appt-side .appt-side-card:hover { border-color: var(--line); }
+.appt-side-when { font-weight: 700; font-size: 13px; line-height: 1.35; overflow-wrap: break-word; word-break: keep-all; }
+.appt-side-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12px; color: var(--muted); min-width: 0; }
+.appt-side-purpose { min-width: 0; overflow-wrap: anywhere; }
+.appt-side-state { flex-shrink: 0; white-space: nowrap; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--bg); color: var(--ink); }
+.appt-side-state.sent { background: #e6efff; color: #1f4fb8; }
+.appt-side-state.confirmed { background: #e3f6ea; color: #17733b; }
+.appt-side-state.reschedule { background: #fff0dc; color: #8a4b00; }
+.appt-side-state.call { background: #fde8eb; color: #9b1c2e; }
+.appt-side-state.cancelled { background: #f1f2f4; color: #6b7280; text-decoration: line-through; }
+.appt-side-actions { display: flex; gap: 6px; align-items: center; }
+.appt-side-detail { flex: 1; justify-content: center; min-width: 0; }
+.appt-side-past > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0; }
+.appt-side-past[open] > summary { margin-bottom: 8px; }
+.appt-side-past .appt-side-card { gap: 2px; background: var(--bg); border-style: dashed; margin-bottom: 6px; }
+.appt-side-past .appt-side-when { font-weight: 600; font-size: 12px; }
+.appt-side-past-open { margin-left: auto; min-height: 24px; }
+.mini-dialog-overlay { position: fixed; inset: 0; background: rgba(15, 20, 30, .35); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 16px; }
+.mini-dialog { background: #fff; border-radius: 12px; padding: 16px; max-width: 360px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+.mini-dialog p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; }

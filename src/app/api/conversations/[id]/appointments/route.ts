@@ -21,17 +21,22 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const db = supabaseAdmin();
   const today = bangkokToday();
   const { data: link } = await db.from("patient_links").select("hn, patient_name, phone").eq("conversation_id", id).maybeSingle();
+  // ทุกนัดของแชทนี้และของ HN ที่ผูก: ที่ยังไม่ถึงเรียงใกล้สุดก่อน ที่ผ่านแล้ว/ปิดแล้วย่อไว้ (ใหม่สุดก่อน)
   const [{ data: byChat }, { data: byHn }] = await Promise.all([
-    db.from("appointments").select(APPOINTMENT_COLUMNS).eq("conversation_id", id).gte("appoint_date", today).in("status", OPEN),
+    db.from("appointments").select(APPOINTMENT_COLUMNS).eq("conversation_id", id).order("appoint_date", { ascending: false }).limit(60),
     link?.hn
-      ? db.from("appointments").select(APPOINTMENT_COLUMNS).eq("hn", link.hn as string).gte("appoint_date", today).in("status", OPEN)
+      ? db.from("appointments").select(APPOINTMENT_COLUMNS).eq("hn", link.hn as string).order("appoint_date", { ascending: false }).limit(60)
       : Promise.resolve({ data: [] }),
   ]);
   const seen = new Set<string>();
-  const appointments = ([...(byChat ?? []), ...(byHn ?? [])] as unknown as Appointment[])
-    .filter((a) => !a.series_done && !seen.has(a.id) && seen.add(a.id))
+  const all = ([...(byChat ?? []), ...(byHn ?? [])] as unknown as Appointment[])
+    .filter((a) => !a.series_done && !seen.has(a.id) && seen.add(a.id));
+  const isUpcoming = (a: Appointment) => a.appoint_date >= today && OPEN.includes(a.status);
+  const appointments = all.filter(isUpcoming)
     .sort((a, b) => a.appoint_date.localeCompare(b.appoint_date) || a.time_start.localeCompare(b.time_start));
+  const past = all.filter((a) => !isUpcoming(a))
+    .sort((a, b) => b.appoint_date.localeCompare(a.appoint_date) || b.time_start.localeCompare(a.time_start)).slice(0, 20);
   // บัญชีที่ผูก HN นี้ (คนไข้ + ญาติ) ใช้ดู/แก้ป้าย/ยกเลิกการผูกรายบัญชี
   const accounts = link?.hn ? await linkedAccounts({ id: "00000000-0000-0000-0000-000000000000", hn: link.hn as string, conversation_id: null }) : [];
-  return NextResponse.json({ link: link ?? null, appointments, accounts }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ link: link ?? null, appointments, past, accounts }, { headers: { "Cache-Control": "no-store" } });
 }

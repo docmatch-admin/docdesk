@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   canRestore, CANCEL_REASON_LABEL, DELIVERY_LABEL, deliveryState, isEditable, STATUS_LABEL, thaiFullDate, thaiMediumDate as thaiShortDateFull, timePhrase, timeShort,
   type Appointment, type CancelReason,
@@ -48,10 +48,12 @@ function eventText(e: EventRow): string {
  * รายละเอียดนัดแบบ drawer ใช้ทั้งหน้านัดหมายและกล่องขวาของแชท
  * แก้ไข/ยกเลิกได้เฉพาะนัดที่ยังเปิดอยู่ มาแล้ว/ไม่มา/ยกเลิก ดูอย่างเดียว (ยกเลิกวันนี้กู้คืนได้)
  */
-export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, onClose, onChanged }: {
+export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, initialMode = "view", onClose, onChanged }: {
   id: string;
   canOpenChat: boolean;
   isAdmin?: boolean;
+  /** เปิดมาที่โหมดแก้ไขเลย (ปุ่มดินสอบนการ์ดนัด) */
+  initialMode?: "view" | "edit";
   onClose: () => void;
   onChanged: (message?: string) => void;
 }) {
@@ -72,6 +74,13 @@ export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, onClose, o
   }, [id]);
 
   useEffect(() => { setMode("view"); setAskPrint(""); setData(null); load(); }, [load]);
+  // เปิดแก้ไขครั้งเดียวเมื่อโหลดแล้วและนัดยังแก้ได้ (บันทึกแล้วโหลดใหม่ไม่เด้งกลับเข้าแก้ไข)
+  const editOpened = useRef(false);
+  useEffect(() => {
+    if (initialMode !== "edit" || editOpened.current || !data) return;
+    editOpened.current = true;
+    if (isEditable(data.appointment)) setMode("edit");
+  }, [initialMode, data]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);

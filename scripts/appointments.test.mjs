@@ -1358,3 +1358,29 @@ test("รายการนัด embed แชทผ่าน FK ของ appoi
   assert.match(src, /conversations!appointments_conversation_id_fkey\(channels\(type\)/);
   assert.doesNotMatch(src.replace(/conversations!appointments_conversation_id_fkey\(/g, ""), /from\("appointments"\)\s*\n?\s*\.select\([^)]*conversations\(/);
 });
+
+test("กล่องขวาของแชท: นัดที่ยังไม่ถึงเรียงใกล้สุดก่อน นัดที่ผ่านแล้ว/ปิดแล้วแยกไว้ใน past (ใหม่สุดก่อน)", async () => {
+  const route = await import("../src/app/api/conversations/[id]/appointments/route.ts");
+  state.currentUser = { id: "agent", email: "a@test" };
+  const far = addAppointment({ appoint_date: inDays(40), link_code: "SID001" });
+  const near = addAppointment({ appoint_date: inDays(2), link_code: "SID002" });
+  const cancelledFuture = addAppointment({ appoint_date: inDays(5), status: "cancelled", link_code: "SID003" });
+  const attended = addAppointment({ appoint_date: inDays(-7), status: "attended", link_code: "SID004" });
+  const older = addAppointment({ appoint_date: inDays(-30), status: "no_show", link_code: "SID005" });
+  const j = await (await route.GET(new Request("https://app.test/x"), { params: Promise.resolve({ id: "conv-line" }) })).json();
+  assert.deepEqual(j.appointments.map((a) => a.id), [near.id, far.id]);
+  assert.deepEqual(j.past.map((a) => a.id), [cancelledFuture.id, attended.id, older.id]);
+});
+
+test("ส่วนนัดครั้งต่อไป: หัวข้อไม่ตัดบรรทัด ปุ่ม + มี tooltip ยกเลิกผูกเป็นลิงก์พร้อมยืนยัน บัญชีบรรทัดเดียว", () => {
+  const src = readFileSync("src/app/(staff)/inbox/appointments-side-view.tsx", "utf8");
+  assert.match(src, /<h3 className="appt-side-title">นัดครั้งต่อไป<\/h3>/);
+  assert.match(src, /title="ทำนัดใหม่"/);
+  assert.match(src, /className="link-btn danger-link" onClick=\{\(\) => setAsk\(/);
+  assert.match(src, />รายละเอียด<\/button>/);
+  assert.doesNotMatch(src, /รายละเอียด · แก้ไข\/ยกเลิก/);
+  assert.match(src, /ดูนัดที่ผ่านมา \(\{past\.length\}\)/);
+  const css = readFileSync("src/app/globals.css", "utf8");
+  assert.match(css, /\.appt-side-title \{[^}]*white-space: nowrap; min-width: max-content;/);
+  assert.match(css, /\.appt-side-acc-name \{[^}]*text-overflow: ellipsis; white-space: nowrap;/);
+});
