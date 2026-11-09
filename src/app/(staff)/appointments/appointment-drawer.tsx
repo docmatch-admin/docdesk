@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
-  canRestore, CANCEL_REASON_LABEL, DELIVERY_LABEL, deliveryState, isEditable, STATUS_LABEL, thaiFullDate, timePhrase,
+  canRestore, CANCEL_REASON_LABEL, DELIVERY_LABEL, deliveryState, isEditable, STATUS_LABEL, thaiFullDate, thaiMediumDate as thaiShortDateFull, timePhrase, timeShort,
   type Appointment, type CancelReason,
 } from "@/lib/appointment-rules";
 import { Icon } from "../icons";
 import { AppointmentForm, deliveryText, draftOf } from "./appointment-form";
 
 interface EventRow { id: string; kind: string; actor: "staff" | "customer" | "system"; staff_name: string | null; channel: string | null; detail: Record<string, unknown>; created_at: string }
-interface Detail { appointment: Appointment; events: EventRow[] }
+interface Detail { appointment: Appointment; events: EventRow[]; series: Appointment[] }
 
 const EVENT_LABEL: Record<string, string> = {
   created: "ลงนัด", edited: "แก้ไขรายละเอียด", rescheduled: "เปลี่ยนวัน/เวลา", cancelled: "ยกเลิกนัด", restored: "กู้คืนนัด",
@@ -56,12 +56,13 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
   const [reasonText, setReasonText] = useState("");
   const [busy, setBusy] = useState(false);
   const [askPrint, setAskPrint] = useState("");
+  const [scope, setScope] = useState<"one" | "series">("one");
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/appointments/${id}`);
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return setErr(j.error ?? "โหลดนัดไม่สำเร็จ");
-    setData({ appointment: j.appointment, events: j.events });
+    setData({ appointment: j.appointment, events: j.events, series: j.series ?? [] });
   }, [id]);
 
   useEffect(() => { setMode("view"); setAskPrint(""); setData(null); load(); }, [load]);
@@ -77,14 +78,14 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
     if (reason === "other" && !reasonText.trim()) return setErr("พิมพ์เหตุผลการยกเลิก");
     setBusy(true);
     setErr("");
-    const r = await fetch(`/api/appointments/${id}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason, reason_text: reasonText }) });
+    const r = await fetch(`/api/appointments/${id}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason, reason_text: reasonText, scope }) });
     const j = await r.json().catch(() => ({}));
     setBusy(false);
     if (!r.ok) return setErr(j.error ?? "ยกเลิกไม่สำเร็จ");
     setMode("view");
     setReason(""); setReasonText("");
     await load();
-    onChanged(`ยกเลิกนัดแล้ว${j.delivery ? ` · ${deliveryText(j.delivery)}` : " · ไม่ได้ส่งข้อความ (ลงนัดผิด)"}`);
+    onChanged(`ยกเลิกนัดแล้ว${j.cancelled > 1 ? ` ${j.cancelled} นัด` : ""}${j.delivery ? ` · ${deliveryText(j.delivery)}` : " · ไม่ได้ส่งข้อความ (ลงนัดผิด)"}`);
   }
 
   async function restore() {
@@ -100,6 +101,8 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
   const a = data?.appointment;
   const editable = a ? isEditable(a) : false;
   const state = a ? deliveryState(a) : "closed";
+  const series = data?.series ?? [];
+  const following = a?.series_seq ? series.filter((x) => (x.series_seq ?? 0) > (a.series_seq ?? 0) && isEditable(x)).length : 0;
 
   return (
     <div className="drawer-overlay" onClick={onClose}>
@@ -113,6 +116,7 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
         {a && (
           <div className="drawer-body">
             <div className="drawer-summary">
+              {a.series_id && <span className="chip tiny appt-series-chip">{a.series_label ?? "นัดในชุด"} · {series.findIndex((x) => x.id === a.id) + 1}/{series.length}</span>}
               <div className={`drawer-name ${a.status === "cancelled" ? "struck" : ""}`}>{a.patient_name}{a.hn && <span className="muted small"> · HN {a.hn.replace(/^0+(?=\d)/, "")}</span>}</div>
               <div className={`drawer-when ${a.status === "cancelled" ? "struck" : ""}`}>{thaiFullDate(a.appoint_date)}</div>
               <div className="muted">{timePhrase(a)}</div>
@@ -132,12 +136,12 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
             )}
 
             {mode === "edit" ? (
-              <AppointmentForm compact showPatient={false} initial={draftOf(a)} appointmentId={a.id}
+              <AppointmentForm compact showPatient={false} initial={draftOf(a)} appointmentId={a.id} seriesFollowing={following}
                 onCancel={() => setMode("view")}
                 onSaved={async (r) => {
                   setMode("view");
                   await load();
-                  const msg = r.delivery ? `บันทึกแล้ว · ${deliveryText(r.delivery)}` : "บันทึกแล้ว";
+                  const msg = `${r.delivery ? `บันทึกแล้ว · ${deliveryText(r.delivery)}` : "บันทึกแล้ว"}${r.shifted ? ` · เลื่อนนัดถัดไปตาม ${r.shifted} นัด` : ""}`;
                   // เปลี่ยนวันหรือเวลา: ใบนัดเดิมใช้ไม่ได้แล้ว
                   if (r.moved) setAskPrint(msg);
                   onChanged(msg);
@@ -152,6 +156,13 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
                   </label>
                 ))}
                 {reason === "other" && <input autoFocus aria-label="เหตุผลอื่น" placeholder="พิมพ์เหตุผล" value={reasonText} onChange={(e) => setReasonText(e.target.value)} />}
+                {a.series_id && (
+                  <>
+                    <b>ยกเลิกแค่ไหน</b>
+                    <label className="raw"><input type="radio" name="cancel-scope" checked={scope === "one"} onChange={() => setScope("one")} /> เฉพาะนัดนี้ ({a.series_label})</label>
+                    <label className="raw"><input type="radio" name="cancel-scope" checked={scope === "series"} onChange={() => setScope("series")} /> ทั้งชุด (นัดที่ยังไม่ถึงทั้งหมด)</label>
+                  </>
+                )}
                 <div className="row">
                   <button className="btn danger-solid" disabled={busy || !reason}>{busy ? "กำลังยกเลิก…" : "ยืนยันยกเลิกนัด"}</button>
                   <button type="button" className="btn ghost" onClick={() => { setMode("view"); setErr(""); }}>กลับ</button>
@@ -178,6 +189,20 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
                 </div>
                 {!editable && a.status !== "cancelled" && <p className="muted small">นัดนี้{STATUS_LABEL[a.status]}แล้ว ดูได้อย่างเดียว</p>}
               </>
+            )}
+
+            {series.length > 1 && (
+              <section className="drawer-series">
+                <h3>นัดในชุดนี้</h3>
+                <ol>
+                  {series.map((x) => (
+                    <li key={x.id} className={x.id === a.id ? "current" : ""}>
+                      <b>{x.series_label}</b> {thaiShortDateFull(x.appoint_date)} · {timeShort(x)} น.
+                      <span className="muted small"> · {STATUS_LABEL[x.status]}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
             )}
 
             <section className="drawer-history">

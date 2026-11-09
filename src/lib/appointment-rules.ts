@@ -39,6 +39,12 @@ export interface Appointment {
   called_by: string | null;
   cancel_reason?: string | null;
   cancel_reason_code?: CancelReason | null;
+  series_id?: string | null;
+  series_seq?: number | null;
+  series_label?: string | null;
+  series_from?: SeriesFrom | null;
+  series_offset_value?: number | null;
+  series_offset_unit?: DateUnit | null;
   cancelled_by?: string | null;
   cancelled_at?: string | null;
   created_at?: string;
@@ -147,6 +153,8 @@ export const thaiFullDate = (date: string) =>
 /** "จ. 16 พ.ย. 69" สำหรับตารางและปุ่ม */
 export const thaiShortDate = (date: string) =>
   `${WEEKDAY_TH[weekday(date)]} ${Number(date.slice(8, 10))} ${MONTH_TH_SHORT[Number(date.slice(5, 7)) - 1]} ${String(Number(date.slice(0, 4)) + 543).slice(2)}`;
+export const thaiMediumDate = (date: string) =>
+  `${WEEKDAY_TH[weekday(date)]} ${Number(date.slice(8, 10))} ${MONTH_TH_SHORT[Number(date.slice(5, 7)) - 1]} ${Number(date.slice(0, 4)) + 543}`;
 export const englishDate = (date: string) =>
   `${WEEKDAY_EN[weekday(date)]}, ${Number(date.slice(8, 10))} ${MONTH_EN[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}`;
 export const thaiClock = (time: string) => time.slice(0, 5).replace(":", ".");
@@ -173,6 +181,42 @@ export function quickDates(today: string): { label: string; date: string }[] {
     { label: "+1 เดือน", date: addMonths(today, 1) },
     { label: "+3 เดือน", date: addMonths(today, 3) },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// นัดเป็นชุด (series)
+// ---------------------------------------------------------------------------
+export type SeriesFrom = "first" | "previous";
+export const defaultSeriesLabel = (seq: number) => `เข็ม ${seq}`;
+
+/** preset ที่มี default_days: หาร 30 ลงตัวใส่ช่องเดือน ไม่งั้นใส่ช่องวัน */
+export const offsetFromDays = (days: number): { value: number; unit: DateUnit } =>
+  days % 30 === 0 ? { value: days / 30, unit: "month" } : { value: days, unit: "day" };
+
+export interface SeriesItemRule { seq: number; date: string; from: SeriesFrom | null; value: number | null; unit: DateUnit | null }
+
+/**
+ * แก้วันของนัด seq = editedSeq แล้วนัดถัดไปที่นับจาก "นัดก่อนหน้า" เลื่อนตามเป็นทอดๆ
+ * ถ้าแก้นัดแรก นัดที่นับจาก "นัดแรก" เลื่อนตามด้วย นัดที่ไม่ได้นับจากนัดที่เลื่อนคงเดิม
+ */
+export function shiftFollowing(items: SeriesItemRule[], editedSeq: number, newDate: string): { seq: number; date: string }[] {
+  const sorted = [...items].sort((a, b) => a.seq - b.seq);
+  const date = new Map(sorted.map((i) => [i.seq, i.date]));
+  const moved = new Set<number>([editedSeq]);
+  date.set(editedSeq, newDate);
+  const out: { seq: number; date: string }[] = [];
+  const first = sorted[0]?.seq;
+  for (const i of sorted) {
+    if (i.seq <= editedSeq || !i.from || i.value == null || !i.unit) continue;
+    const anchor = i.from === "first" ? first : sorted[sorted.findIndex((x) => x.seq === i.seq) - 1]?.seq;
+    if (anchor === undefined || !moved.has(anchor)) continue;
+    const d = relativeDate(date.get(anchor) as string, i.value, i.unit);
+    if (!d || d === i.date) continue;
+    date.set(i.seq, d);
+    moved.add(i.seq);
+    out.push({ seq: i.seq, date: d });
+  }
+  return out;
 }
 
 /** ตัวเลข + หน่วย เช่น 10 วัน 6 สัปดาห์ นับจากวันนี้ */
@@ -407,6 +451,23 @@ export interface MessageInput {
   includePurpose: boolean;
   /** เปลี่ยนนัด: วันเวลาเดิม */
   previous?: { appoint_date: string; time_mode: TimeMode; time_start: string; time_end: string | null };
+  /** นัดเป็นชุด: ทุกนัดในชุด (การ์ดตอนลงนัด/เปลี่ยน/ยกเลิก) */
+  series?: { label: string; appoint_date: string; time_mode: TimeMode; time_start: string; time_end: string | null }[];
+  /** เตือนนัดในชุด: เข็ม N จาก M */
+  seriesPosition?: { label: string; seq: number; total: number };
+}
+
+function seriesLines(input: MessageInput): string[] {
+  if (!input.series?.length) return [];
+  return input.series.map((s) => input.lang === "en"
+    ? `• ${s.label}: ${englishDate(s.appoint_date)} (${timeShort(s).replace(/\./g, ":")})`
+    : `• ${s.label}: ${thaiMediumDate(s.appoint_date)} (${timeShort(s)} น.)`);
+}
+
+function positionText(input: MessageInput): string {
+  const p = input.seriesPosition;
+  if (!p) return "";
+  return input.lang === "en" ? `${p.label} (${p.seq} of ${p.total})` : `${p.label} (${p.seq} จาก ${p.total})`;
 }
 
 function previousText(input: MessageInput): string {
@@ -442,7 +503,9 @@ export function appointmentText(input: MessageInput): string {
     const body = input.lang === "en"
       ? `Your appointment on ${v.date} (${timeShort(input.appointment).replace(/\./g, ":")}) at ${v.clinic} has been cancelled.\nTo book again, call ${v.phone}`
       : `นัด${v.date} (${timeShort(input.appointment)} น.) ที่ ${v.clinic} ถูกยกเลิกแล้วค่ะ\nหากต้องการนัดใหม่ โทร ${v.phone}`;
-    return `${header}\n${body}`;
+    const cancelledLines = seriesLines(input);
+    const list = cancelledLines.length ? `\n${input.lang === "en" ? "Cancelled appointments:" : "นัดที่ยกเลิก:"}\n${cancelledLines.join("\n")}` : "";
+    return `${header}\n${body}${list}`;
   }
   const purpose = input.includePurpose && input.appointment.purpose_text?.trim()
     ? `\n${input.lang === "en" ? "Purpose" : "เรื่อง"}: ${input.appointment.purpose_text.trim()}` : "";
@@ -450,7 +513,10 @@ export function appointmentText(input: MessageInput): string {
   const instructions = input.appointment.instructions?.trim()
     ? `\n${input.lang === "en" ? "Before your visit" : "การปฏิบัติตัว"}: ${input.appointment.instructions.trim()}` : "";
   const previous = previousText(input);
-  return `${header}${previous ? `\n${previous}` : ""}\n${fillVariables(input.lang === "en" ? input.settings.template_en : input.settings.template_th, v)}${purpose}${instructions}`;
+  const position = positionText(input);
+  const lines = seriesLines(input);
+  const series = lines.length ? `\n${input.lang === "en" ? "Your appointments:" : "ตารางนัดทั้งชุด:"}\n${lines.join("\n")}` : "";
+  return `${header}${position ? ` · ${position}` : ""}${previous ? `\n${previous}` : ""}\n${fillVariables(input.lang === "en" ? input.settings.template_en : input.settings.template_th, v)}${purpose}${instructions}${series}`;
 }
 
 type Json = Record<string, unknown>;
@@ -473,6 +539,7 @@ export function appointmentFlex(input: MessageInput): Json {
   const cancelled = input.kind === "cancelled";
   const body: Json[] = [
     { type: "text", text: HEADER[input.lang][input.kind], weight: "bold", size: "md", color: cancelled ? "#c0392b" : "#1f2a44", wrap: true },
+    ...(positionText(input) ? [{ type: "text", text: positionText(input), size: "sm", weight: "bold", color: "#4a63e0" }] : []),
     { type: "text", text: th ? `คุณ${a.patient_name}` : a.patient_name, size: "sm", color: "#555b66", wrap: true },
     { type: "separator", margin: "md" },
     {
@@ -485,6 +552,16 @@ export function appointmentFlex(input: MessageInput): Json {
         ...(instructions ? [row(th ? "ปฏิบัติตัว" : "Before visit", instructions, true)] : []),
       ],
     },
+    ...(seriesLines(input).length ? [
+      { type: "separator", margin: "md" },
+      {
+        type: "box", layout: "vertical", margin: "md", spacing: "xs",
+        contents: [
+          { type: "text", text: th ? "ตารางนัดทั้งชุด" : "Your appointments", size: "sm", weight: "bold" },
+          ...seriesLines(input).map((l) => ({ type: "text", text: l, size: "xs", wrap: true })),
+        ],
+      },
+    ] : []),
     { type: "separator", margin: "md" },
     {
       type: "box", layout: "vertical", margin: "md", spacing: "xs",

@@ -18,7 +18,9 @@ export async function GET(req: Request) {
     const res = await fetch(`${url}/functions/v1/iservice`, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, apikey: key, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "diagnose", q: new URL(req.url).searchParams.get("q") ?? "" }),
+      body: JSON.stringify(new URL(req.url).searchParams.get("simulate") === "down"
+        ? { action: "visits", simulate_down: true }
+        : { action: "diagnose", q: new URL(req.url).searchParams.get("q") ?? "" }),
       signal: AbortSignal.timeout(55_000),
     });
     const body = await res.json().catch(() => null);

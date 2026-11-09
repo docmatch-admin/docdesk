@@ -772,3 +772,93 @@ test("นัดที่มาแล้ว/ไม่มา ดูได้อย
     assert.equal(rules.isEditable(a), false);
   }
 });
+
+// ---------------------------------------------------------------------------
+// ชุดนัด (series) และการเลือกวันด้วยตัวเลข
+// ---------------------------------------------------------------------------
+test("preset default_days → ช่องวัน หรือช่องเดือนถ้าหาร 30 ลงตัว", () => {
+  assert.deepEqual(rules.offsetFromDays(7), { value: 7, unit: "day" });
+  assert.deepEqual(rules.offsetFromDays(30), { value: 1, unit: "month" });
+  assert.deepEqual(rules.offsetFromDays(90), { value: 3, unit: "month" });
+  assert.equal(rules.thaiMediumDate("2026-11-23"), "จันทร์ 23 พ.ย. 2569");
+});
+
+test("เลื่อนนัดถัดไปตาม: เฉพาะที่นับจากนัดก่อนหน้าเป็นทอดๆ แก้นัดแรกแล้วที่นับจากนัดแรกเลื่อนด้วย", () => {
+  const items = [
+    { seq: 1, date: "2030-01-01", from: null, value: null, unit: null },
+    { seq: 2, date: "2030-02-01", from: "previous", value: 1, unit: "month" },
+    { seq: 3, date: "2030-07-01", from: "previous", value: 5, unit: "month" },
+    { seq: 4, date: "2031-01-01", from: "first", value: 12, unit: "month" },
+  ];
+  assert.deepEqual(rules.shiftFollowing(items, 2, "2030-02-10"), [{ seq: 3, date: "2030-07-10" }], "นัดที่ 4 นับจากนัดแรกไม่เลื่อน");
+  assert.deepEqual(rules.shiftFollowing(items, 1, "2030-01-05"),
+    [{ seq: 2, date: "2030-02-05" }, { seq: 3, date: "2030-07-05" }, { seq: 4, date: "2031-01-05" }]);
+});
+
+test("ชุดนัด 3 นัด: การ์ดเดียวทุกนัด → แก้นัดที่ 2 เลื่อนตาม → ยกเลิกเฉพาะนัดที่ 3 → เตือนบอก เข็ม N จาก M", async () => {
+  const d1 = inDays(2);
+  const r = await store.createAppointment({
+    patient_name: "สมชาย", hn: "HN900", appoint_date: d1, time_mode: "slot", slot_id: "morning", conversation_id: "conv-line",
+    purpose_text: "วัคซีน", series_label: "เข็ม 1", series_title: "วัคซีน 3 เข็ม",
+    series_items: [
+      { label: "เข็ม 2", appoint_date: rules.addDays(d1, 30), time_mode: "slot", slot_id: "morning", from: "previous", offset_value: 30, offset_unit: "day" },
+      { label: "เข็ม 3", appoint_date: rules.addDays(d1, 180), time_mode: "slot", slot_id: "morning", from: "first", offset_value: 180, offset_unit: "day" },
+    ],
+  }, "nurse");
+  const seriesId = r.appointment.series_id;
+  assert.ok(seriesId);
+  const items = () => state.tables.appointments.filter((a) => a.series_id === seriesId).sort((a, b) => a.series_seq - b.series_seq);
+  assert.deepEqual(items().map((a) => [a.series_seq, a.series_label]), [[1, "เข็ม 1"], [2, "เข็ม 2"], [3, "เข็ม 3"]]);
+  assert.equal(new Set(items().map((a) => a.link_code)).size, 3);
+  // การ์ดเดียว แสดงทุกนัด ปุ่มยืนยันเป็นของนัดแรก
+  assert.equal(linePosts().length, 1);
+  const flex = linePosts()[0].body.messages[0];
+  assert.match(flex.altText, /ตารางนัดทั้งชุด:\n• เข็ม 1: .*\n• เข็ม 2: .*\n• เข็ม 3: /);
+  assert.equal(flex.contents.footer.contents[0].action.data, `appt:confirm:${r.appointment.id}`);
+  assert.ok(items().every((a) => a.confirm_sent_at), "ทุกนัดในชุดถือว่าส่งแล้ว");
+
+  // แก้วันนัดที่ 2 + เลื่อนนัดถัดไปตาม: เข็ม 3 นับจากเข็มแรก จึงไม่เลื่อน
+  outbound = [];
+  const second = items()[1];
+  const third = items()[2];
+  const thirdDate = third.appoint_date;
+  const u = await store.updateAppointment(second.id, { appoint_date: rules.addDays(second.appoint_date, 7), shift_following: true }, "nurse");
+  assert.equal(u.moved, true);
+  assert.equal(u.shifted, 0);
+  assert.equal(items()[2].appoint_date, thirdDate);
+  // เปลี่ยนเข็ม 3 ให้นับจากนัดก่อนหน้า แล้วเลื่อนเข็ม 2 อีกครั้ง → เข็ม 3 เลื่อนตาม
+  items()[2].series_from = "previous";
+  items()[2].series_offset_value = 150;
+  const newSecond = rules.addDays(items()[1].appoint_date, 3);
+  const u2 = await store.updateAppointment(second.id, { appoint_date: newSecond, shift_following: true }, "nurse");
+  assert.equal(u2.shifted, 1);
+  assert.equal(items()[2].appoint_date, rules.addDays(newSecond, 150));
+  assert.equal(items()[2].reminder_sent_at, null);
+  assert.match(linePosts().at(-1).body.messages[0].altText, /เปลี่ยนวันนัดใหม่[\s\S]*ตารางนัดทั้งชุด/);
+
+  // ยกเลิกเฉพาะนัดที่ 3
+  await store.cancelAppointment(items()[2].id, "nurse", { code: "doctor", scope: "one" });
+  assert.deepEqual(items().map((a) => a.status), ["scheduled", "scheduled", "cancelled"]);
+
+  // เตือนนัดที่ 2: เข็ม 2 จาก 2 (นับเฉพาะที่ไม่ยกเลิก)
+  outbound = [];
+  items()[1].appoint_date = inDays(1);
+  items()[1].reminder_attempted_at = null;
+  items()[1].confirm_sent_at = new Date(Date.now() - 5 * 86_400_000).toISOString();
+  await store.runAppointmentReminders(Date.parse(`${today}T16:00:00+07:00`));
+  assert.match(linePosts()[0].body.messages[0].altText, /เตือนนัดพรุ่งนี้ · เข็ม 2 \(2 จาก 2\)/);
+});
+
+test("ยกเลิกทั้งชุด: นัดที่ยังเปิดอยู่ทั้งหมดถูกยกเลิก ข้อความเดียว", async () => {
+  const d1 = inDays(3);
+  const r = await store.createAppointment({
+    patient_name: "สมหญิง", hn: "HN901", appoint_date: d1, time_mode: "slot", slot_id: "morning", conversation_id: "conv-line",
+    series_items: [{ label: "เข็ม 2", appoint_date: rules.addDays(d1, 14), time_mode: "slot", slot_id: "morning", from: "previous", offset_value: 2, offset_unit: "week" }],
+  }, "nurse");
+  outbound = [];
+  const res = await store.cancelAppointment(r.appointment.id, "nurse", { code: "patient", scope: "series" });
+  assert.equal(res.cancelled, 2);
+  assert.ok(state.tables.appointments.filter((a) => a.series_id === r.appointment.series_id).every((a) => a.status === "cancelled"));
+  assert.equal(linePosts().length, 1);
+  assert.match(linePosts()[0].body.messages[0].altText, /ยกเลิกนัด[\s\S]*เข็ม 2/);
+});

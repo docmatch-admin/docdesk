@@ -7,6 +7,7 @@ import {
 } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { ClinicHoursSettings, PurposePresets } from "./appointment-presets";
+import { SeriesTemplates } from "./series-templates";
 
 interface Quota { type: string; limit: number | null; used: number }
 interface ChatOption { id: string; name: string; channel: string }
@@ -87,6 +88,7 @@ export function AppointmentSettings() {
 
       <PurposePresets />
       <ClinicHoursSettings />
+      <SeriesTemplates />
 
       <h3 style={{ marginTop: 16 }}>ส่งทดสอบหาตัวเอง</h3>
       <p className="muted small">ทักแชท LINE ของคลินิกจากบัญชีตัวเองก่อน แล้วค้นชื่อแชทนั้น (Facebook/Instagram ต้องทักภายใน 24 ชม.)</p>

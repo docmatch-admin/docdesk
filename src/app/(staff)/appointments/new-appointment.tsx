@@ -48,6 +48,8 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
   const [hisName, setHisName] = useState("");
   const [selectedHn, setSelectedHn] = useState("");
   const [booked, setBooked] = useState<Set<string>>(new Set());
+  // iService ล่ม: แสดงข้อมูลจาก cache พร้อมเวลาที่ดึงล่าสุด
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
 
   async function call<T>(body: Record<string, unknown>): Promise<T | null> {
     const { data, error } = await sb.functions.invoke("iservice", { body });
@@ -61,7 +63,10 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (source !== "today" || visits) return;
     setLoading(true);
-    call<{ visits: Visit[] }>({ action: "visits" }).then((d) => setVisits(d?.visits ?? [])).finally(() => setLoading(false));
+    call<{ visits: Visit[]; cached?: boolean; cachedAt?: string | null }>({ action: "visits" }).then((d) => {
+      setVisits(d?.visits ?? []);
+      setCachedAt(d?.cached ? d.cachedAt ?? "" : null);
+    }).finally(() => setLoading(false));
   }, [source]);
 
   // HN ที่มีนัดในอนาคตแล้ว แสดงป้าย "มีนัดแล้ว"
@@ -75,8 +80,9 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
     if (query.trim().length < 2) return;
     setErr("");
     setLoading(true);
-    const d = await call<{ patients: Patient[] }>({ action: "patients", q: query.trim() });
+    const d = await call<{ patients: Patient[]; cached?: boolean; cachedAt?: string | null }>({ action: "patients", q: query.trim() });
     setPatients(d?.patients ?? []);
+    setCachedAt(d?.cached ? d.cachedAt ?? "" : null);
     setLoading(false);
   }
 
@@ -96,6 +102,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
   function chooseSource(k: Source) {
     setSource(k);
     setErr("");
+    setCachedAt(null);
   }
 
   const shownVisits = (visits ?? []).filter((v) => {
@@ -151,6 +158,11 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
         )}
       </div>
       {err && <div className="error small" role="alert">{err}</div>}
+      {cachedAt !== null && (
+        <div className="appt-cache-bar" role="status">
+          iService ไม่ตอบสนอง — แสดงข้อมูล ณ {cachedAt ? new Date(cachedAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "ล่าสุดที่มี"} น. (ทำนัดต่อได้ตามปกติ)
+        </div>
+      )}
 
       {source === "today" && (
         <>

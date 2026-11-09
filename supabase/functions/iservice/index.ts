@@ -2,7 +2,11 @@
 // เรียกด้วย session ของเจ้าหน้าที่ (supabase.functions.invoke) ตรวจสิทธิ์ด้วย is_appointment_staff()
 // deploy: supabase functions deploy iservice --no-verify-jwt (ตรวจสิทธิ์เอง: session เจ้าหน้าที่ผ่าน is_appointment_staff() หรือ service role ของ server)
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { bangkokToday, diagnose, searchPatients, visitsOn } from "../_shared/iservice.ts";
+import { bangkokToday, diagnose, searchPatients, visitsOn, withTimeout } from "../_shared/iservice.ts";
+import { cachedPatients, cachedVisits, pruneVisits, savePatients, saveVisits } from "../_shared/his-cache.ts";
+
+/** iService ตอบช้ากว่านี้ถือว่าล่ม ใช้ cache */
+const LIVE_TIMEOUT_MS = 8_000;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -56,6 +60,24 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
   const auth = req.headers.get("Authorization") ?? "";
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+
+  // pg_cron ทุก 5 นาทีในเวลาทำการ: ดึง visit วันนี้เก็บ cache (ตรวจค่าลับกับ Vault)
+  const cronSecret = req.headers.get("x-cron-secret");
+  if (cronSecret) {
+    const { data: ok } = await admin.rpc("verify_cron_secret", { p_secret: cronSecret });
+    if (ok !== true) return json({ error: "unauthorized" }, 401);
+    const today = bangkokToday();
+    try {
+      const visits = await withTimeout(visitsOn(today), 30_000);
+      await saveVisits(admin, visits);
+      await pruneVisits(admin, today);
+      return json({ date: today, cached: visits.length });
+    } catch (e) {
+      console.error("visit refresh failed", e instanceof Error ? e.message : e);
+      return json({ error: "ดึง visit ไม่สำเร็จ" }, 502);
+    }
+  }
   // server ของ DocDesk เรียกด้วย service role ตอนผูก HN เพื่อเอาชื่อจาก HIS เอง
   // รับทั้ง service role แบบเดิม (JWT) และ secret key แบบใหม่ (sb_secret_…) ที่แอปบน Vercel อาจใช้
   const isServer = serverKeys().some((k) => auth === `Bearer ${k}`) || (await hasServiceRole(auth));
@@ -68,29 +90,56 @@ Deno.serve(async (req) => {
     if (allowed !== true) return json({ error: "forbidden" }, 403);
   }
 
-  const b = await req.json().catch(() => ({})) as { action?: string; q?: string; hn?: string };
+  const b = await req.json().catch(() => ({})) as { action?: string; q?: string; hn?: string; simulate_down?: boolean };
+  // ทดสอบกรณี iService ล่ม (เฉพาะ server ของ DocDesk)
+  const live = <T>(p: () => Promise<T>): Promise<T> =>
+    isServer && b.simulate_down ? Promise.reject(new Error("simulated iService down")) : withTimeout(p(), LIVE_TIMEOUT_MS);
   try {
     // ตรวจการเชื่อมต่อ: เรียกได้เฉพาะ server ของ DocDesk (ผ่าน /api/appointments/iservice-check ของแอดมิน)
     if (b.action === "diagnose") {
       if (!isServer) return json({ error: "forbidden" }, 403);
       return json(await diagnose(bangkokToday(), (b.q ?? "").trim().slice(0, 30)));
     }
+    // ล่าสุดก่อน
+    const sortVisits = <T extends { time: string; seq: number }>(v: T[]) => v.sort((a, z) => z.time.localeCompare(a.time) || z.seq - a.seq);
     if (b.action === "visits") {
-      const visits = await visitsOn(bangkokToday());
-      // ล่าสุดก่อน
-      visits.sort((a, z) => z.time.localeCompare(a.time) || z.seq - a.seq);
-      return json({ visits });
+      const today = bangkokToday();
+      try {
+        const visits = await live(() => visitsOn(today));
+        await saveVisits(admin, visits);
+        return json({ visits: sortVisits(visits) });
+      } catch (e) {
+        console.error("iservice visits failed, using cache", e instanceof Error ? e.message : e);
+        const cached = await cachedVisits(admin, today);
+        if (!cached.at) throw e;
+        return json({ visits: sortVisits(cached.visits), cached: true, cachedAt: cached.at });
+      }
     }
     if (b.action === "patients") {
       const q = (b.q ?? "").trim().slice(0, 60);
       if (q.length < 2) return json({ patients: [] });
-      return json({ patients: await searchPatients(q) });
+      try {
+        const patients = await live(() => searchPatients(q));
+        await savePatients(admin, patients);
+        return json({ patients });
+      } catch (e) {
+        console.error("iservice search failed, using cache", e instanceof Error ? e.message : e);
+        const cached = await cachedPatients(admin, q);
+        return json({ patients: cached.patients, cached: true, cachedAt: cached.at });
+      }
     }
     if (b.action === "patient") {
       const hn = (b.hn ?? "").trim().slice(0, 30);
       if (!hn) return json({ patient: null });
-      const found = (await searchPatients(hn)).find((p) => p.hn === hn) ?? null;
-      return json({ patient: found });
+      try {
+        const found = (await live(() => searchPatients(hn))).find((p) => p.hn === hn) ?? null;
+        if (found) await savePatients(admin, [found]);
+        return json({ patient: found });
+      } catch (e) {
+        console.error("iservice patient failed, using cache", e instanceof Error ? e.message : e);
+        const { data } = await admin.from("his_patient_cache").select("hn, full_name, phone, fetched_at").eq("hn", hn).maybeSingle();
+        return json({ patient: data ? { hn: data.hn, name: data.full_name ?? "", phone: data.phone ?? "" } : null, cached: true, cachedAt: data?.fetched_at ?? null });
+      }
     }
     return json({ error: "unknown action" }, 400);
   } catch (e) {

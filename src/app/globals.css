@@ -716,3 +716,36 @@ body > .appt-slip { display: none; }
 .appt-side-card { cursor: pointer; }
 .appt-side-card:hover { border-color: var(--blue); }
 @media (max-width: 640px) { .drawer-dl { grid-template-columns: 1fr; } .drawer-dl dt { margin-top: 4px; } }
+
+.appt-cache-bar { padding: 8px 12px; border-radius: 8px; background: #fff7d6; color: #7a5a00; border: 1px solid #f0d77a; font-size: 13px; font-weight: 500; }
+
+/* เลือกวันด้วยตัวเลข / ชุดนัด */
+.appt-date-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.offset-fields { display: flex; gap: 8px; flex-wrap: wrap; }
+.offset-field { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.offset-field.on { border-color: var(--blue); background: var(--blue-soft); }
+.offset-field input { width: 56px; height: 36px; text-align: center; font-size: 16px; font-weight: 600; border: 0; background: transparent; padding: 0; -moz-appearance: textfield; }
+.offset-field input::-webkit-outer-spin-button, .offset-field input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.offset-field input:focus { outline: 0; }
+.offset-step { width: 32px; height: 36px; border: 0; border-radius: 8px; background: var(--bg); font-size: 18px; cursor: pointer; color: var(--ink); }
+.offset-field.on .offset-step { background: #fff; }
+.offset-unit { padding: 0 8px 0 2px; font-size: 13px; color: var(--muted); }
+.offset-field.on .offset-unit { color: var(--blue); font-weight: 600; }
+.appt-date-big { font-size: 20px; font-weight: 700; color: var(--blue); line-height: 1.3; }
+.appt-series-block { border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.appt-series-block.first { border-color: var(--blue); }
+.appt-series-block legend { padding: 0 4px; }
+.series-head { display: flex; gap: 8px; align-items: center; }
+.series-label { width: 140px; font-weight: 600; padding: 4px 8px; }
+.appt-add-next { align-self: flex-start; }
+.appt-template { max-width: 360px; }
+.appt-shift-ask { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-radius: 8px; background: var(--blue-soft); }
+.appt-series-chip { margin-left: 6px; background: var(--blue-soft); color: var(--blue); border-color: transparent; }
+.drawer-series ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.drawer-series li.current { font-weight: 600; color: var(--blue); }
+.drawer-series h3 { font-size: 14px; margin: 0 0 6px; }
+.template-editor { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.appt-slip-series { width: 100%; border-collapse: collapse; margin: 2mm 0; border-top: 1px dashed #000; }
+.appt-slip-series th { text-align: left; font-weight: 700; padding: 1.5mm 2mm 1.5mm 0; vertical-align: top; white-space: nowrap; }
+.appt-slip-series td { padding: 1.5mm 0; border-bottom: 1px dotted #000; }
+@media (max-width: 640px) { .offset-field input { width: 44px; } .offset-step { width: 28px; } }

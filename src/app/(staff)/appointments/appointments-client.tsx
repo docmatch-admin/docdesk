@@ -14,7 +14,7 @@ import { channelName } from "./appointment-form";
 import { shortHn } from "./new-appointment";
 import { NewAppointment } from "./new-appointment";
 
-type Row = Appointment & { channel: ChannelType | null; chat_name: string | null };
+type Row = Appointment & { channel: ChannelType | null; chat_name: string | null; series_total: number | null };
 type Tab = "tomorrow" | "today" | "all";
 
 const SLOT_LABEL: Record<string, string> = { morning: "ช่วงเช้า", afternoon: "ช่วงบ่าย" };
@@ -159,6 +159,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                       <td>{r.time_mode === "slot" ? <>{slotLabel(r)}<div className="muted small">{timeShort(r)}</div></> : timeShort(r)}</td>
                       <td>
                         {r.patient_name}
+                        {r.series_id && r.series_total && <span className="chip tiny appt-series-chip">{r.series_label ?? "นัด"} {r.series_seq}/{r.series_total}</span>}
                         {r.purpose_text && <div className="muted small">{r.purpose_text}</div>}
                       </td>
                       <td className="appt-hn">{r.hn ? shortHn(r.hn) : "–"}</td>

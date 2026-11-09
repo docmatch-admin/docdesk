@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import qrcode from "qrcode-generator";
-import { thaiFullDate, timePhrase, type Appointment } from "@/lib/appointment-rules";
+import { thaiFullDate, thaiMediumDate, timePhrase, timeShort, type Appointment } from "@/lib/appointment-rules";
 
-interface Slip { appointment: Appointment; clinic: string; phone: string; address: string; qrUrl: string }
+interface Slip { appointment: Appointment; clinic: string; phone: string; address: string; qrUrl: string; series?: Appointment[] }
 
 /**
  * ใบนัดเครื่องพิมพ์ความร้อน 80mm อย่างเดียว: กระดาษยาวตามเนื้อหา ไม่มีขอบ ขาวดำล้วน
@@ -60,8 +60,23 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
       <div className="appt-slip-title">ใบนัด</div>
       <div className="appt-slip-row"><span>ชื่อ-นามสกุล</span><b>{a.patient_name}</b></div>
       {a.hn && <div className="appt-slip-row"><span>HN</span><b>{a.hn}</b></div>}
-      <div className="appt-slip-date">{thaiFullDate(a.appoint_date)}</div>
-      <div className="appt-slip-time">{timePhrase(a)}</div>
+      {slip.series && slip.series.length > 1 ? (
+        <table className="appt-slip-series">
+          <tbody>
+            {slip.series.map((x) => (
+              <tr key={x.id}>
+                <th>{x.series_label}</th>
+                <td><b>{thaiMediumDate(x.appoint_date)}</b><br />{timeShort(x)} น.{x.time_mode === "slot" ? " (ตามคิว)" : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <>
+          <div className="appt-slip-date">{thaiFullDate(a.appoint_date)}</div>
+          <div className="appt-slip-time">{timePhrase(a)}</div>
+        </>
+      )}
       {a.provider && <div className="appt-slip-row"><span>ผู้นัด</span><b>{a.provider}</b></div>}
       {a.purpose_text && <div className="appt-slip-row"><span>เหตุผลนัด</span><b>{a.purpose_text}</b></div>}
       {a.instructions && <div className="appt-slip-instructions"><span>การปฏิบัติตัว</span><b>{a.instructions}</b></div>}

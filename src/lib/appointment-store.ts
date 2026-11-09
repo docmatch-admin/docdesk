@@ -2,7 +2,7 @@ import {
   addDays, appointmentFlex, callQueue, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
   metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT,
   reminderDecision, TEST_APPOINTMENT_ID, thaiShortDate, timeShort, weekdayOf,
-  canRestore, CANCEL_REASON_LABEL, notifiesOnCancel,
+  canRestore, CANCEL_REASON_LABEL, defaultSeriesLabel, notifiesOnCancel, shiftFollowing,
   type Appointment, type AppointmentSettings, type CancelReason, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
 } from "./appointment-rules";
 import { sendPushToStaff } from "./booking-store";
@@ -21,7 +21,7 @@ import type { ChannelType } from "./types";
  */
 export const APPOINTMENT_SENDER_NAME = "ระบบนัด";
 
-export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, created_by, created_at, updated_at";
+export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, created_by, created_at, updated_at";
 
 export const loadAppointmentSettings = async (): Promise<AppointmentSettings> =>
   normalizeAppointmentSettings(await getSetting<unknown>("appointment_settings", {}));
@@ -164,7 +164,12 @@ async function pushAppointment(info: ConversationInfo, via: "line" | "facebook" 
  * ส่งข้อความนัดหนึ่งครั้ง บันทึกผลลง appointments และ appointment_events
  * ส่งไม่ได้ (นอก 24 ชม., ไม่มีแชท) บันทึกเป็น "ส่งไม่ได้-ต้องโทร" ไม่ throw
  */
-export async function deliverAppointment(appt: Appointment, kind: MessageKind, opts: { actor?: Actor; staffId?: string | null; replyToken?: string; now?: number; previous?: MessageInput["previous"] } = {}): Promise<DeliveryResult> {
+export async function deliverAppointment(appt: Appointment, kind: MessageKind, opts: {
+  actor?: Actor; staffId?: string | null; replyToken?: string; now?: number; previous?: MessageInput["previous"];
+  series?: MessageInput["series"]; seriesPosition?: MessageInput["seriesPosition"];
+  /** นัดอื่นในชุดที่ได้ข้อความเดียวกัน (การ์ดชุดนัด) */
+  alsoMark?: string[];
+} = {}): Promise<DeliveryResult> {
   const db = supabaseAdmin();
   const actor = opts.actor ?? "system";
   if (!appt.conversation_id) {
@@ -180,7 +185,7 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
     return { sent: false, via: info?.channelType, error };
   }
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
-  const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous };
+  const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous, series: opts.series, seriesPosition: opts.seriesPosition };
   try {
     const mid = await pushAppointment(info, delivery.via, input, opts.replyToken);
     await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.lang, externalId: mid });
@@ -194,8 +199,35 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
   const at = nowIso();
   const sentField = kind === "reminder" ? { reminder_sent_at: at } : kind === "cancelled" ? {} : { confirm_sent_at: at };
   await db.from("appointments").update({ ...sentField, last_send_error: null, updated_at: at }).eq("id", appt.id);
-  await logAppointmentEvent(appt.id, "sent", actor, { staffId: opts.staffId, channel: delivery.via, detail: { kind } });
+  await logAppointmentEvent(appt.id, "sent", actor, { staffId: opts.staffId, channel: delivery.via, detail: { kind, ...(opts.series ? { series: opts.series.length } : {}) } });
+  if (opts.alsoMark?.length) {
+    await db.from("appointments").update({ ...sentField, last_send_error: null, updated_at: at }).in("id", opts.alsoMark);
+    for (const id of opts.alsoMark) await logAppointmentEvent(id, "sent", actor, { staffId: opts.staffId, channel: delivery.via, detail: { kind, via_series: appt.id } });
+  }
   return { sent: true, via: delivery.via };
+}
+
+// ---------------------------------------------------------------------------
+// ชุดนัด
+// ---------------------------------------------------------------------------
+export async function loadSeries(seriesId: string): Promise<Appointment[]> {
+  const { data } = await supabaseAdmin().from("appointments").select(APPOINTMENT_COLUMNS).eq("series_id", seriesId);
+  return ((data ?? []) as unknown as Appointment[]).sort((a, b) => (a.series_seq ?? 0) - (b.series_seq ?? 0));
+}
+
+const seriesView = (items: Appointment[]): NonNullable<MessageInput["series"]> =>
+  items.filter((a) => a.status !== "cancelled").map((a) => ({
+    label: a.series_label || defaultSeriesLabel(a.series_seq ?? 1),
+    appoint_date: a.appoint_date, time_mode: a.time_mode, time_start: a.time_start, time_end: a.time_end,
+  }));
+
+/** เข็ม N จาก M (นับเฉพาะนัดที่ไม่ได้ยกเลิก) */
+async function seriesPosition(a: Appointment): Promise<MessageInput["seriesPosition"]> {
+  if (!a.series_id) return undefined;
+  const active = (await loadSeries(a.series_id)).filter((x) => x.status !== "cancelled");
+  const index = active.findIndex((x) => x.id === a.id);
+  if (index < 0) return undefined;
+  return { label: a.series_label || defaultSeriesLabel(a.series_seq ?? index + 1), seq: index + 1, total: active.length };
 }
 
 /** ข้อความตอบสั้นๆ หลังกดปุ่มหรือส่งรหัส ใช้ replyToken ของ LINE ก่อนเพื่อไม่กินโควตา */
@@ -220,6 +252,11 @@ export interface AppointmentInput {
   provider?: unknown; note?: unknown; conversation_id?: unknown; booking_id?: unknown;
   /** ชื่อมาจาก iService และไม่ได้แก้ */
   name_from_his?: unknown;
+  /** ชุดนัด: นัดแรกคือฟิลด์หลัก นัดถัดไปอยู่ใน series_items */
+  series_title?: unknown; series_label?: unknown;
+  series_items?: unknown;
+  /** แก้วันนัดในชุด: เลื่อนนัดถัดไปตามด้วย */
+  shift_following?: unknown;
 }
 
 export class AppointmentError extends Error {
@@ -334,11 +371,38 @@ export async function createAppointment(b: AppointmentInput, staffId: string, op
   }
   const conversationId = fromChat ?? (await findLinkedConversation(fields.hn));
 
+  // นัดถัดไปในชุด ตรวจครบก่อนบันทึกอะไร
+  const rawItems = Array.isArray(b.series_items) ? (b.series_items as Record<string, unknown>[]).slice(0, 20) : [];
+  const followers = [];
+  for (const [i, item] of rawItems.entries()) {
+    const f = await resolveFields({ ...b, appoint_date: item.appoint_date, time_mode: item.time_mode, slot_id: item.slot_id, time_start: item.time_start }, bangkokToday(now))
+      .catch((e) => { throw new AppointmentError(`นัดที่ ${i + 2}: ${e instanceof Error ? e.message : e}`); });
+    const from = item.from === "first" || item.from === "previous" ? item.from : null;
+    const unit = item.offset_unit === "day" || item.offset_unit === "week" || item.offset_unit === "month" ? item.offset_unit : null;
+    const value = Number.isInteger(item.offset_value) ? Math.max(0, Math.min(3650, item.offset_value as number)) : null;
+    followers.push({ ...f, series_seq: i + 2, series_label: clip(item.label, 50) || defaultSeriesLabel(i + 2), series_from: from, series_offset_value: value, series_offset_unit: unit });
+  }
+  let seriesId: string | null = null;
+  if (followers.length) {
+    const { data: series, error: sErr } = await db.from("appointment_series").insert({
+      hn: fields.hn, conversation_id: conversationId, title: clip(b.series_title, 200) || fields.purpose_text, created_by: staffId,
+    }).select("id").single();
+    if (sErr || !series) throw sErr ?? new Error("สร้างชุดนัดไม่สำเร็จ");
+    seriesId = series.id as string;
+  }
+
+  const common = { name_from_his: b.name_from_his === true, source: "docdesk", conversation_id: conversationId, status: "scheduled", created_by: staffId, updated_at: nowIso() };
   const appointment = await insertWithCode({
-    ...fields, name_from_his: b.name_from_his === true, source: "docdesk", conversation_id: conversationId, booking_id: bookingId,
-    status: "scheduled", created_by: staffId, updated_at: nowIso(),
+    ...fields, ...common, booking_id: bookingId,
+    ...(seriesId ? { series_id: seriesId, series_seq: 1, series_label: clip(b.series_label, 50) || defaultSeriesLabel(1) } : {}),
   });
-  await logAppointmentEvent(appointment.id, "created", "staff", { staffId, detail: { from: fromChat ? "chat" : "appointments", booking_id: bookingId } });
+  await logAppointmentEvent(appointment.id, "created", "staff", { staffId, detail: { from: fromChat ? "chat" : "appointments", booking_id: bookingId, ...(seriesId ? { series: followers.length + 1 } : {}) } });
+  const followerIds: string[] = [];
+  for (const f of followers) {
+    const row = await insertWithCode({ ...f, ...common, series_id: seriesId });
+    followerIds.push(row.id);
+    await logAppointmentEvent(row.id, "created", "staff", { staffId, detail: { from: "series", series_seq: f.series_seq } });
+  }
 
   if (fromChat && fields.hn && opts.canLink) {
     await linkConversationToHn(fromChat, fields.hn, { via: "staff", staffId, fallbackName: fields.patient_name, fallbackFromHis: b.name_from_his === true, phone: fields.phone })
@@ -353,7 +417,10 @@ export async function createAppointment(b: AppointmentInput, staffId: string, op
     if (conv) await db.rpc("set_conversation_tag", { p_conversation: conv, p_tag: "นัดแล้ว", p_action: "add", p_by: "staff" });
   }
 
-  const delivery = await deliverAppointment(appointment, "new", { actor: "staff", staffId, now });
+  // ชุดนัด: การ์ดเดียวแสดงทุกนัด ปุ่มยืนยันเป็นของนัดแรก
+  const delivery = seriesId
+    ? await deliverAppointment(appointment, "new", { actor: "staff", staffId, now, series: seriesView(await loadSeries(seriesId)), alsoMark: followerIds })
+    : await deliverAppointment(appointment, "new", { actor: "staff", staffId, now });
   return { appointment: (await loadAppointment(appointment.id)) ?? appointment, delivery };
 }
 
@@ -363,7 +430,7 @@ export async function createAppointment(b: AppointmentInput, staffId: string, op
  * เปลี่ยนวัน/เวลา: กลับเป็น scheduled เตือนใหม่ตามวันใหม่ ส่งข้อความ "เปลี่ยนนัด" (วันเดิม → วันใหม่) และปิดงาน "เลื่อนนัด" ในแชท
  * แก้เหตุผล/หมายเหตุอย่างเดียว: ไม่ส่งข้อความ
  */
-export async function updateAppointment(id: string, b: AppointmentInput, staffId: string, now = Date.now()): Promise<{ appointment: Appointment; delivery: DeliveryResult | null; moved: boolean }> {
+export async function updateAppointment(id: string, b: AppointmentInput, staffId: string, now = Date.now()): Promise<{ appointment: Appointment; delivery: DeliveryResult | null; moved: boolean; shifted: number }> {
   // สำเนาค่าก่อนแก้ ใช้หลังบันทึก (สถานะเดิม วันเวลาเดิม)
   const loaded = await loadAppointment(id);
   const current = loaded ? { ...loaded } : null;
@@ -374,7 +441,7 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
     time_mode: current.time_mode, slot_id: current.slot_id, time_start: current.time_start.slice(0, 5),
     purpose_id: current.purpose_id, purpose_text: current.purpose_text, instructions: current.instructions,
     provider: current.provider, note: current.note,
-    ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)),
+    ...Object.fromEntries(Object.entries(b).filter(([k, v]) => v !== undefined && !["shift_following", "series_items", "series_title", "series_label"].includes(k))),
   }, bangkokToday(now));
   const when = (a: { appoint_date: string; time_mode: string; time_start: string; time_end: string | null }) =>
     `${a.appoint_date} ${a.time_mode} ${a.time_start.slice(0, 5)}-${a.time_end?.slice(0, 5) ?? ""}`;
@@ -390,11 +457,46 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
   });
   const updated = (await loadAppointment(id)) as Appointment;
   if (moved && current.status === "reschedule_requested" && current.conversation_id) await closeRescheduleTasks(current.conversation_id, staffId);
+  let shifted = 0;
+  if (moved && current.series_id && b.shift_following === true && fields.appoint_date !== current.appoint_date) {
+    shifted = await shiftSeriesFollowers(current.series_id, current.series_seq ?? 1, fields.appoint_date, staffId);
+  }
+  const series = current.series_id ? seriesView(await loadSeries(current.series_id)) : undefined;
   const delivery = moved ? await deliverAppointment(updated, "changed", {
-    actor: "staff", staffId, now,
+    actor: "staff", staffId, now, series,
     previous: { appoint_date: current.appoint_date, time_mode: current.time_mode, time_start: current.time_start, time_end: current.time_end },
   }) : null;
-  return { appointment: (await loadAppointment(id)) ?? updated, delivery, moved };
+  return { appointment: (await loadAppointment(id)) ?? updated, delivery, moved, shifted };
+}
+
+/**
+ * เลื่อนนัดถัดไปในชุดตามนัดที่แก้ (นับจากนัดก่อนหน้า หรือจากนัดแรกเมื่อแก้นัดแรก)
+ * ช่วงเวลาเดิมไม่มีในวันใหม่ → ใช้ช่วงแรกของวันนั้น นัดที่ปิดแล้วไม่แตะ
+ */
+async function shiftSeriesFollowers(seriesId: string, editedSeq: number, newDate: string, staffId: string): Promise<number> {
+  const db = supabaseAdmin();
+  const items = await loadSeries(seriesId);
+  const moves = shiftFollowing(items.filter((a) => a.series_seq != null).map((a) => ({
+    seq: a.series_seq as number, date: a.appoint_date, from: a.series_from ?? null, value: a.series_offset_value ?? null, unit: a.series_offset_unit ?? null,
+  })), editedSeq, newDate);
+  let count = 0;
+  for (const m of moves) {
+    const a = items.find((x) => x.series_seq === m.seq);
+    if (!a || !OPEN_STATUSES.includes(a.status)) continue;
+    let time: Record<string, unknown> = {};
+    if (a.time_mode === "slot") {
+      const schedule = await loadClinicSchedule(m.date, m.date);
+      const slots = schedule.hours[weekdayOf(m.date)] ?? [];
+      const slot = slots.find((s) => s.slot_id === a.slot_id) ?? slots[0];
+      if (slot) time = { slot_id: slot.slot_id, time_start: slot.start, time_end: slot.end };
+    }
+    await db.from("appointments").update({
+      appoint_date: m.date, ...time, status: "scheduled", reminder_sent_at: null, reminder_attempted_at: null, called_at: null, called_by: null, updated_at: nowIso(),
+    }).eq("id", a.id);
+    await logAppointmentEvent(a.id, "rescheduled", "staff", { staffId, detail: { from: a.appoint_date, to: m.date, by: "series" } });
+    count++;
+  }
+  return count;
 }
 
 /** คนไข้ขอเลื่อนแล้วเจ้าหน้าที่นัดวันใหม่ให้: งาน "เลื่อนนัด" ในแชทเสร็จ แชทปิดได้ตามปกติ */
@@ -411,7 +513,7 @@ const CANCEL_CODES: CancelReason[] = ["patient", "doctor", "mistake", "other"];
  * ยกเลิกต้องมีเหตุผล ไม่ลบแถว นัดที่ยกเลิกไม่เตือน ไม่เข้าคิวโทร ไม่นับในจำนวนนัด
  * ส่งข้อความแจ้งยกเลิกถ้ามีแชท ยกเว้น "ลงนัดผิด"
  */
-export async function cancelAppointment(id: string, staffId: string, reason: { code?: unknown; text?: unknown } = {}): Promise<{ delivery: DeliveryResult | null }> {
+export async function cancelAppointment(id: string, staffId: string, reason: { code?: unknown; text?: unknown; scope?: unknown } = {}): Promise<{ delivery: DeliveryResult | null; cancelled: number }> {
   const code = CANCEL_CODES.find((c) => c === reason.code);
   if (!code) throw new AppointmentError("เลือกเหตุผลการยกเลิก");
   const text = clip(reason.text, 300);
@@ -427,11 +529,26 @@ export async function cancelAppointment(id: string, staffId: string, reason: { c
   }).eq("id", id).eq("status", current.status).select("id");
   if (!data?.length) throw new AppointmentError("นัดเพิ่งถูกแก้ไข ลองใหม่อีกครั้ง", 409);
   await logAppointmentEvent(id, "cancelled", "staff", { staffId, detail: { reason: label, code, previous_status: current.status } });
+  const cancelledItems: Appointment[] = [current];
+  // ยกเลิกทั้งชุด: นัดที่ยังเปิดอยู่ทั้งหมดในชุด
+  if (reason.scope === "series" && current.series_id) {
+    for (const a of await loadSeries(current.series_id)) {
+      if (a.id === id || !OPEN_STATUSES.includes(a.status)) continue;
+      const prev = a.status;
+      const { data: ok } = await supabaseAdmin().from("appointments").update({
+        status: "cancelled", cancel_reason_code: code, cancel_reason: label, cancelled_by: staffId, cancelled_at: at, updated_at: at,
+      }).eq("id", a.id).eq("status", prev).select("id");
+      if (!ok?.length) continue;
+      cancelledItems.push({ ...a });
+      await logAppointmentEvent(a.id, "cancelled", "staff", { staffId, detail: { reason: label, code, previous_status: prev, scope: "series" } });
+    }
+  }
   if (!notifiesOnCancel(code)) {
     await logAppointmentEvent(id, "send_skipped", "staff", { staffId, detail: { kind: "cancelled", reason: "ลงนัดผิด ไม่แจ้งคนไข้" } });
-    return { delivery: null };
+    return { delivery: null, cancelled: cancelledItems.length };
   }
-  return { delivery: await deliverAppointment({ ...current, status: "cancelled" }, "cancelled", { actor: "staff", staffId }) };
+  const series = current.series_id ? seriesView(cancelledItems.map((a) => ({ ...a, status: "scheduled" as const }))) : undefined;
+  return { delivery: await deliverAppointment({ ...current, status: "cancelled" }, "cancelled", { actor: "staff", staffId, series }), cancelled: cancelledItems.length };
 }
 
 /** กู้คืนนัดที่ยกเลิกภายในวันเดียวกัน กลับเป็นสถานะก่อนยกเลิก (ไม่ส่งข้อความอัตโนมัติ) */
@@ -550,7 +667,12 @@ export async function handleLinkCode(ref: InboundRef, text: string, code: string
     const ids = ((others ?? []) as { id: string; status: string }[]).filter((o) => OPEN_STATUSES.includes(o.status as Appointment["status"])).map((o) => o.id);
     if (ids.length) await db.from("appointments").update({ conversation_id: conversationId, updated_at: nowIso() }).in("id", ids);
   }
-  await deliverAppointment({ ...appt, conversation_id: conversationId }, "linked", { actor: "customer", replyToken: ref.replyToken, now });
+  if (appt.series_id) {
+    await db.from("appointments").update({ conversation_id: conversationId, updated_at: nowIso() }).eq("series_id", appt.series_id).is("conversation_id", null);
+  }
+  await deliverAppointment({ ...appt, conversation_id: conversationId }, "linked", {
+    actor: "customer", replyToken: ref.replyToken, now, series: appt.series_id ? seriesView(await loadSeries(appt.series_id)) : undefined,
+  });
   // ผูกชื่อหลังตอบ replyToken หมดอายุเร็ว ส่วนการค้น iService ใช้เวลาได้
   if (appt.hn) {
     await linkConversationToHn(conversationId, appt.hn, {
@@ -582,7 +704,7 @@ export async function runAppointmentReminders(now = Date.now()): Promise<{ sent:
       await logAppointmentEvent(appt.id, "reminder_skipped", "system", { detail: { reason: "ส่งข้อความนัดไปแล้ววันนี้" } });
       continue;
     }
-    const r = await deliverAppointment(appt, "reminder", { actor: "system", now });
+    const r = await deliverAppointment(appt, "reminder", { actor: "system", now, seriesPosition: await seriesPosition(appt) });
     if (r.sent) result.sent++;
     else result.failed++;
   }
@@ -617,6 +739,7 @@ export async function sendTestAppointment(conversationId: string, staffId: strin
 export interface AppointmentListRow extends Appointment {
   channel: ChannelType | null;
   chat_name: string | null;
+  series_total: number | null;
 }
 
 /** ค้นหาใช้ใน PostgREST or() จึงตัดตัวอักษรที่มีความหมายในไวยากรณ์ออก */
@@ -639,11 +762,19 @@ export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"
   if (opts.purpose === "none") query = query.is("purpose_id", null);
   else if (opts.purpose && UUID.test(opts.purpose)) query = query.eq("purpose_id", opts.purpose);
   const { data } = await query.order("appoint_date").order("time_start").limit(500);
+  const seriesIds = [...new Set(((data ?? []) as { series_id?: string | null }[]).map((r) => r.series_id).filter((x): x is string => !!x))];
+  const seriesTotal = new Map<string, number>();
+  if (seriesIds.length) {
+    const { data: sib } = await supabaseAdmin().from("appointments").select("series_id, status").in("series_id", seriesIds);
+    for (const r of (sib ?? []) as { series_id: string; status: string }[]) {
+      if (r.status !== "cancelled") seriesTotal.set(r.series_id, (seriesTotal.get(r.series_id) ?? 0) + 1);
+    }
+  }
   return ((data ?? []) as unknown as (Appointment & { conversations: unknown })[]).map(({ conversations, ...a }) => {
     const conv = (Array.isArray(conversations) ? conversations[0] : conversations) as { channels?: { type: ChannelType } | { type: ChannelType }[]; contacts?: ContactNameFields | ContactNameFields[] } | null;
     const channel = conv?.channels ? (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) : null;
     const contact = conv?.contacts ? (Array.isArray(conv.contacts) ? conv.contacts[0] : conv.contacts) : null;
-    return { ...a, channel: channel?.type ?? null, chat_name: contact ? contactName(contact) : null };
+    return { ...a, channel: channel?.type ?? null, chat_name: contact ? contactName(contact) : null, series_total: a.series_id ? seriesTotal.get(a.series_id) ?? null : null };
   });
 }
 
@@ -659,11 +790,12 @@ export async function appointmentCallCounts(now = Date.now()) {
 export async function appointmentFormData(hn: string | null, now = Date.now()) {
   const db = supabaseAdmin();
   const today = bangkokToday(now);
-  const [{ data: recent }, linked, schedule, presets] = await Promise.all([
+  const [{ data: recent }, linked, schedule, presets, { data: templates }] = await Promise.all([
     db.from("appointments").select("purpose_id, purpose_text, provider, created_at").order("created_at", { ascending: false }).limit(500),
     findLinkedConversation(hn),
     loadClinicSchedule(today, addDays(today, 400)),
     loadPurposes(),
+    db.from("appointment_series_templates").select("id, name, purpose_id, items, sort_order, active").eq("active", true),
   ]);
   const rows = (recent ?? []) as { purpose_id: string | null; purpose_text: string | null; provider: string | null }[];
   let linkedChannel: ChannelType | null = null;
@@ -678,6 +810,8 @@ export async function appointmentFormData(hn: string | null, now = Date.now()) {
     providers: frequentTexts(rows.map((r) => r.provider), 20),
     linked: linked ? { conversation_id: linked, channel: linkedChannel } : null,
     schedule,
+    templates: ((templates ?? []) as { id: string; name: string; purpose_id: string | null; items: unknown; sort_order: number }[])
+      .sort((a, b) => a.sort_order - b.sort_order).map(({ sort_order: _s, ...t }) => t),
   };
 }
 
@@ -685,8 +819,10 @@ export async function appointmentSlip(id: string) {
   const appt = await loadAppointment(id);
   if (!appt) return null;
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
+  const series = appt.series_id ? (await loadSeries(appt.series_id)).filter((a) => a.status !== "cancelled") : [];
   return {
     appointment: appt,
+    series,
     clinic,
     phone: settings.clinic_phone,
     address: settings.clinic_address,

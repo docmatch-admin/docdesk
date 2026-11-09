@@ -166,7 +166,7 @@ const pick = (r: Record<string, unknown>, keys: string[]): string => {
   return "";
 };
 
-export interface Visit { hn: string; name: string; doctor: string; time: string; phone: string; seq: number }
+export interface Visit { hn: string; name: string; doctor: string; time: string; phone: string; seq: number; vn: string; date: string }
 export interface Patient { hn: string; name: string; phone: string }
 
 /**
@@ -195,6 +195,8 @@ export function toVisit(r: Record<string, unknown>): Visit {
     time: pick(r, ["vsttime", "visit_time", "time", "vn_time", "regist_time"]) || timeFromVn(pick(r, ["vn"]), pick(r, ["vstdate"]).slice(0, 10)),
     // ลำดับคิวของวัน ใช้เรียงเมื่อไม่มีเวลา
     seq: Number(pick(r, ["oqueue", "no"])) || 0,
+    vn: pick(r, ["vn"]),
+    date: pick(r, ["vstdate"]).slice(0, 10),
     phone: pick(r, ["mobile_phone_number", "phone", "mobile", "tel"]),
   };
 }
@@ -212,7 +214,15 @@ export const bangkokToday = () =>
 
 export async function visitsOn(date: string): Promise<Visit[]> {
   const json = await iserviceGet("/api/ovst/v1/ovst_list", { date_start: date, date_end: date });
-  return rowsOf(json).map(toVisit).filter((v) => v.hn);
+  return rowsOf(json).map(toVisit).filter((v) => v.hn).map((v) => ({ ...v, date: v.date || date }));
+}
+
+/** iService ช้าเกินกำหนด ถือว่าล่ม ใช้ cache แทน */
+export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`timeout ${ms}ms`)), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
 }
 
 const digits = (s: string) => s.replace(/\D/g, "");

@@ -10,9 +10,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { user, error } = await requireAppointmentStaff();
   if (error) return error;
   const { id } = await params;
-  const b = (await req.json().catch(() => ({}))) as { reason?: unknown; reason_text?: unknown };
+  const b = (await req.json().catch(() => ({}))) as { reason?: unknown; reason_text?: unknown; scope?: unknown };
   try {
-    return NextResponse.json(await cancelAppointment(id, user.id, { code: b.reason, text: b.reason_text }));
+    return NextResponse.json(await cancelAppointment(id, user.id, { code: b.reason, text: b.reason_text, scope: b.scope }));
   } catch (e) {
     return appointmentErrorResponse(e);
   }

@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  addDays, bangkokToday, DEFAULT_CLINIC_HOURS, DEFAULT_SLOT_ID, isClosedDate, isWithinOpenHours, nextOpenDate, quickDates,
-  relativeDate, slotsForDate, thaiClock, thaiFullDate,
-  type Appointment, type ClinicSchedule, type DateUnit, type TimeMode,
+  bangkokToday, DEFAULT_CLINIC_HOURS, DEFAULT_SLOT_ID, defaultSeriesLabel, isClosedDate, isWithinOpenHours, nextOpenDate, offsetFromDays,
+  relativeDate, slotsForDate, thaiClock, thaiMediumDate,
+  type Appointment, type ClinicSchedule, type DateUnit, type SeriesFrom, type TimeMode,
 } from "@/lib/appointment-rules";
 import type { ChannelType } from "@/lib/types";
 import { MonthCalendar, type DayCounts } from "./month-calendar";
@@ -37,9 +37,13 @@ export const draftOf = (a: Appointment): AppointmentDraft => ({
 });
 
 export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string }
-export interface SaveResult { appointment: Appointment; delivery: DeliveryResult | null; moved?: boolean }
+export interface SaveResult { appointment: Appointment; delivery: DeliveryResult | null; moved?: boolean; shifted?: number }
 
 export interface PurposePreset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null }
+export interface SeriesTemplate {
+  id: string; name: string; purpose_id: string | null;
+  items: { label: string; offset_value: number; offset_unit: DateUnit; from: SeriesFrom }[];
+}
 
 interface FormData {
   presets: PurposePreset[];
@@ -47,6 +51,7 @@ interface FormData {
   providers: string[];
   linked: { conversation_id: string; channel: ChannelType | null } | null;
   schedule: ClinicSchedule;
+  templates?: SeriesTemplate[];
 }
 
 const CHANNEL_NAME: Record<string, string> = { line: "LINE", facebook: "Facebook", instagram: "Instagram", web: "แชทหน้าเว็บ" };
@@ -60,18 +65,126 @@ export function deliveryText(d: DeliveryResult | null | undefined): string {
 }
 
 export const OTHER_PURPOSE = "อื่นๆ";
-const UNIT_LABEL: Record<DateUnit, string> = { day: "วัน", week: "สัปดาห์", month: "เดือน" };
 const monthOf = (date: string) => date.slice(0, 7);
 const monthRange = (month: string) => {
   const [y, m] = month.split("-").map(Number);
   return { from: `${month}-01`, to: new Date(Date.UTC(y, m, 0, 12)).toISOString().slice(0, 10) };
 };
 
+// ---------------------------------------------------------------------------
+// เลือกวันด้วยตัวเลข: วัน / สัปดาห์ / เดือน ใช้ได้ทีละช่อง นับจากวันฐาน
+// ---------------------------------------------------------------------------
+export interface Offset { unit: DateUnit; value: number | "" }
+const UNITS: [DateUnit, string][] = [["day", "วัน"], ["week", "สัปดาห์"], ["month", "เดือน"]];
+
+export const offsetDate = (base: string, o: Offset | null) =>
+  o && o.value !== "" && base ? relativeDate(base, Number(o.value), o.unit) : null;
+
+export function DateOffsetField({ offset, onOffset, label }: { offset: Offset | null; onOffset: (o: Offset | null) => void; label: string }) {
+  const valueOf = (u: DateUnit) => (offset?.unit === u ? offset.value : "");
+  const step = (u: DateUnit, d: number) => {
+    const cur = offset?.unit === u && offset.value !== "" ? Number(offset.value) : 0;
+    onOffset({ unit: u, value: Math.max(0, Math.min(999, cur + d)) });
+  };
+  return (
+    <div className="offset-fields" role="group" aria-label={label}>
+      {UNITS.map(([u, name]) => (
+        <div key={u} className={`offset-field ${offset?.unit === u ? "on" : ""}`}>
+          <button type="button" className="offset-step" aria-label={`ลด${name}`} onClick={() => step(u, -1)}>−</button>
+          <input type="number" inputMode="numeric" min={0} max={999} aria-label={`อีกกี่${name}`} value={valueOf(u)} placeholder="0"
+            onFocus={() => { if (offset?.unit !== u) onOffset({ unit: u, value: "" }); }}
+            onChange={(e) => onOffset({ unit: u, value: e.target.value === "" ? "" : Math.max(0, Math.min(999, Math.floor(Number(e.target.value)))) })} />
+          <button type="button" className="offset-step" aria-label={`เพิ่ม${name}`} onClick={() => step(u, 1)}>+</button>
+          <span className="offset-unit">{name}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** วันที่ที่เลือก ตัวใหญ่ + นัดไว้แล้วกี่ราย + เตือนวันปิด */
+function DateSummary({ date, schedule, counts, onMove }: { date: string; schedule: ClinicSchedule; counts: DayCounts; onMove: (d: string) => void }) {
+  if (!date) return <div className="appt-date-big muted">ยังไม่ได้เลือกวัน</div>;
+  const slots = slotsForDate(date, schedule);
+  const dayCount = counts[date];
+  const closed = isClosedDate(date, schedule);
+  const reason = schedule.closures[date];
+  const next = closed ? nextOpenDate(date, schedule) : null;
+  return (
+    <>
+      <div className="appt-date-big">{thaiMediumDate(date)}</div>
+      <div className="appt-count small">
+        นัดไว้แล้ว {dayCount?.total ?? 0} ราย
+        {dayCount && dayCount.total > 0 && slots.length > 0 && (
+          <> ({[...slots.map((s) => `${s.label} ${dayCount.slots[s.slot_id] ?? 0}`), ...(dayCount.slots.exact ? [`ระบุเวลา ${dayCount.slots.exact}`] : [])].join(" · ")})</>
+        )}
+      </div>
+      {closed && (
+        <div className="appt-warn" role="alert">
+          {reason !== undefined ? `วันหยุดพิเศษ${reason ? `: ${reason}` : ""}` : "คลินิกปิดวันนี้"}
+          {next && <button type="button" className="btn ghost small" onClick={() => onMove(next)}>เลื่อนไปวันเปิดถัดไป</button>}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** ปุ่มช่วงเวลาของวันนั้น + ระบุเวลา */
+function TimeChoice({ date, schedule, counts, mode, slotId, timeStart, onChange }: {
+  date: string; schedule: ClinicSchedule; counts: DayCounts; mode: TimeMode; slotId: string; timeStart: string;
+  onChange: (p: { time_mode?: TimeMode; slot_id?: string; time_start?: string }) => void;
+}) {
+  const slots = date ? slotsForDate(date, schedule) : [];
+  const dayCount = date ? counts[date] : undefined;
+  return (
+    <div className="appt-chips">
+      {slots.map((s) => (
+        <button type="button" key={s.slot_id} className={`appt-chip ${mode === "slot" && slotId === s.slot_id ? "on" : ""}`}
+          onClick={() => onChange({ time_mode: "slot", slot_id: s.slot_id })}>
+          {s.label} <span className="appt-chip-hint">{thaiClock(s.start)}–{thaiClock(s.end)}</span>
+          {dayCount?.slots[s.slot_id] ? <span className="appt-chip-count">{dayCount.slots[s.slot_id]}</span> : null}
+        </button>
+      ))}
+      <button type="button" className={`appt-chip ${mode === "exact" ? "on" : ""}`} onClick={() => onChange({ time_mode: "exact" })}>ระบุเวลา</button>
+      {mode === "exact" && <input type="time" aria-label="เวลานัด" className="appt-time" value={timeStart} onChange={(e) => onChange({ time_start: e.target.value })} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// นัดถัดไปในชุด
+// ---------------------------------------------------------------------------
+interface SeriesBlock {
+  key: number;
+  label: string;
+  from: SeriesFrom;
+  offset: Offset | null;
+  time_mode: TimeMode;
+  slot_id: string;
+  time_start: string;
+}
+
+let blockKey = 0;
+const newBlock = (seq: number, o: Partial<SeriesBlock> = {}): SeriesBlock => ({
+  key: ++blockKey, label: defaultSeriesLabel(seq), from: "previous", offset: null, time_mode: "slot", slot_id: DEFAULT_SLOT_ID, time_start: "", ...o,
+});
+
+/** วันของแต่ละบล็อก: นับจากนัดแรกหรือนัดก่อนหน้า */
+function blockDates(first: string, blocks: SeriesBlock[]): string[] {
+  const out: string[] = [];
+  blocks.forEach((b, i) => {
+    const base = b.from === "first" ? first : i === 0 ? first : out[i - 1];
+    out.push(offsetDate(base, b.offset) ?? "");
+  });
+  return out;
+}
+
 /**
  * ฟอร์มนัดเดียวกันทั้งหน้านัดหมายและกล่องขวาของแชท
- * เน้นกดน้อย: ปุ่มเหตุผลนัด (เลือกวันให้ตาม preset) ปุ่มลัดวัน ปุ่มช่วงเวลาตามเวลาเปิดคลินิก
+ * เลือกวันด้วยตัวเลข วัน/สัปดาห์/เดือน (ทีละช่อง) หรือปฏิทิน ปุ่มเหตุผลนัด ปุ่มช่วงเวลาตามเวลาเปิดคลินิก
+ * ทำนัดใหม่เพิ่มนัดถัดไปเป็นชุดได้ (เช่น วัคซีนหลายเข็ม)
  */
-export function AppointmentForm({ initial, hisName, lockHn = false, conversationId, bookingId, appointmentId, showPatient = true, compact = false, saveLabel, onSaved, onCancel }: {
+export function AppointmentForm({ initial, hisName, lockHn = false, conversationId, bookingId, appointmentId, seriesFollowing = 0, showPatient = true, compact = false, saveLabel, onSaved, onCancel }: {
   initial: AppointmentDraft;
   /** ชื่อที่ได้จาก iService ถ้าไม่ได้แก้ ระบบใช้เป็นชื่อ HIS ตอนผูกแชท */
   hisName?: string;
@@ -81,6 +194,8 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
   bookingId?: string;
   /** แก้นัดเดิม */
   appointmentId?: string;
+  /** แก้นัดในชุด: จำนวนนัดถัดไปที่ยังเปิดอยู่ (ถามว่าจะเลื่อนตามไหม) */
+  seriesFollowing?: number;
   showPatient?: boolean;
   compact?: boolean;
   saveLabel?: string;
@@ -88,19 +203,21 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
   onCancel: () => void;
 }) {
   const [form, setForm] = useState<AppointmentDraft>(initial);
+  const [offset, setOffset] = useState<Offset | null>(null);
   const [data, setData] = useState<FormData | null>(null);
   const [counts, setCounts] = useState<DayCounts>({});
   const [loadedMonths, setLoadedMonths] = useState<Set<string>>(new Set());
   const [showCalendar, setShowCalendar] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(monthOf(initial.appoint_date || bangkokToday()));
-  const [relAmount, setRelAmount] = useState("");
-  const [relUnit, setRelUnit] = useState<DateUnit>("day");
   const [outsideOk, setOutsideOk] = useState(false);
+  const [blocks, setBlocks] = useState<SeriesBlock[]>([]);
+  const [firstLabel, setFirstLabel] = useState(defaultSeriesLabel(1));
+  const [templateId, setTemplateId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const today = bangkokToday();
-  const quick = useMemo(() => quickDates(today), [today]);
   const set = (patch: Partial<AppointmentDraft>) => setForm((f) => ({ ...f, ...patch }));
+  const creating = !appointmentId;
 
   // HN เปลี่ยน → ดูว่ามีแชทแล้วหรือยัง (หน่วงไว้ไม่ให้ยิงทุกตัวอักษร)
   useEffect(() => {
@@ -112,12 +229,17 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
     return () => clearTimeout(t);
   }, [form.hn]);
 
+  // ตัวเลขวัน/สัปดาห์/เดือน → วันนัด (นับจากวันนี้ ทันทีที่พิมพ์)
+  useEffect(() => {
+    const d = offsetDate(today, offset);
+    if (d && d !== form.appoint_date) set({ appoint_date: d });
+  }, [offset, today]);
+
   const schedule: ClinicSchedule = data?.schedule ?? { hours: DEFAULT_CLINIC_HOURS, closures: {} };
   const slots = form.appoint_date ? slotsForDate(form.appoint_date, schedule) : [];
-  const closed = !!form.appoint_date && isClosedDate(form.appoint_date, schedule);
-  const closureReason = form.appoint_date ? schedule.closures[form.appoint_date] : undefined;
+  const dates = useMemo(() => blockDates(form.appoint_date, blocks), [form.appoint_date, blocks]);
 
-  // จำนวนนัดต่อวัน: โหลดทีละเดือน (เดือนของวันที่เลือก และเดือนที่เปิดในปฏิทิน)
+  // จำนวนนัดต่อวัน: โหลดทีละเดือน
   const loadMonth = useCallback((month: string) => {
     if (loadedMonths.has(month)) return;
     setLoadedMonths((s) => new Set(s).add(month));
@@ -125,7 +247,9 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
     fetch(`/api/appointments/day-counts?from=${from}&to=${to}`).then((r) => (r.ok ? r.json() : null))
       .then((j) => j && setCounts((c) => ({ ...c, ...j.counts }))).catch(() => {});
   }, [loadedMonths]);
-  useEffect(() => { if (form.appoint_date) loadMonth(monthOf(form.appoint_date)); }, [form.appoint_date, loadMonth]);
+  useEffect(() => {
+    for (const d of [form.appoint_date, ...dates]) if (d) loadMonth(monthOf(d));
+  }, [form.appoint_date, dates, loadMonth]);
   useEffect(() => { if (showCalendar) loadMonth(calendarMonth); }, [showCalendar, calendarMonth, loadMonth]);
 
   // เปลี่ยนวันแล้วช่วงเดิมไม่มีในวันนั้น: เลือกช่วงเช้า (ค่าเริ่มต้น) หรือช่วงแรกของวัน
@@ -159,28 +283,41 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
       return;
     }
     setOtherOpen(false);
-    set({
-      purpose_id: p.id, purpose_text: p.name,
-      ...(instructionsUntouched ? { instructions: p.reminder_extra_text ?? "" } : {}),
-      ...(p.default_days ? { appoint_date: addDays(today, p.default_days) } : {}),
-    });
+    set({ purpose_id: p.id, purpose_text: p.name, ...(instructionsUntouched ? { instructions: p.reminder_extra_text ?? "" } : {}) });
+    // preset ที่มีจำนวนวัน: ใส่ช่องวัน (หรือเดือนถ้าหาร 30 ลงตัว)
+    if (p.default_days) setOffset(offsetFromDays(p.default_days));
   }
 
-  function applyRelative() {
-    const d = relativeDate(today, Number(relAmount), relUnit);
-    if (d) set({ appoint_date: d });
+  function pickDate(d: string) {
+    setOffset(null);
+    set({ appoint_date: d });
   }
 
-  const dayCount = form.appoint_date ? counts[form.appoint_date] : undefined;
+  function applyTemplate(id: string) {
+    setTemplateId(id);
+    const t = data?.templates?.find((x) => x.id === id);
+    if (!t || !t.items.length) return;
+    const [first, ...rest] = t.items;
+    setFirstLabel(first.label || defaultSeriesLabel(1));
+    setOffset({ unit: first.offset_unit, value: first.offset_value });
+    setBlocks(rest.map((it, i) => newBlock(i + 2, { label: it.label || defaultSeriesLabel(i + 2), from: it.from, offset: { unit: it.offset_unit, value: it.offset_value } })));
+    const preset = presets.find((p) => p.id === t.purpose_id);
+    if (preset) pickPurpose(preset);
+  }
+
+  const setBlock = (key: number, patch: Partial<SeriesBlock>) => setBlocks((bs) => bs.map((b) => (b.key === key ? { ...b, ...patch } : b)));
   const outside = form.time_mode === "exact" && !!form.appoint_date && !!form.time_start && !isWithinOpenHours(form.appoint_date, form.time_start, schedule);
   const willSend = !!conversationId || !!data?.linked;
+  const moved = !creating && (form.appoint_date !== initial.appoint_date || form.time_mode !== initial.time_mode || form.slot_id !== initial.slot_id || form.time_start !== initial.time_start);
 
-  async function save(e: React.FormEvent) {
-    e.preventDefault();
+  async function save(e: React.FormEvent | null, shiftFollowing = false) {
+    e?.preventDefault();
     if (!form.appoint_date) return setErr("เลือกวันนัด");
     if (form.time_mode === "slot" && !slots.some((s) => s.slot_id === form.slot_id)) return setErr("วันนี้ไม่มีช่วงเวลาที่เลือก — ระบุเวลา หรือเลื่อนไปวันเปิด");
     if (form.time_mode === "exact" && !form.time_start) return setErr("ระบุเวลา");
     if (outside && !outsideOk) return setErr("เวลานี้อยู่นอกเวลาทำการ — ติ๊กยืนยันก่อนบันทึก");
+    const missing = blocks.findIndex((_, i) => !dates[i]);
+    if (missing >= 0) return setErr(`ใส่จำนวนวัน/สัปดาห์/เดือนของ${blocks[missing].label}`);
     setBusy(true);
     setErr("");
     try {
@@ -190,7 +327,17 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
         body: JSON.stringify({
           ...form,
           purpose_id: form.purpose_id || null,
-          ...(appointmentId ? {} : { conversation_id: conversationId, booking_id: bookingId, name_from_his: !!hisName && form.patient_name.trim() === hisName.trim() }),
+          ...(appointmentId ? { shift_following: shiftFollowing } : {
+            conversation_id: conversationId, booking_id: bookingId, name_from_his: !!hisName && form.patient_name.trim() === hisName.trim(),
+            ...(blocks.length ? {
+              series_label: firstLabel,
+              series_title: data?.templates?.find((t) => t.id === templateId)?.name ?? form.purpose_text,
+              series_items: blocks.map((b, i) => ({
+                label: b.label, appoint_date: dates[i], time_mode: b.time_mode, slot_id: b.slot_id, time_start: b.time_start,
+                from: b.from, offset_value: b.offset?.value === "" ? null : b.offset?.value ?? null, offset_unit: b.offset?.unit ?? null,
+              })),
+            } : {}),
+          }),
         }),
       });
       const j = await res.json().catch(() => ({}));
@@ -202,7 +349,7 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
   }
 
   return (
-    <form className={`appt-form ${compact ? "compact" : ""}`} onSubmit={save}>
+    <form className={`appt-form ${compact ? "compact" : ""}`} onSubmit={(e) => save(e)}>
       {showPatient && (
         <div className="appt-grid">
           <label>HN<input value={form.hn} onChange={(e) => set({ hn: e.target.value })} inputMode="numeric" autoComplete="off" readOnly={lockHn} /></label>
@@ -229,67 +376,30 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
         <datalist id="appt-purposes">{data?.purposeHistory.map((p) => <option key={p} value={p} />)}</datalist>
       </fieldset>
 
-      <fieldset className="appt-field">
-        <legend>วันนัด</legend>
-        <div className="appt-chips">
-          {quick.map((q) => (
-            <button type="button" key={q.label} className={`appt-chip ${form.appoint_date === q.date ? "on" : ""}`} onClick={() => set({ appoint_date: q.date })}>
-              {q.label}
-            </button>
-          ))}
-          <span className="appt-rel">
-            <input type="number" min={0} max={999} inputMode="numeric" aria-label="อีกกี่" placeholder="เช่น 10" value={relAmount}
-              onChange={(e) => setRelAmount(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyRelative(); } }} />
-            <select aria-label="หน่วย" value={relUnit} onChange={(e) => setRelUnit(e.target.value as DateUnit)}>
-              {(Object.keys(UNIT_LABEL) as DateUnit[]).map((u) => <option key={u} value={u}>{UNIT_LABEL[u]}</option>)}
-            </select>
-            <button type="button" className="btn ghost small" onClick={applyRelative} disabled={!relAmount}>ใช้</button>
-          </span>
+      {creating && !!data?.templates?.length && (
+        <label className="appt-template">ใช้ template ชุดนัด
+          <select value={templateId} onChange={(e) => applyTemplate(e.target.value)}>
+            <option value="">— ไม่ใช้ —</option>
+            {data.templates.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.items.length} นัด)</option>)}
+          </select>
+        </label>
+      )}
+
+      <fieldset className={`appt-field ${blocks.length ? "appt-series-block first" : ""}`}>
+        <legend>{blocks.length ? <input className="series-label" aria-label="ชื่อนัดแรก" value={firstLabel} onChange={(e) => setFirstLabel(e.target.value)} /> : "วันนัด"}</legend>
+        <div className="appt-date-row">
+          <span className="muted small">นัดอีก</span>
+          <DateOffsetField label="นัดอีกกี่วัน สัปดาห์ หรือเดือน นับจากวันนี้" offset={offset} onOffset={setOffset} />
           <button type="button" className={`appt-chip ${showCalendar ? "on" : ""}`} aria-expanded={showCalendar}
             onClick={() => { setShowCalendar(!showCalendar); setCalendarMonth(monthOf(form.appoint_date || today)); }}>ปฏิทิน</button>
         </div>
         {showCalendar && (
           <MonthCalendar month={calendarMonth} onMonth={setCalendarMonth} selected={form.appoint_date} min={today}
-            counts={counts} schedule={schedule} onPick={(d) => set({ appoint_date: d })} />
+            counts={counts} schedule={schedule} onPick={pickDate} />
         )}
-        {form.appoint_date && (
-          <div className="appt-picked">
-            {thaiFullDate(form.appoint_date)}
-            <span className="appt-count">
-              {" "}· นัดไว้แล้ว {dayCount?.total ?? 0} ราย
-              {dayCount && dayCount.total > 0 && slots.length > 0 && (
-                <> ({[...slots.map((s) => `${s.label} ${dayCount.slots[s.slot_id] ?? 0}`), ...(dayCount.slots.exact ? [`ระบุเวลา ${dayCount.slots.exact}`] : [])].join(" · ")})</>
-              )}
-            </span>
-          </div>
-        )}
-        {closed && (
-          <div className="appt-warn" role="alert">
-            {closureReason !== undefined ? `วันหยุดพิเศษ${closureReason ? `: ${closureReason}` : ""}` : "คลินิกปิดวันนี้"}
-            {nextOpenDate(form.appoint_date, schedule) && (
-              <button type="button" className="btn ghost small" onClick={() => set({ appoint_date: nextOpenDate(form.appoint_date, schedule) as string })}>
-                เลื่อนไปวันเปิดถัดไป
-              </button>
-            )}
-          </div>
-        )}
-      </fieldset>
-
-      <fieldset className="appt-field">
-        <legend>เวลา</legend>
-        <div className="appt-chips">
-          {slots.map((s) => (
-            <button type="button" key={s.slot_id} className={`appt-chip ${form.time_mode === "slot" && form.slot_id === s.slot_id ? "on" : ""}`}
-              onClick={() => set({ time_mode: "slot", slot_id: s.slot_id })}>
-              {s.label} <span className="appt-chip-hint">{thaiClock(s.start)}–{thaiClock(s.end)}</span>
-              {dayCount?.slots[s.slot_id] ? <span className="appt-chip-count">{dayCount.slots[s.slot_id]}</span> : null}
-            </button>
-          ))}
-          <button type="button" className={`appt-chip ${form.time_mode === "exact" ? "on" : ""}`} onClick={() => set({ time_mode: "exact" })}>ระบุเวลา</button>
-          {form.time_mode === "exact" && (
-            <input type="time" aria-label="เวลานัด" className="appt-time" value={form.time_start} onChange={(e) => set({ time_start: e.target.value })} />
-          )}
-        </div>
+        <DateSummary date={form.appoint_date} schedule={schedule} counts={counts} onMove={pickDate} />
+        <TimeChoice date={form.appoint_date} schedule={schedule} counts={counts} mode={form.time_mode} slotId={form.slot_id} timeStart={form.time_start}
+          onChange={(p) => set(p)} />
         {outside && (
           <label className="appt-warn raw">
             <input type="checkbox" checked={outsideOk} onChange={(e) => setOutsideOk(e.target.checked)} />
@@ -297,6 +407,31 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
           </label>
         )}
       </fieldset>
+
+      {creating && blocks.map((b, i) => (
+        <fieldset key={b.key} className="appt-field appt-series-block">
+          <legend className="series-head">
+            <input className="series-label" aria-label={`ชื่อนัดที่ ${i + 2}`} value={b.label} onChange={(e) => setBlock(b.key, { label: e.target.value })} />
+            <button type="button" className="btn ghost small" aria-label={`ลบ ${b.label}`} onClick={() => setBlocks((bs) => bs.filter((x) => x.key !== b.key))}>ลบ</button>
+          </legend>
+          <div className="appt-date-row">
+            <span className="muted small">อีก</span>
+            <DateOffsetField label={`${b.label} อีกกี่วัน สัปดาห์ หรือเดือน`} offset={b.offset} onOffset={(o) => setBlock(b.key, { offset: o })} />
+            <label className="raw small">นับจาก
+              <select value={b.from} onChange={(e) => setBlock(b.key, { from: e.target.value as SeriesFrom })}>
+                <option value="first">{firstLabel || "นัดแรก"}</option>
+                <option value="previous">นัดก่อนหน้า</option>
+              </select>
+            </label>
+          </div>
+          <DateSummary date={dates[i]} schedule={schedule} counts={counts} onMove={() => {}} />
+          <TimeChoice date={dates[i]} schedule={schedule} counts={counts} mode={b.time_mode} slotId={b.slot_id} timeStart={b.time_start}
+            onChange={(p) => setBlock(b.key, p)} />
+        </fieldset>
+      ))}
+      {creating && (
+        <button type="button" className="btn ghost small appt-add-next" onClick={() => setBlocks((bs) => [...bs, newBlock(bs.length + 2)])}>+ เพิ่มนัดถัดไป</button>
+      )}
 
       <div className="appt-grid">
         <label className="span4">การปฏิบัติตัว (ส่งในข้อความนัดและพิมพ์บนใบนัด)
@@ -311,18 +446,30 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
       </div>
       <datalist id="appt-providers">{data?.providers.map((p) => <option key={p} value={p} />)}</datalist>
 
-      {!appointmentId && (
+      {creating && (
         <div className={`appt-link-state ${willSend ? "ok" : ""}`}>
           {conversationId ? "จะส่งข้อความนัดเข้าแชทนี้ทันทีที่บันทึก"
             : data?.linked ? `HN นี้มีแชท ${channelName(data.linked.channel)} แล้ว — จะส่งข้อความนัดทันทีที่บันทึก`
             : "ยังไม่มีแชท — ให้คนไข้สแกน QR บนใบนัด"}
+          {blocks.length > 0 && ` · ชุดนัด ${blocks.length + 1} นัด (ข้อความและใบนัดใบเดียวแสดงทุกนัด)`}
         </div>
       )}
       {err && <div className="error small" role="alert">{err}</div>}
-      <div className="row">
-        <button className="btn primary" disabled={busy}>{busy ? "กำลังบันทึก…" : saveLabel ?? (appointmentId ? "บันทึกการแก้ไข" : "บันทึกนัด")}</button>
-        <button type="button" className="btn ghost" onClick={onCancel}>ยกเลิก</button>
-      </div>
+      {moved && seriesFollowing > 0 ? (
+        <div className="appt-shift-ask">
+          <span className="small">เลื่อนนัดถัดไปในชุดตามด้วยไหม? ({seriesFollowing} นัด เฉพาะที่นับจากนัดนี้)</span>
+          <div className="row">
+            <button type="button" className="btn primary" disabled={busy} onClick={() => save(null, true)}>บันทึก + เลื่อนนัดถัดไปตาม</button>
+            <button type="button" className="btn outline" disabled={busy} onClick={() => save(null, false)}>เฉพาะนัดนี้</button>
+            <button type="button" className="btn ghost" onClick={onCancel}>ยกเลิก</button>
+          </div>
+        </div>
+      ) : (
+        <div className="row">
+          <button className="btn primary" disabled={busy}>{busy ? "กำลังบันทึก…" : saveLabel ?? (appointmentId ? "บันทึกการแก้ไข" : blocks.length ? `บันทึกชุดนัด (${blocks.length + 1} นัด)` : "บันทึกนัด")}</button>
+          <button type="button" className="btn ghost" onClick={onCancel}>ยกเลิก</button>
+        </div>
+      )}
     </form>
   );
 }
