@@ -73,6 +73,9 @@ export interface Conversation {
   booking_pending?: boolean;
   sensitive?: boolean;
   archived?: boolean;
+  /** LINE: replyToken ล่าสุดที่ยังไม่ถูกใช้ (null = ใช้ไปแล้ว) และเวลาที่ได้รับ */
+  line_reply_token?: string | null;
+  line_reply_token_at?: string | null;
   /** งานของทีมที่ยังไม่ติ๊ก */
   open_tasks?: number;
   contacts?: {

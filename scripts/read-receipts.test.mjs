@@ -1,9 +1,10 @@
 // ทดสอบสถานะ "อ่านแล้ว": npm test
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { lineMarkAsRead } from "../src/lib/channels/line.ts";
-import { metaMarkSeen, parseMetaReads } from "../src/lib/channels/meta.ts";
-import { applyCustomerRead, findConversationId, markConversationReadWith } from "../src/lib/read-receipts.ts";
+import "./fakes/hooks.mjs";
+const { lineMarkAsRead } = await import("../src/lib/channels/line.ts");
+const { metaMarkSeen, parseMetaReads } = await import("../src/lib/channels/meta.ts");
+const { applyCustomerRead, findConversationId, markConversationReadWith } = await import("../src/lib/read-receipts.ts");
 
 const NOW = Date.parse("2026-11-01T10:00:00Z");
 const HOUR = 3_600_000;

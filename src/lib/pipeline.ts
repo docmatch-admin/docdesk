@@ -5,7 +5,7 @@ import { sendFileToChannel, sendImageToChannel, sendToChannel } from "./channels
 import { AUTO_CLOSE_EXEMPT_TAGS, CLEARED_ON_REOPEN_TAG, CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "./case-flow";
 import { lineMarkAsRead } from "./channels/line";
 import { classifyMetaEcho, metaMarkSeen, metaMessagingType, type MetaEcho } from "./channels/meta";
-import { claimReplyToken } from "./channels/reply-token";
+import { claimReplyTokenWithAge } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { platformMayWriteDisplayName } from "./patient-name";
 import { scrubPII } from "./pii";
@@ -377,11 +377,12 @@ export async function sendReply(input: ReplyInput) {
       .order("created_at", { ascending: false }).limit(1).maybeSingle();
     lastInboundAt = lastIn ? new Date(lastIn.created_at as string) : null;
   }
-  const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
+  const claimed = channel.type === "line" ? await claimReplyTokenWithAge(db, input.conversationId) : undefined;
   // watermark ของ Meta คือเวลาที่ Meta ได้รับข้อความ ถ้าใช้เวลาหลังส่งเสร็จ ข้อความล่าสุดจะดูเหมือนส่งหลัง watermark และไม่ขึ้นว่าอ่านแล้ว
   const sentAt = new Date().toISOString();
   const mids = await sendToChannel(channel.type, contact.external_id, body, {
-    replyToken, lastInboundAt, senderType: input.senderType,
+    replyToken: claimed?.token, lastInboundAt, senderType: input.senderType,
+    lineMeta: { kind: "chat", conversationId: input.conversationId, tokenAgeMs: claimed?.ageMs ?? null },
   });
 
   const { data: msg } = await db.from("messages").insert({
@@ -537,9 +538,13 @@ export async function sendMediaReply(input: MediaReplyInput) {
   }).select("created_at").single();
 
   try {
-    const replyToken = channel.type === "line" ? await claimReplyToken(db, input.conversationId) : undefined;
+    const claimed = channel.type === "line" ? await claimReplyTokenWithAge(db, input.conversationId) : undefined;
     const ttlDays = await loadRetentionDays();
-    const opts = { replyToken, lastInboundAt, senderType: "staff" as const };
+    // รูป/ไฟล์ + ข้อความรวมเป็นคำขอเดียว (reply ครั้งเดียว)
+    const opts = {
+      replyToken: claimed?.token, lastInboundAt, senderType: "staff" as const,
+      lineMeta: { kind: "chat" as const, conversationId: input.conversationId, tokenAgeMs: claimed?.ageMs ?? null },
+    };
     const mids = file
       ? await sendFileToChannel(channel.type, contact.external_id, {
           // LINE: ลูกค้าได้ลิงก์ไปกดเปิดเอง จึงหมดอายุเร็ว Meta ดึงไฟล์ไปเก็บทันที ใช้อายุเท่ารูป

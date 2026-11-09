@@ -800,3 +800,13 @@ body > .appt-slip { display: none; }
 /* แก้คำแปลใน preview เท่านั้น (สำเนาที่พิมพ์ไม่มีเส้น) */
 .appt-slip-preview .appt-slip-edit { outline: none; border-bottom: 1px dashed #888; cursor: text; }
 .appt-slip-preview .appt-slip-edit:focus { background: #fffbe6 !important; border-bottom-color: #000; }
+.line-usage-quota { margin: 6px 0 10px; }
+.line-usage-bar { height: 8px; border-radius: 999px; background: var(--bg); overflow: hidden; margin: 6px 0 4px; max-width: 420px; }
+.line-usage-bar span { display: block; height: 100%; background: var(--primary, #2453d4); }
+.line-usage-table { border-collapse: collapse; margin: 6px 0; font-size: 14px; }
+.line-usage-table th, .line-usage-table td { text-align: left; padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line, #e3e6ec); }
+.line-usage-table td:last-child, .line-usage-table th:last-child { text-align: right; }
+.line-usage-table tr.total td { font-weight: 700; }
+.quota-hint { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 2px 6px; border-radius: 999px; white-space: nowrap; }
+.quota-hint.push { background: #fff1e0; color: #8a4b00; }
+.quota-hint.maybe { background: var(--bg); color: var(--muted); }

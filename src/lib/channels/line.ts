@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { logLineSend, type LineSendMeta } from "./line-log";
 
 const API = "https://api.line.me/v2/bot";
 const token = () => process.env.LINE_CHANNEL_ACCESS_TOKEN!;
@@ -18,30 +19,6 @@ export async function getLineProfile(userId: string): Promise<{ displayName?: st
   return res.json();
 }
 
-/** ส่งข้อความหาลูกค้า (push) — ใช้ได้ทุกเวลา แต่นับโควต้าข้อความของ LINE OA */
-export async function linePush(userId: string, text: string) {
-  const res = await fetch(`${API}/message/push`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
-    body: JSON.stringify({ to: userId, messages: [{ type: "text", text: text.slice(0, 5000) }] }),
-  });
-  if (!res.ok) throw new Error(`LINE push failed ${res.status}: ${await res.text()}`);
-}
-
-/** ตอบกลับด้วย replyToken — ฟรี ไม่นับโควต้า แต่ token หมดอายุเร็ว (ใช้ตอน AI ตอบทันที) */
-export async function lineReply(replyToken: string, text: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${API}/message/reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
-      body: JSON.stringify({ replyToken, messages: [{ type: "text", text: text.slice(0, 5000) }] }),
-    });
-    return res.ok;
-  } catch (e) {
-    console.error("LINE reply failed", e);
-    return false;
-  }
-}
 
 /** ที่อยู่สำหรับดาวน์โหลดรูปที่ลูกค้าส่งมา (ใช้ host คนละตัวกับ API อื่น) */
 export function lineContentRequest(messageId: string) {
@@ -53,22 +30,51 @@ export function lineContentRequest(messageId: string) {
 
 export type LineMessage = Record<string, unknown>;
 
-/** ส่งหลายข้อความในครั้งเดียว: ใช้ replyToken ก่อน (ฟรี) ไม่สำเร็จค่อย push */
-export async function lineSendMessages(userId: string, messages: LineMessage[], replyToken?: string) {
-  const post = (path: string, body: Record<string, unknown>) => fetch(`${API}/message/${path}`, {
+/** LINE รับได้สูงสุด 5 ข้อความต่อคำขอ (ทั้ง reply และ push) */
+export const LINE_MAX_MESSAGES = 5;
+
+const DEFAULT_META: LineSendMeta = { kind: "chat" };
+
+/**
+ * ส่งหลายข้อความ (บับเบิล) ในครั้งเดียว
+ * - มี replyToken: ชุดแรก (สูงสุด 5) ส่งด้วย reply ซึ่งไม่นับโควตา ไม่สำเร็จ (หมดอายุ/ใช้แล้ว) push ชุดนั้นอัตโนมัติ
+ * - token ใช้ได้ครั้งเดียว ข้อความเกิน 5 ชุดถัดไปจึงต้อง push
+ * ทุกคำขอบันทึกใน line_sends ว่า reply หรือ push
+ */
+export async function lineSendMessages(userId: string, messages: LineMessage[], replyToken?: string, meta: LineSendMeta = DEFAULT_META) {
+  const post = (path: string, body: Record<string, unknown>, chunk: LineMessage[]) => fetch(`${API}/message/${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
-    body: JSON.stringify({ ...body, messages }),
+    body: JSON.stringify({ ...body, messages: chunk }),
   });
-  if (replyToken) {
-    try {
-      if ((await post("reply", { replyToken })).ok) return;
-    } catch (e) {
-      console.error("LINE reply failed", e);
+  const base = { conversation_id: meta.conversationId ?? null, kind: meta.kind };
+  for (let i = 0; i < messages.length; i += LINE_MAX_MESSAGES) {
+    const chunk = messages.slice(i, i + LINE_MAX_MESSAGES);
+    let fallback = false;
+    if (i === 0 && replyToken) {
+      let error: string | null = null;
+      try {
+        const res = await post("reply", { replyToken }, chunk);
+        if (res.ok) {
+          await logLineSend({ ...base, mode: "reply", message_count: chunk.length, ok: true, fallback: false, token_age_ms: meta.tokenAgeMs ?? null, error: null });
+          continue;
+        }
+        error = `${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`;
+      } catch (e) {
+        console.error("LINE reply failed", e);
+        error = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+      }
+      await logLineSend({ ...base, mode: "reply", message_count: chunk.length, ok: false, fallback: false, token_age_ms: meta.tokenAgeMs ?? null, error });
+      fallback = true;
     }
+    const res = await post("push", { to: userId }, chunk);
+    if (!res.ok) {
+      const error = `LINE push failed ${res.status}: ${await res.text()}`;
+      await logLineSend({ ...base, mode: "push", message_count: chunk.length, ok: false, fallback, token_age_ms: null, error: error.slice(0, 300) });
+      throw new Error(error);
+    }
+    await logLineSend({ ...base, mode: "push", message_count: chunk.length, ok: true, fallback, token_age_ms: null, error: null });
   }
-  const res = await post("push", { to: userId });
-  if (!res.ok) throw new Error(`LINE push failed ${res.status}: ${await res.text()}`);
 }
 
 /** ส่งรูป: caption ไปเป็นข้อความถัดไปเพราะ image message ของ LINE ไม่มี caption */
@@ -78,10 +84,11 @@ export async function lineSendImage(
   previewContentUrl: string,
   caption: string,
   replyToken?: string,
+  meta: LineSendMeta = DEFAULT_META,
 ) {
   const messages: LineMessage[] = [{ type: "image", originalContentUrl, previewContentUrl }];
   if (caption.trim()) messages.push({ type: "text", text: caption.slice(0, 5000) });
-  return lineSendMessages(userId, messages, replyToken);
+  return lineSendMessages(userId, messages, replyToken, meta);
 }
 
 export interface LineFile { url: string; name: string; sizeText?: string; expiresAt: Date; language?: string }
@@ -116,10 +123,10 @@ export function lineFileCard(f: LineFile): LineMessage {
 }
 
 /** ส่งไฟล์: การ์ดไฟล์ แล้วตามด้วย caption */
-export async function lineSendFile(userId: string, file: LineFile, caption: string, replyToken?: string) {
+export async function lineSendFile(userId: string, file: LineFile, caption: string, replyToken?: string, meta: LineSendMeta = DEFAULT_META) {
   const messages: LineMessage[] = [lineFileCard(file)];
   if (caption.trim()) messages.push({ type: "text", text: caption.slice(0, 5000) });
-  return lineSendMessages(userId, messages, replyToken);
+  return lineSendMessages(userId, messages, replyToken, meta);
 }
 
 /** แจ้ง LINE ว่าอ่านแล้ว: ลูกค้าเห็น "อ่านแล้ว" ถึงข้อความของ token นี้และข้อความก่อนหน้าทั้งหมด */
@@ -147,8 +154,7 @@ export async function lineQuota(): Promise<{ type: string; limit: number | null;
   };
 }
 
-/** ใช้ replyToken ก่อนถ้ามี ถ้าไม่สำเร็จค่อย push */
-export async function lineSend(userId: string, text: string, replyToken?: string) {
-  if (replyToken && (await lineReply(replyToken, text))) return;
-  return linePush(userId, text);
+/** ข้อความตัวอักษร: ใช้ replyToken ก่อนถ้ามี ไม่สำเร็จค่อย push */
+export async function lineSend(userId: string, text: string, replyToken?: string, meta: LineSendMeta = DEFAULT_META) {
+  return lineSendMessages(userId, [{ type: "text", text: text.slice(0, 5000) }], replyToken, meta);
 }

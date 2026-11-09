@@ -13,6 +13,7 @@ import { TagChip } from "../tag-chip";
 import { ArchiveMergeBar } from "./archive-merge-bar";
 import { AssigneeControl } from "./assignee-control";
 import { contactLabel, contactName, staffMayRename } from "@/lib/patient-name";
+import { lineQuotaHint } from "@/lib/channels/reply-token";
 import { AppointmentsBlock } from "./appointments-block";
 import { BookingsBlock, type BookingCardRow } from "./booking-card";
 import { Icon } from "../icons";
@@ -84,6 +85,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const [chosen, setChosen] = useState<number | null>(null);
   const [rawMode, setRawMode] = useState(false); // ส่งตามที่พิมพ์ ไม่แปล
   const [sending, setSending] = useState(false);
+  // อายุ replyToken ของ LINE เปลี่ยนตามเวลา อัปเดตป้ายโควตาทุก 15 วินาที
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 15_000); return () => clearInterval(t); }, []);
   const [globalMode, setGlobalMode] = useState<AiMode>("assist");
   const [toast, setToast] = useState("");
   const [, setTick] = useState(0);
@@ -604,6 +608,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const metaWindow = !isMeta || inboundAgeH == null ? null
     : inboundAgeH <= 24 ? null
     : inboundAgeH <= 24 * 7 ? "human" : "closed";
+  // LINE: ส่งครั้งนี้จะเป็น reply (ฟรี) หรือ push (นับโควตา)
+  const quotaHint = selected?.channels?.type === "line" ? lineQuotaHint(selected.line_reply_token, selected.line_reply_token_at, nowTick) : null;
   const suggestedTags = (suggestion?.suggested_tags ?? []).filter((t) => !selected?.tags.includes(t));
   const edited = chosen != null && suggestion?.options[chosen] && suggestion.options[chosen].text !== text;
 
@@ -927,6 +933,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                     </label>
                   )}
                 </div>
+                {quotaHint === "push" && (
+                  <span className="quota-hint push" title="ลูกค้ายังไม่ได้ทักมาใหม่ (หรือเกิน 20 นาที) ข้อความนี้ส่งแบบ push นับโควตาข้อความ LINE ของเดือนนี้">📊 จะนับโควตา</span>
+                )}
+                {quotaHint === "maybe" && (
+                  <span className="quota-hint maybe" title="ลูกค้าทักมาเกิน 1 นาที ระบบจะลองตอบแบบ reply (ฟรี) ถ้า LINE ไม่รับจะส่งแบบ push นับโควตา">📊 อาจนับโควตา</span>
+                )}
                 {attachment ? (
                   <button className="btn primary" onClick={sendAttachment} disabled={sending || metaWindow === "closed"}>
                     {sending ? "กำลังส่ง…" : attachment.kind === "file" ? "ส่งไฟล์" : "ส่งรูป"}

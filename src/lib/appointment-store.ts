@@ -7,6 +7,7 @@ import {
 } from "./appointment-rules";
 import { sendPushToStaff } from "./booking-store";
 import { lineSendMessages } from "./channels/line";
+import { claimReplyTokenWithAge } from "./channels/reply-token";
 import { metaSendMessage } from "./channels/meta";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
 import { SENSITIVE_TAG } from "./sensitive-rules";
@@ -214,7 +215,11 @@ function messageInput(appt: MessageInput["appointment"], kind: MessageKind, info
 /** ส่งตามช่องทาง คืน mid ของ Meta ไว้กัน echo ซ้ำ */
 async function pushAppointment(info: ConversationInfo, via: "line" | "facebook" | "instagram", input: MessageInput, replyToken?: string): Promise<string | null> {
   if (via === "line") {
-    await lineSendMessages(info.externalId, [appointmentFlex(input)], replyToken);
+    // ไม่มี token จาก event (กดปุ่ม/ส่งรหัส) ใช้ token ล่าสุดของแชทถ้ายังไม่ถูกใช้ ไม่งั้น push
+    const claimed = replyToken ? undefined : await claimReplyTokenWithAge(supabaseAdmin(), info.id);
+    await lineSendMessages(info.externalId, [appointmentFlex(input)], replyToken ?? claimed?.token, {
+      kind: input.kind === "reminder" ? "reminder" : "appointment", conversationId: info.id, tokenAgeMs: claimed?.ageMs ?? (replyToken ? 0 : null),
+    });
     return null;
   }
   return metaSendMessage(info.externalId, metaAppointmentMessage(via, input));
@@ -314,7 +319,7 @@ async function seriesPosition(a: Appointment): Promise<MessageInput["seriesPosit
 /** ข้อความตอบสั้นๆ หลังกดปุ่มหรือส่งรหัส ใช้ replyToken ของ LINE ก่อนเพื่อไม่กินโควตา */
 async function replyText(info: ConversationInfo, text: string, replyToken?: string) {
   if (info.channelType === "line") {
-    await lineSendMessages(info.externalId, [{ type: "text", text }], replyToken);
+    await lineSendMessages(info.externalId, [{ type: "text", text }], replyToken, { kind: "appointment", conversationId: info.id, tokenAgeMs: replyToken ? 0 : null });
     await insertSystemMessage(info.id, { direction: "out", body: text, language: pickLanguage(info.language) });
   } else if (info.channelType === "facebook" || info.channelType === "instagram") {
     const mid = await metaSendMessage(info.externalId, { text });

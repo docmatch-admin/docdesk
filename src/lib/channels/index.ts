@@ -1,5 +1,6 @@
 import type { ChannelType } from "../types";
 import { lineSend, lineSendFile, lineSendImage } from "./line";
+import type { LineSendMeta } from "./line-log";
 import { metaSend, metaSendFile, metaSendImage } from "./meta";
 
 export interface SendOptions {
@@ -8,6 +9,8 @@ export interface SendOptions {
   /** Facebook/Instagram: เวลาที่ลูกค้าทักล่าสุด (ใช้ตัดสินกติกา 24 ชม.) */
   lastInboundAt?: Date | null;
   senderType?: "staff" | "ai";
+  /** LINE: บันทึกการใช้โควตา (ประเภท แชท อายุ token) */
+  lineMeta?: LineSendMeta;
 }
 
 /** ส่งรูป: web ไม่ต้องทำอะไร widget ดึงจากฐานข้อมูลเอง Facebook/Instagram คืน message id ที่ใช้กัน echo ซ้ำ */
@@ -20,7 +23,7 @@ export async function sendImageToChannel(
 ): Promise<string[] | void> {
   switch (type) {
     case "line":
-      return lineSendImage(externalId, urls.main, urls.preview, caption, opts.replyToken);
+      return lineSendImage(externalId, urls.main, urls.preview, caption, opts.replyToken, opts.lineMeta);
     case "facebook":
     case "instagram":
       return metaSendImage(type, externalId, urls.main, caption, {
@@ -51,7 +54,7 @@ export async function sendFileToChannel(
 ): Promise<string[] | void> {
   switch (type) {
     case "line":
-      return lineSendFile(externalId, file, caption, opts.replyToken);
+      return lineSendFile(externalId, file, caption, opts.replyToken, opts.lineMeta);
     case "facebook":
     case "instagram":
       return metaSendFile(type, externalId, file.url, caption, {
@@ -73,7 +76,7 @@ export async function sendFileToChannel(
 export async function sendToChannel(type: ChannelType, externalId: string, text: string, opts: SendOptions = {}): Promise<string[] | void> {
   switch (type) {
     case "line":
-      return lineSend(externalId, text, opts.replyToken);
+      return lineSend(externalId, text, opts.replyToken, opts.lineMeta);
     case "facebook":
     case "instagram":
       return metaSend(type, externalId, text, {
