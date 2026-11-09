@@ -1352,3 +1352,9 @@ test("หน้านัดหมาย: ช่องตั้งแต่ว่
   assert.match(src, /ไม่พบนัดตามเงื่อนไข · <button type="button" className="link-btn" onClick=\{clearFilters\}>ล้างตัวกรอง<\/button>/);
   assert.match(src, /const clearFilters = \(\) => \{ setPurpose\(""\); setQ\(""\); setFrom\(""\); setTo\(""\); setStatus\(""\); \};/);
 });
+
+test("รายการนัด embed แชทผ่าน FK ของ appointments.conversation_id (มี appointment_recipients แล้วต้องระบุ)", () => {
+  const src = readFileSync("src/lib/appointment-store.ts", "utf8");
+  assert.match(src, /conversations!appointments_conversation_id_fkey\(channels\(type\)/);
+  assert.doesNotMatch(src.replace(/conversations!appointments_conversation_id_fkey\(/g, ""), /from\("appointments"\)\s*\n?\s*\.select\([^)]*conversations\(/);
+});

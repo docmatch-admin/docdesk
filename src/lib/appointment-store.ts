@@ -927,7 +927,8 @@ export async function appointmentTabCounts(opts: ListFilters = {}, now = Date.no
 export async function listAppointments(opts: { tab: ListTab } & ListFilters, now = Date.now()): Promise<AppointmentListRow[]> {
   const today = bangkokToday(now);
   const base = supabaseAdmin().from("appointments")
-    .select(`${APPOINTMENT_COLUMNS}, conversations(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation))`);
+    // ระบุ FK: appointment_recipients ทำให้ appointments↔conversations มีได้หลายเส้นทาง PostgREST จะตอบ error (PGRST201) ถ้าไม่ระบุ
+    .select(`${APPOINTMENT_COLUMNS}, conversations!appointments_conversation_id_fkey(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation))`);
   const desc = opts.tab === "all";
   const { data } = await applyListFilters(base, opts.tab, opts, today)
     .order("appoint_date", { ascending: !desc }).order("time_start", { ascending: !desc }).limit(LIST_LIMIT);
