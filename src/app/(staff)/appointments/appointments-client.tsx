@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  bangkokToday, DELIVERY_LABEL, deliveryState, STATUS_LABEL, thaiClock, thaiShortDate,
+  bangkokToday, DELIVERY_LABEL, deliveryState, STATUS_LABEL, thaiShortDate, timeShort,
   type Appointment, type DeliveryState,
 } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -13,6 +13,9 @@ import { NewAppointment } from "./new-appointment";
 
 type Row = Appointment & { channel: ChannelType | null; chat_name: string | null };
 type Tab = "tomorrow" | "today" | "all";
+
+const SLOT_LABEL: Record<string, string> = { morning: "ช่วงเช้า", afternoon: "ช่วงบ่าย" };
+const slotLabel = (r: Row) => SLOT_LABEL[r.slot_id ?? ""] ?? "ช่วง";
 
 const TABS: [Tab, string][] = [["tomorrow", "พรุ่งนี้"], ["today", "วันนี้"], ["all", "ทั้งหมด"]];
 const STATE_CLASS: Record<DeliveryState, string> = {
@@ -26,6 +29,8 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
   const [q, setQ] = useState("");
   const [from, setFrom] = useState(bangkokToday());
   const [to, setTo] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [presets, setPresets] = useState<{ id: string; name: string }[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [counts, setCounts] = useState({ mustCall: 0, reschedule: 0, total: 0 });
   const [creating, setCreating] = useState(false);
@@ -37,6 +42,7 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
 
   const load = useCallback(async () => {
     const p = new URLSearchParams({ tab });
+    if (purpose) p.set("purpose", purpose);
     if (tab === "all") {
       if (q.trim()) p.set("q", q.trim());
       if (from) p.set("from", from);
@@ -47,7 +53,11 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
     const j = await res.json();
     setRows(j.rows as Row[]);
     setCounts(j.counts);
-  }, [tab, q, from, to]);
+  }, [tab, q, from, to, purpose]);
+
+  useEffect(() => {
+    fetch("/api/appointments/form-data").then((r) => (r.ok ? r.json() : null)).then((j) => j && setPresets(j.presets)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(load, q ? 300 : 0);
@@ -95,6 +105,11 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
         {TABS.map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}</button>
         ))}
+        <select className="appt-purpose-filter" aria-label="กรองตามเหตุผลนัด" value={purpose} onChange={(e) => setPurpose(e.target.value)}>
+          <option value="">ทุกเหตุผลนัด</option>
+          {presets.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          <option value="none">ไม่ได้เลือก preset</option>
+        </select>
         {tab === "all" && (
           <div className="row appt-filters">
             <input className="search" placeholder="ค้นหา ชื่อ / HN / เบอร์" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -123,10 +138,10 @@ export function AppointmentsClient({ canOpenChat }: { canOpenChat: boolean }) {
                   return (
                     <tr key={r.id} className={open ? "" : "appt-closed"}>
                       {tab === "all" && <td>{thaiShortDate(r.appoint_date)}</td>}
-                      <td>{thaiClock(r.appoint_time)}</td>
+                      <td>{r.time_mode === "slot" ? <>{slotLabel(r)}<div className="muted small">{timeShort(r)}</div></> : timeShort(r)}</td>
                       <td>
                         {r.patient_name}
-                        {r.purpose && <div className="muted small">{r.purpose}</div>}
+                        {r.purpose_text && <div className="muted small">{r.purpose_text}</div>}
                         {editing === r.id && (
                           <AppointmentForm compact initial={draftOf(r)} appointmentId={r.id}
                             onCancel={() => setEditing(null)}

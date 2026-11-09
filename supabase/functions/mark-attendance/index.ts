@@ -1,16 +1,16 @@
 // pg_cron เรียกทุกวัน 21:00 (เวลาไทย): เทียบนัดวันนี้กับ visit ใน iService
 // มี visit ของ HN นั้น → attended ไม่มี → no_show ไม่ส่งข้อความหาคนไข้
-// deploy: supabase functions deploy mark-attendance --no-verify-jwt (ตรวจ x-cron-secret เอง)
+// deploy: supabase functions deploy mark-attendance --no-verify-jwt (ตรวจ x-cron-secret กับ Vault ผ่าน verify_cron_secret)
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { bangkokToday, visitsOn } from "../_shared/iservice.ts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {
-  const secret = Deno.env.get("CRON_SECRET");
-  if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "unauthorized" }, 401);
-
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
+  // ค่าลับอยู่ใน Supabase Vault (docdesk_cron_secret) pg_cron อ่านจาก Vault ตอนเรียก
+  const { data: ok } = await db.rpc("verify_cron_secret", { p_secret: req.headers.get("x-cron-secret") ?? "" });
+  if (ok !== true) return json({ error: "unauthorized" }, 401);
   const today = bangkokToday();
   const { data: rows, error } = await db.from("appointments").select("id, hn, status")
     .eq("appoint_date", today).in("status", ["scheduled", "confirmed", "reschedule_requested"]);

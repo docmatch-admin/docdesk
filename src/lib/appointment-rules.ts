@@ -5,6 +5,7 @@ import type { ChannelType } from "./types";
  * ข้อความนัดสร้างจากเทมเพลตด้วยโค้ด ไม่ผ่าน AI และไม่ส่งข้อมูลนัดเข้า prompt
  */
 
+export type TimeMode = "slot" | "exact";
 export type AppointmentStatus = "scheduled" | "confirmed" | "reschedule_requested" | "cancelled" | "attended" | "no_show";
 export const OPEN_STATUSES: AppointmentStatus[] = ["scheduled", "confirmed", "reschedule_requested"];
 
@@ -17,8 +18,15 @@ export interface Appointment {
   booking_id?: string | null;
   name_from_his?: boolean;
   appoint_date: string;
-  appoint_time: string;
-  purpose: string | null;
+  /** slot = มาได้ในช่วง (ตรวจตามลำดับคิว), exact = เวลาตรง */
+  time_mode: TimeMode;
+  slot_id: string | null;
+  time_start: string;
+  time_end: string | null;
+  purpose_id: string | null;
+  purpose_text: string | null;
+  /** การปฏิบัติตัว ส่งในข้อความนัดเสมอ */
+  instructions: string | null;
   provider: string | null;
   note: string | null;
   status: AppointmentStatus;
@@ -59,8 +67,8 @@ export const TEMPLATE_VARIABLES = ["{name}", "{date}", "{time}", "{clinic}", "{p
 export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
   reminder_time: "10:00",
   send_purpose_in_message: false,
-  template_th: "เรียน คุณ{name}\nนัดหมายครั้งต่อไปที่ {clinic}\n{date}\nเวลา {time} น.\nสอบถามโทร {phone}",
-  template_en: "Dear {name},\nYour next appointment at {clinic}\n{date}\nat {time}\nQuestions? Call {phone}",
+  template_th: "เรียน คุณ{name}\nนัดหมายครั้งต่อไปที่ {clinic}\n{date}\n{time}\nสอบถามโทร {phone}",
+  template_en: "Dear {name},\nYour next appointment at {clinic}\n{date}\n{time}\nQuestions? Call {phone}",
   clinic_phone: "02-000-4586",
   clinic_address: "",
   line_oa_id: "@p49clinic",
@@ -145,6 +153,73 @@ export function quickDates(today: string): { label: string; date: string }[] {
     { label: "+3 เดือน", date: addMonths(today, 3) },
   ];
 }
+
+/** ตัวเลข + หน่วย เช่น 10 วัน 6 สัปดาห์ นับจากวันนี้ */
+export type DateUnit = "day" | "week" | "month";
+export function relativeDate(today: string, amount: number, unit: DateUnit): string | null {
+  const n = Math.floor(amount);
+  if (!Number.isFinite(n) || n < 0 || n > 3650) return null;
+  return unit === "month" ? addMonths(today, n) : addDays(today, unit === "week" ? n * 7 : n);
+}
+
+// ---------------------------------------------------------------------------
+// เวลาเปิดคลินิก
+// ---------------------------------------------------------------------------
+export interface ClinicSlot { slot_id: string; label: string; start: string; end: string }
+export interface ClinicSchedule {
+  /** 0 = อาทิตย์ ไม่มีช่วง = ปิดทั้งวัน */
+  hours: Record<number, ClinicSlot[]>;
+  /** วันหยุดพิเศษ YYYY-MM-DD → เหตุผล */
+  closures: Record<string, string>;
+}
+
+/** ค่าเริ่มต้นเหมือน seed ใน migration 039 */
+export const DEFAULT_CLINIC_HOURS: ClinicSchedule["hours"] = Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [d, [
+  { slot_id: "morning", label: "ช่วงเช้า", start: "08:00", end: "12:00" },
+  ...(d >= 1 && d <= 5 ? [{ slot_id: "afternoon", label: "ช่วงบ่าย", start: "13:00", end: "18:00" }] : []),
+]]));
+export const DEFAULT_SLOT_ID = "morning";
+
+export const weekdayOf = (date: string) => weekday(date);
+
+/** ช่วงเวลาที่เปิดของวันนั้น วันหยุดพิเศษหรือวันปิดคืน [] */
+export function slotsForDate(date: string, s: ClinicSchedule): ClinicSlot[] {
+  if (s.closures[date] !== undefined) return [];
+  return [...(s.hours[weekday(date)] ?? [])].sort((a, b) => a.start.localeCompare(b.start));
+}
+
+export const isClosedDate = (date: string, s: ClinicSchedule) => slotsForDate(date, s).length === 0;
+
+/** วันเปิดถัดไปหลังวันนี้ (ไม่รวมวันที่ส่งมา) ภายใน 1 ปี */
+export function nextOpenDate(date: string, s: ClinicSchedule): string | null {
+  for (let i = 1; i <= 366; i++) {
+    const d = addDays(date, i);
+    if (!isClosedDate(d, s)) return d;
+  }
+  return null;
+}
+
+/** เวลาตรงอยู่ในช่วงเปิดไหม เวลาพักกลางวันระหว่างช่วงถือว่านอกเวลา */
+export function isWithinOpenHours(date: string, time: string, s: ClinicSchedule): boolean {
+  const t = time.slice(0, 5);
+  return slotsForDate(date, s).some((slot) => t >= slot.start.slice(0, 5) && t < slot.end.slice(0, 5));
+}
+
+const range = (a: string, b: string, th: boolean) => (th ? `${thaiClock(a)}–${thaiClock(b)}` : `${a.slice(0, 5)}–${b.slice(0, 5)}`);
+
+/** วลีเวลาในข้อความและใบนัด */
+export function timePhrase(a: { time_mode: TimeMode; time_start: string; time_end: string | null }, lang: "th" | "en" = "th"): string {
+  const th = lang === "th";
+  if (a.time_mode === "slot" && a.time_end) {
+    return th ? `มาได้ช่วง ${range(a.time_start, a.time_end, true)} น. (ตรวจตามลำดับคิว)`
+      : `Please come between ${range(a.time_start, a.time_end, false)} (seen in queue order)`;
+  }
+  return th ? `เวลา ${thaiClock(a.time_start)} น.` : `at ${a.time_start.slice(0, 5)}`;
+}
+
+/** เวลาแบบสั้นในตาราง: "08.00–12.00" หรือ "09.30" */
+export const timeShort = (a: { time_mode: TimeMode; time_start: string; time_end: string | null }) =>
+  a.time_mode === "slot" && a.time_end ? range(a.time_start, a.time_end, true) : thaiClock(a.time_start);
 
 export const DEFAULT_TIME_SLOTS = ["09:00", "10:00", "11:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
 
@@ -304,7 +379,7 @@ const BUTTON_LABEL: Record<Lang, Record<PostbackAction, string>> = {
 export interface MessageInput {
   kind: MessageKind;
   lang: Lang;
-  appointment: Pick<Appointment, "id" | "patient_name" | "appoint_date" | "appoint_time" | "purpose">;
+  appointment: Pick<Appointment, "id" | "patient_name" | "appoint_date" | "time_mode" | "time_start" | "time_end" | "purpose_text" | "instructions">;
   settings: AppointmentSettings;
   clinicName: string;
   /** send_purpose_in_message และแชทไม่ใช่แชทลับ */
@@ -319,13 +394,14 @@ function variables(input: MessageInput): Record<string, string> {
   return {
     name: a.patient_name,
     date: input.lang === "en" ? englishDate(a.appoint_date) : thaiFullDate(a.appoint_date),
-    time: input.lang === "en" ? a.appoint_time.slice(0, 5) : thaiClock(a.appoint_time),
+    time: timePhrase(a, input.lang),
     clinic: input.clinicName,
     phone: input.settings.clinic_phone,
   };
 }
 
 export const hasButtons = (kind: MessageKind) => kind !== "cancelled";
+const cancelledKind = (kind: MessageKind) => kind === "cancelled";
 
 /** ข้อความเต็ม ใช้ส่ง Facebook/Instagram เป็น altText ของ LINE และบันทึกในแชท */
 export function appointmentText(input: MessageInput): string {
@@ -333,13 +409,16 @@ export function appointmentText(input: MessageInput): string {
   const header = HEADER[input.lang][input.kind];
   if (input.kind === "cancelled") {
     const body = input.lang === "en"
-      ? `Your appointment on ${v.date} at ${v.time} at ${v.clinic} has been cancelled.\nTo book again, call ${v.phone}`
-      : `นัด${v.date} เวลา ${v.time} น. ที่ ${v.clinic} ถูกยกเลิกแล้วค่ะ\nหากต้องการนัดใหม่ โทร ${v.phone}`;
+      ? `Your appointment on ${v.date} (${timeShort(input.appointment).replace(/\./g, ":")}) at ${v.clinic} has been cancelled.\nTo book again, call ${v.phone}`
+      : `นัด${v.date} (${timeShort(input.appointment)} น.) ที่ ${v.clinic} ถูกยกเลิกแล้วค่ะ\nหากต้องการนัดใหม่ โทร ${v.phone}`;
     return `${header}\n${body}`;
   }
-  const purpose = input.includePurpose && input.appointment.purpose?.trim()
-    ? `\n${input.lang === "en" ? "Purpose" : "เรื่อง"}: ${input.appointment.purpose.trim()}` : "";
-  return `${header}\n${fillVariables(input.lang === "en" ? input.settings.template_en : input.settings.template_th, v)}${purpose}`;
+  const purpose = input.includePurpose && input.appointment.purpose_text?.trim()
+    ? `\n${input.lang === "en" ? "Purpose" : "เรื่อง"}: ${input.appointment.purpose_text.trim()}` : "";
+  // การปฏิบัติตัวส่งเสมอ ไม่ขึ้นกับ send_purpose_in_message
+  const instructions = input.appointment.instructions?.trim()
+    ? `\n${input.lang === "en" ? "Before your visit" : "การปฏิบัติตัว"}: ${input.appointment.instructions.trim()}` : "";
+  return `${header}\n${fillVariables(input.lang === "en" ? input.settings.template_en : input.settings.template_th, v)}${purpose}${instructions}`;
 }
 
 type Json = Record<string, unknown>;
@@ -357,7 +436,8 @@ export function appointmentFlex(input: MessageInput): Json {
   const v = variables(input);
   const th = input.lang === "th";
   const a = input.appointment;
-  const purpose = input.includePurpose && a.purpose?.trim() ? a.purpose.trim() : null;
+  const purpose = input.includePurpose && a.purpose_text?.trim() ? a.purpose_text.trim() : null;
+  const instructions = !cancelledKind(input.kind) && a.instructions?.trim() ? a.instructions.trim() : null;
   const cancelled = input.kind === "cancelled";
   const body: Json[] = [
     { type: "text", text: HEADER[input.lang][input.kind], weight: "bold", size: "md", color: cancelled ? "#c0392b" : "#1f2a44", wrap: true },
@@ -367,8 +447,9 @@ export function appointmentFlex(input: MessageInput): Json {
       type: "box", layout: "vertical", margin: "md", spacing: "sm",
       contents: [
         row(th ? "วันที่" : "Date", v.date, true),
-        row(th ? "เวลา" : "Time", th ? `${v.time} น.` : v.time, true),
+        row(th ? "เวลา" : "Time", v.time, true),
         ...(purpose ? [row(th ? "เรื่อง" : "Purpose", purpose)] : []),
+        ...(instructions ? [row(th ? "ปฏิบัติตัว" : "Before visit", instructions, true)] : []),
       ],
     },
     { type: "separator", margin: "md" },

@@ -6,7 +6,7 @@ import { parseDate } from "@/lib/appointment-rules";
 
 export const runtime = "nodejs";
 
-/** หน้านัดหมาย: ?tab=today|tomorrow|all&q=&from=&to= */
+/** หน้านัดหมาย: ?tab=today|tomorrow|all&q=&from=&to=&purpose=<preset id>|none */
 export async function GET(req: Request) {
   const { error } = await requireAppointmentStaff();
   if (error) return error;
@@ -18,6 +18,7 @@ export async function GET(req: Request) {
     q: u.searchParams.get("q") ?? "",
     from: parseDate(u.searchParams.get("from")),
     to: parseDate(u.searchParams.get("to")),
+    purpose: u.searchParams.get("purpose"),
   });
   return NextResponse.json({ rows, counts: await appointmentCallCounts() }, { headers: { "Cache-Control": "no-store" } });
 }

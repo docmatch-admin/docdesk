@@ -55,8 +55,9 @@ export function BookingCard({ booking: b, conversationId, contactName, onChanged
             patient_name: b.name || contactName || "",
             phone: b.phone ?? "",
             appoint_date: b.date >= today ? b.date : "",
-            appoint_time: b.time.slice(0, 5),
-            purpose: b.service,
+            time_mode: "exact",
+            time_start: b.time.slice(0, 5),
+            purpose_text: b.service,
           }}
           onCancel={() => setConverting(false)}
           onSaved={(r) => { setConverting(false); onError(`ลงนัดแล้ว · ${deliveryText(r.delivery)}`); onChanged(); }} />

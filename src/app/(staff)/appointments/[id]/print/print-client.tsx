@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import qrcode from "qrcode-generator";
-import { thaiClock, thaiFullDate, type Appointment } from "@/lib/appointment-rules";
+import { thaiFullDate, timePhrase, type Appointment } from "@/lib/appointment-rules";
 
 interface Slip { appointment: Appointment; clinic: string; phone: string; address: string; qrUrl: string }
 
@@ -61,9 +61,10 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
       <div className="appt-slip-row"><span>ชื่อ-นามสกุล</span><b>{a.patient_name}</b></div>
       {a.hn && <div className="appt-slip-row"><span>HN</span><b>{a.hn}</b></div>}
       <div className="appt-slip-date">{thaiFullDate(a.appoint_date)}</div>
-      <div className="appt-slip-time">เวลา {thaiClock(a.appoint_time)} น.</div>
+      <div className="appt-slip-time">{timePhrase(a)}</div>
       {a.provider && <div className="appt-slip-row"><span>ผู้นัด</span><b>{a.provider}</b></div>}
-      {a.purpose && <div className="appt-slip-row"><span>เหตุผลนัด</span><b>{a.purpose}</b></div>}
+      {a.purpose_text && <div className="appt-slip-row"><span>เหตุผลนัด</span><b>{a.purpose_text}</b></div>}
+      {a.instructions && <div className="appt-slip-instructions"><span>การปฏิบัติตัว</span><b>{a.instructions}</b></div>}
       {a.note && <div className="appt-slip-row"><span>หมายเหตุ</span><b>{a.note}</b></div>}
       <div className="appt-slip-qr" dangerouslySetInnerHTML={{ __html: svg }} />
       <div className="appt-slip-scan">สแกนแล้วกดส่ง เพื่อรับข้อความเตือนนัดทาง LINE</div>

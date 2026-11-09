@@ -567,3 +567,42 @@ body > .appt-slip { display: none; }
 .appt-settings { display: flex; flex-direction: column; gap: 10px; }
 .name-platform { font-size: 12px; color: var(--muted); opacity: .8; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .appt-link-box { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; font-size: 13px; }
+/* ฟอร์มนัด: เหตุผลนัด ช่วงเวลา ปฏิทิน */
+.appt-chip-hint { font-size: 11px; opacity: .75; font-weight: 400; }
+.appt-chip-count { margin-left: 4px; font-size: 11px; background: var(--bg); color: var(--ink); border-radius: 999px; padding: 0 6px; }
+.appt-chip.on .appt-chip-count { background: #fff; color: var(--blue); }
+.appt-rel { display: inline-flex; gap: 4px; align-items: center; }
+.appt-rel input { width: 72px; min-height: 40px; }
+.appt-rel select { width: auto; min-height: 40px; }
+.appt-count { font-weight: 500; color: var(--ink); }
+.appt-warn { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: #fff1e0; color: #8a4b00; font-size: 13px; font-weight: 600; margin-left: 0; }
+.appt-cal { border: 1px solid var(--line); border-radius: 10px; padding: 8px; max-width: 360px; background: #fff; }
+.appt-cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.appt-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.appt-cal-w { text-align: center; font-size: 11px; color: var(--muted); }
+.appt-cal-day { position: relative; border: 1px solid var(--line); background: #fff; border-radius: 6px; min-height: 40px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; font-variant-numeric: tabular-nums; padding: 2px; }
+.appt-cal-day:disabled { opacity: .35; cursor: default; }
+.appt-cal-day.closed { background: #fff1e0; color: #a14e00; }
+.appt-cal-day.on { border-color: var(--blue); background: var(--blue); color: #fff; }
+.appt-cal-n { font-size: 10px; line-height: 1; background: var(--blue-soft); color: var(--blue); border-radius: 999px; padding: 1px 5px; margin-top: 2px; }
+.appt-cal-day.on .appt-cal-n { background: #fff; }
+.appt-purpose-filter { width: auto; }
+.appt-slip-instructions { margin: 1.5mm 0; padding: 1.5mm 2mm; border: 1.5px solid #000; border-radius: 1.5mm; }
+.appt-slip-instructions span { display: block; font-size: 9.5pt; }
+.appt-slip-instructions b { font-weight: 700; }
+/* ตั้งค่า: preset และเวลาเปิด */
+.appt-settings-block { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; margin-top: 4px; }
+.preset-list { display: flex; flex-direction: column; gap: 4px; }
+.preset-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 4px; border-radius: 8px; background: #fff; }
+.preset-row.off { opacity: .55; }
+.preset-row.dragging { outline: 2px dashed var(--blue); }
+.preset-row > input:first-of-type { flex: 1; min-width: 140px; width: auto; }
+.preset-days { width: 76px; }
+.preset-extra { flex: 2; min-width: 180px; width: auto; }
+.preset-handle { cursor: grab; color: var(--muted); padding: 0 4px; user-select: none; }
+.hours-table { display: flex; flex-direction: column; gap: 6px; }
+.hours-day { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.hours-day > b { width: 72px; }
+.hours-slot { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; }
+.hours-slot input { width: auto; padding: 4px 6px; }
+.hours-slot input:first-child { width: 90px; }

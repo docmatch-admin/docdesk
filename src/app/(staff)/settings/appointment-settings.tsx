@@ -6,6 +6,7 @@ import {
   type AppointmentSettings as Settings,
 } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { ClinicHoursSettings, PurposePresets } from "./appointment-presets";
 
 interface Quota { type: string; limit: number | null; used: number }
 interface ChatOption { id: string; name: string; channel: string }
@@ -76,13 +77,16 @@ export function AppointmentSettings() {
         <input type="checkbox" checked={s.send_purpose_in_message} onChange={(e) => set({ send_purpose_in_message: e.target.checked })} />
         ใส่เหตุผลนัดในข้อความ (แชทลับจะไม่ใส่เสมอ)
       </label>
-      <p className="muted small">ตัวแปร: {TEMPLATE_VARIABLES.join(" ")} — ข้อความนัดส่งด้วยเทมเพลตนี้ ไม่ผ่าน AI</p>
+      <p className="muted small">ตัวแปร: {TEMPLATE_VARIABLES.join(" ")} — {"{time}"} = "มาได้ช่วง 08.00–12.00 น. (ตรวจตามลำดับคิว)" หรือ "เวลา 09.30 น." · การปฏิบัติตัวต่อท้ายข้อความให้เสมอ · ไม่ผ่าน AI</p>
       <label>ข้อความภาษาไทย<textarea rows={5} value={s.template_th} onChange={(e) => set({ template_th: e.target.value })} /></label>
       <label>ข้อความภาษาอังกฤษ (แชทที่คุยภาษาอังกฤษ)<textarea rows={5} value={s.template_en} onChange={(e) => set({ template_en: e.target.value })} /></label>
       <div className="row">
         <button className="btn primary" onClick={save}>บันทึกการตั้งค่านัดหมาย</button>
         <span className="small">{saved}</span>
       </div>
+
+      <PurposePresets />
+      <ClinicHoursSettings />
 
       <h3 style={{ marginTop: 16 }}>ส่งทดสอบหาตัวเอง</h3>
       <p className="muted small">ทักแชท LINE ของคลินิกจากบัญชีตัวเองก่อน แล้วค้นชื่อแชทนั้น (Facebook/Instagram ต้องทักภายใน 24 ชม.)</p>

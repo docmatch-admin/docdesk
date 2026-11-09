@@ -1,8 +1,8 @@
 import {
-  addDays, appointmentFlex, callQueue, commonTimes, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
+  addDays, appointmentFlex, callQueue, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
   metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT,
-  reminderDecision, TEST_APPOINTMENT_ID, thaiClock, thaiShortDate,
-  type Appointment, type AppointmentSettings, type Lang, type MessageInput, type MessageKind,
+  reminderDecision, TEST_APPOINTMENT_ID, thaiShortDate, timeShort, weekdayOf,
+  type Appointment, type AppointmentSettings, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
 } from "./appointment-rules";
 import { sendPushToStaff } from "./booking-store";
 import { lineSendMessages } from "./channels/line";
@@ -20,7 +20,7 @@ import type { ChannelType } from "./types";
  */
 export const APPOINTMENT_SENDER_NAME = "ระบบนัด";
 
-export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, appoint_time, purpose, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, created_by, created_at, updated_at";
+export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, created_by, created_at, updated_at";
 
 export const loadAppointmentSettings = async (): Promise<AppointmentSettings> =>
   normalizeAppointmentSettings(await getSetting<unknown>("appointment_settings", {}));
@@ -139,7 +139,7 @@ async function alreadyHandled(externalId: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string }
 
-function messageInput(appt: Pick<Appointment, "id" | "patient_name" | "appoint_date" | "appoint_time" | "purpose">, kind: MessageKind, info: ConversationInfo, settings: AppointmentSettings, clinic: string): MessageInput {
+function messageInput(appt: MessageInput["appointment"], kind: MessageKind, info: ConversationInfo, settings: AppointmentSettings, clinic: string): MessageInput {
   return {
     kind,
     lang: pickLanguage(info.language),
@@ -212,8 +212,11 @@ async function replyText(info: ConversationInfo, text: string, replyToken?: stri
 // สร้าง แก้ ยกเลิก
 // ---------------------------------------------------------------------------
 export interface AppointmentInput {
-  hn?: unknown; patient_name?: unknown; phone?: unknown; appoint_date?: unknown; appoint_time?: unknown;
-  purpose?: unknown; provider?: unknown; note?: unknown; conversation_id?: unknown; booking_id?: unknown;
+  hn?: unknown; patient_name?: unknown; phone?: unknown; appoint_date?: unknown;
+  /** slot: ส่ง slot_id ระบบหาเวลาเริ่ม-สิ้นสุดจาก clinic_hours เอง / exact: ส่ง time_start */
+  time_mode?: unknown; slot_id?: unknown; time_start?: unknown;
+  purpose_id?: unknown; purpose_text?: unknown; instructions?: unknown;
+  provider?: unknown; note?: unknown; conversation_id?: unknown; booking_id?: unknown;
   /** ชื่อมาจาก iService และไม่ได้แก้ */
   name_from_his?: unknown;
 }
@@ -224,21 +227,69 @@ export class AppointmentError extends Error {
 }
 
 
-function validated(b: AppointmentInput, today: string) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface PurposeRow { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; sort_order: number; active: boolean }
+
+/** เวลาเปิดคลินิกและวันหยุดพิเศษ ตั้งค่าที่หน้าตั้งค่า → นัดหมาย */
+export async function loadClinicSchedule(from?: string, to?: string): Promise<ClinicSchedule> {
+  const db = supabaseAdmin();
+  let closuresQ = db.from("clinic_closures").select("closed_on, reason");
+  if (from) closuresQ = closuresQ.gte("closed_on", from);
+  if (to) closuresQ = closuresQ.lte("closed_on", to);
+  const [{ data: hours }, { data: closures }] = await Promise.all([
+    db.from("clinic_hours").select("weekday, slot_id, label, start_time, end_time, sort_order"),
+    closuresQ,
+  ]);
+  const out: ClinicSchedule = { hours: { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] }, closures: {} };
+  for (const h of (hours ?? []) as { weekday: number; slot_id: string; label: string; start_time: string; end_time: string }[]) {
+    out.hours[h.weekday]?.push({ slot_id: h.slot_id, label: h.label, start: h.start_time.slice(0, 5), end: h.end_time.slice(0, 5) });
+  }
+  for (const d of Object.keys(out.hours)) out.hours[Number(d)].sort((a, b) => a.start.localeCompare(b.start));
+  for (const c of (closures ?? []) as { closed_on: string; reason: string | null }[]) out.closures[c.closed_on] = c.reason ?? "";
+  return out;
+}
+
+async function resolveFields(b: AppointmentInput, today: string) {
   const patient_name = clip(b.patient_name, 200);
   if (!patient_name) throw new AppointmentError("ต้องมีชื่อคนไข้");
   const appoint_date = parseDate(b.appoint_date);
   if (!appoint_date) throw new AppointmentError("วันที่ไม่ถูกต้อง");
   if (appoint_date < today) throw new AppointmentError("วันนัดผ่านไปแล้ว");
-  const appoint_time = parseTime(b.appoint_time);
-  if (!appoint_time) throw new AppointmentError("เวลาไม่ถูกต้อง");
+
+  // ช่วงเวลาอ่านจาก clinic_hours เสมอ ไม่เชื่อเวลาจากหน้าเว็บ
+  let time: { time_mode: "slot" | "exact"; slot_id: string | null; time_start: string; time_end: string | null };
+  if (b.time_mode === "slot") {
+    const slotId = clip(b.slot_id, 30);
+    const schedule = await loadClinicSchedule(appoint_date, appoint_date);
+    const slot: ClinicSlot | undefined = (schedule.hours[weekdayOf(appoint_date)] ?? []).find((s) => s.slot_id === slotId);
+    if (!slot) throw new AppointmentError("วันนั้นไม่มีช่วงเวลานี้ เลือกช่วงใหม่หรือระบุเวลา");
+    time = { time_mode: "slot", slot_id: slot.slot_id, time_start: slot.start, time_end: slot.end };
+  } else {
+    const start = parseTime(b.time_start);
+    if (!start) throw new AppointmentError("เวลาไม่ถูกต้อง");
+    time = { time_mode: "exact", slot_id: null, time_start: start, time_end: null };
+  }
+
+  let purpose_id: string | null = null;
+  let purpose_text = clip(b.purpose_text, 300) || null;
+  const pid = clip(b.purpose_id, 64);
+  if (pid) {
+    if (!UUID.test(pid)) throw new AppointmentError("เหตุผลนัดไม่ถูกต้อง");
+    const { data: preset } = await supabaseAdmin().from("appointment_purposes").select("id, name").eq("id", pid).maybeSingle();
+    if (!preset) throw new AppointmentError("ไม่พบเหตุผลนัดนี้");
+    purpose_id = preset.id as string;
+    purpose_text ??= preset.name as string;
+  }
   return {
     hn: clip(b.hn, 30) || null,
     patient_name,
     phone: clip(b.phone, 30) || null,
     appoint_date,
-    appoint_time,
-    purpose: clip(b.purpose, 300) || null,
+    ...time,
+    purpose_id,
+    purpose_text,
+    instructions: clip(b.instructions, 1000) || null,
     provider: clip(b.provider, 120) || null,
     note: clip(b.note, 1000) || null,
   };
@@ -267,7 +318,7 @@ async function insertWithCode(row: Record<string, unknown>): Promise<Appointment
 /** canLink = ผู้ทำนัดเป็นแอดมิน ทำนัดจากแชทพร้อม HN ถือเป็นการยืนยันการจับคู่ */
 export async function createAppointment(b: AppointmentInput, staffId: string, opts: { canLink?: boolean } = {}, now = Date.now()): Promise<{ appointment: Appointment; delivery: DeliveryResult }> {
   const db = supabaseAdmin();
-  const fields = validated(b, bangkokToday(now));
+  const fields = await resolveFields(b, bangkokToday(now));
   const fromChat = clip(b.conversation_id, 64) || null;
   const bookingId = clip(b.booking_id, 64) || null;
 
@@ -310,12 +361,16 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
   const current = await loadAppointment(id);
   if (!current) throw new AppointmentError("ไม่พบนัด", 404);
   if (!OPEN_STATUSES.includes(current.status)) throw new AppointmentError("นัดนี้ปิดไปแล้ว แก้ไม่ได้", 409);
-  const fields = validated({
-    hn: current.hn, patient_name: current.patient_name, phone: current.phone, appoint_date: current.appoint_date, appoint_time: current.appoint_time.slice(0, 5),
-    purpose: current.purpose, provider: current.provider, note: current.note,
+  const fields = await resolveFields({
+    hn: current.hn, patient_name: current.patient_name, phone: current.phone, appoint_date: current.appoint_date,
+    time_mode: current.time_mode, slot_id: current.slot_id, time_start: current.time_start.slice(0, 5),
+    purpose_id: current.purpose_id, purpose_text: current.purpose_text, instructions: current.instructions,
+    provider: current.provider, note: current.note,
     ...Object.fromEntries(Object.entries(b).filter(([, v]) => v !== undefined)),
   }, bangkokToday(now));
-  const moved = fields.appoint_date !== current.appoint_date || fields.appoint_time !== current.appoint_time.slice(0, 5);
+  const when = (a: { appoint_date: string; time_mode: string; time_start: string; time_end: string | null }) =>
+    `${a.appoint_date} ${a.time_mode} ${a.time_start.slice(0, 5)}-${a.time_end?.slice(0, 5) ?? ""}`;
+  const moved = when(fields) !== when(current);
   const patch: Record<string, unknown> = { ...fields, updated_at: nowIso() };
   // แก้ชื่อเองแล้ว ไม่ใช่ชื่อจาก iService
   if (fields.patient_name !== current.patient_name) patch.name_from_his = false;
@@ -323,7 +378,7 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
   const { error } = await supabaseAdmin().from("appointments").update(patch).eq("id", id);
   if (error) throw error;
   await logAppointmentEvent(id, moved ? "rescheduled" : "edited", "staff", {
-    staffId, detail: moved ? { from: `${current.appoint_date} ${current.appoint_time.slice(0, 5)}`, to: `${fields.appoint_date} ${fields.appoint_time}` } : {},
+    staffId, detail: moved ? { from: `${current.appoint_date} ${timeShort(current)}`, to: `${fields.appoint_date} ${timeShort(fields)}` } : {},
   });
   const updated = (await loadAppointment(id)) as Appointment;
   const delivery = moved ? await deliverAppointment(updated, "changed", { actor: "staff", staffId, now }) : null;
@@ -401,7 +456,7 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
   await replyText(info, REPLY_TEXT[lang].reschedule, ref.replyToken);
   await db.from("chat_tasks").insert({
     conversation_id: conversationId,
-    text: `เลื่อนนัด: คนไข้ขอเลื่อนนัด ${thaiShortDate(appt.appoint_date)} ${thaiClock(appt.appoint_time)} น. — โทรนัดวันใหม่`,
+    text: `เลื่อนนัด: คนไข้ขอเลื่อนนัด ${thaiShortDate(appt.appoint_date)} ${timeShort(appt)} น. — โทรนัดวันใหม่`,
   });
   // เข้ารอตอบ: แชทต้องเปิดอยู่ งานค้างทำให้ค้างในรอตอบเอง
   if (info.status !== "open") await db.from("conversations").update({ status: "open" }).eq("id", conversationId);
@@ -486,7 +541,8 @@ export async function sendTestAppointment(conversationId: string, staffId: strin
   if (!info || !delivery.ok) return { sent: false, via: info?.channelType, error: DELIVERY_FAILURE_TEXT[delivery.ok ? "no_chat" : delivery.reason] };
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
   const input = messageInput({
-    id: TEST_APPOINTMENT_ID, patient_name: info.displayName || "ทดสอบ", appoint_date: addDays(bangkokToday(now), 1), appoint_time: "10:00", purpose: "ทดสอบเหตุผลนัด",
+    id: TEST_APPOINTMENT_ID, patient_name: info.displayName || "ทดสอบ", appoint_date: addDays(bangkokToday(now), 1),
+    time_mode: "slot", time_start: "08:00", time_end: "12:00", purpose_text: "ทดสอบเหตุผลนัด", instructions: "ตัวอย่างการปฏิบัติตัว",
   }, "test", info, settings, clinic);
   try {
     const mid = await pushAppointment(info, delivery.via, input);
@@ -509,7 +565,8 @@ export interface AppointmentListRow extends Appointment {
 /** ค้นหาใช้ใน PostgREST or() จึงตัดตัวอักษรที่มีความหมายในไวยากรณ์ออก */
 const searchTerm = (q: string) => q.replace(/[,()%*\:"']/g, " ").trim().slice(0, 60);
 
-export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"; q?: string; from?: string | null; to?: string | null }, now = Date.now()): Promise<AppointmentListRow[]> {
+/** purpose: id ของ preset หรือ "none" = ไม่ได้เลือก preset */
+export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"; q?: string; from?: string | null; to?: string | null; purpose?: string | null }, now = Date.now()): Promise<AppointmentListRow[]> {
   const today = bangkokToday(now);
   let query = supabaseAdmin().from("appointments")
     .select(`${APPOINTMENT_COLUMNS}, conversations(channels(type), contacts(display_name, platform_name, hn, patient_full_name))`);
@@ -521,7 +578,9 @@ export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"
   }
   const q = searchTerm(opts.q ?? "");
   if (q) query = query.or(`patient_name.ilike.%${q}%,hn.ilike.%${q}%,phone.ilike.%${q}%`);
-  const { data } = await query.order("appoint_date").order("appoint_time").limit(500);
+  if (opts.purpose === "none") query = query.is("purpose_id", null);
+  else if (opts.purpose && UUID.test(opts.purpose)) query = query.eq("purpose_id", opts.purpose);
+  const { data } = await query.order("appoint_date").order("time_start").limit(500);
   return ((data ?? []) as unknown as (Appointment & { conversations: unknown })[]).map(({ conversations, ...a }) => {
     const conv = (Array.isArray(conversations) ? conversations[0] : conversations) as { channels?: { type: ChannelType } | { type: ChannelType }[]; contacts?: ContactNameFields | ContactNameFields[] } | null;
     const channel = conv?.channels ? (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) : null;
@@ -539,25 +598,28 @@ export async function appointmentCallCounts(now = Date.now()) {
 }
 
 /** ข้อมูลช่วยกรอกฟอร์ม: เหตุผลนัดที่เคยพิมพ์ ผู้นัด เวลาที่ใช้บ่อย และแชทที่ผูกกับ HN */
-export async function appointmentFormData(hn: string | null) {
+export async function appointmentFormData(hn: string | null, now = Date.now()) {
   const db = supabaseAdmin();
-  const [{ data: recent }, linked, hours] = await Promise.all([
-    db.from("appointments").select("purpose, provider, appoint_time, created_at").order("created_at", { ascending: false }).limit(500),
+  const today = bangkokToday(now);
+  const [{ data: recent }, linked, schedule, presets] = await Promise.all([
+    db.from("appointments").select("purpose_id, purpose_text, provider, created_at").order("created_at", { ascending: false }).limit(500),
     findLinkedConversation(hn),
-    getSetting<{ tz: string; days: Record<string, [string, string] | null> }>("business_hours", { tz: "Asia/Bangkok", days: {} }),
+    loadClinicSchedule(today, addDays(today, 400)),
+    loadPurposes(),
   ]);
-  const rows = (recent ?? []) as { purpose: string | null; provider: string | null; appoint_time: string }[];
+  const rows = (recent ?? []) as { purpose_id: string | null; purpose_text: string | null; provider: string | null }[];
   let linkedChannel: ChannelType | null = null;
   if (linked) {
     const info = await conversationInfo(linked);
     linkedChannel = info?.channelType ?? null;
   }
   return {
-    purposes: frequentTexts(rows.map((r) => r.purpose)),
+    presets: presets.filter((p) => p.active),
+    // เหตุผลที่พิมพ์เอง (ไม่ใช่ preset) ใช้เป็น autocomplete ของ "อื่นๆ"
+    purposeHistory: frequentTexts(rows.filter((r) => !r.purpose_id || !presets.some((p) => p.id === r.purpose_id && p.name === r.purpose_text)).map((r) => r.purpose_text)),
     providers: frequentTexts(rows.map((r) => r.provider), 20),
-    times: commonTimes(rows.map((r) => r.appoint_time)),
     linked: linked ? { conversation_id: linked, channel: linkedChannel } : null,
-    closedDays: Object.entries(hours.days ?? {}).filter(([, v]) => !v).map(([d]) => Number(d)),
+    schedule,
   };
 }
 
@@ -578,4 +640,23 @@ export async function appointmentEvents(id: string) {
   const { data } = await supabaseAdmin().from("appointment_events").select("id, kind, actor, staff_id, channel, detail, created_at")
     .eq("appointment_id", id).order("created_at");
   return data ?? [];
+}
+
+export async function loadPurposes(): Promise<PurposeRow[]> {
+  const { data } = await supabaseAdmin().from("appointment_purposes").select("id, name, default_days, reminder_extra_text, sort_order, active");
+  return ((data ?? []) as PurposeRow[]).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+}
+
+/** จำนวนนัดต่อวันและต่อช่วง (นับ scheduled/confirmed/reschedule_requested) key ของช่วงเวลาตรงคือ "exact" */
+export async function appointmentDayCounts(from: string, to: string): Promise<Record<string, { total: number; slots: Record<string, number> }>> {
+  const { data } = await supabaseAdmin().from("appointments").select("appoint_date, time_mode, slot_id, status")
+    .gte("appoint_date", from).lte("appoint_date", to).in("status", ["scheduled", "confirmed", "reschedule_requested"]);
+  const out: Record<string, { total: number; slots: Record<string, number> }> = {};
+  for (const r of (data ?? []) as { appoint_date: string; time_mode: string; slot_id: string | null }[]) {
+    const day = (out[r.appoint_date] ??= { total: 0, slots: {} });
+    const key = r.time_mode === "slot" && r.slot_id ? r.slot_id : "exact";
+    day.total++;
+    day.slots[key] = (day.slots[key] ?? 0) + 1;
+  }
+  return out;
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DELIVERY_LABEL, deliveryState, thaiClock, thaiShortDate, type Appointment } from "@/lib/appointment-rules";
+import { DELIVERY_LABEL, deliveryState, thaiShortDate, timeShort, type Appointment } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { AppointmentForm, deliveryText, draftOf, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
 import { Icon } from "../icons";
@@ -134,8 +134,8 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
       <div className={blurred ? "sensitive-blur" : ""}>
         {rows.map((a) => (
           <div key={a.id} className="appt-side-card">
-            <div className="booking-title">{thaiShortDate(a.appoint_date)} · {thaiClock(a.appoint_time)} น.</div>
-            <div className="booking-sub">{a.purpose || "ไม่ระบุเหตุผล"}{a.provider ? ` · ${a.provider}` : ""} · {DELIVERY_LABEL[deliveryState(a)] || a.status}</div>
+            <div className="booking-title">{thaiShortDate(a.appoint_date)} · {timeShort(a)} น.</div>
+            <div className="booking-sub">{a.purpose_text || "ไม่ระบุเหตุผล"}{a.provider ? ` · ${a.provider}` : ""} · {DELIVERY_LABEL[deliveryState(a)] || a.status}</div>
             {editing === a.id ? (
               <AppointmentForm compact showPatient={false} initial={draftOf(a)} appointmentId={a.id} onCancel={() => setEditing(null)} onSaved={saved} />
             ) : (

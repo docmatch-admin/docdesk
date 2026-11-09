@@ -1,6 +1,6 @@
 // เรียก iService จากหน้า "ทำนัดใหม่": รายการ visit วันนี้ ค้นหาคนไข้เก่า และเบอร์โทรจาก HN
 // เรียกด้วย session ของเจ้าหน้าที่ (supabase.functions.invoke) ตรวจสิทธิ์ด้วย is_appointment_staff()
-// deploy: supabase functions deploy iservice
+// deploy: supabase functions deploy iservice --no-verify-jwt (ตรวจสิทธิ์เอง: session เจ้าหน้าที่ผ่าน is_appointment_staff() หรือ service role ของ server)
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { bangkokToday, searchPatients, visitsOn } from "../_shared/iservice.ts";
 

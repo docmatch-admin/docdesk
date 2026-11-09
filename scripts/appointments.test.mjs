@@ -33,6 +33,9 @@ let outbound;
 let his;
 
 const LINE_USER = "U1234567890";
+const PURPOSE_BLOOD = "11111111-2222-4333-8444-555555555551";
+const PURPOSE_LAB = "11111111-2222-4333-8444-555555555552";
+const PURPOSE_OFF = "11111111-2222-4333-8444-555555555553";
 const FB_USER = "fb-psid-1";
 const IG_USER = "ig-sid-1";
 
@@ -56,7 +59,16 @@ beforeEach(() => {
       { id: "conv-fb", contact_id: "c-fb", channel_id: "fb", status: "open", tags: [], unread_count: 0, open_tasks: 0, sensitive: false, archived: false },
       { id: "conv-ig", contact_id: "c-ig", channel_id: "ig", status: "open", tags: [], unread_count: 0, open_tasks: 0, sensitive: false, archived: false },
     ],
-    appointments: [], appointment_events: [], patient_links: [], chat_tasks: [], chat_notes: [], bookings: [], push_subscriptions: [],
+    appointments: [], appointment_events: [], patient_links: [], clinic_closures: [],
+    clinic_hours: [
+      ...[0, 1, 2, 3, 4, 5, 6].map((d) => ({ weekday: d, slot_id: "morning", label: "ช่วงเช้า", start_time: "08:00:00", end_time: "12:00:00", sort_order: 10 })),
+      ...[1, 2, 3, 4, 5].map((d) => ({ weekday: d, slot_id: "afternoon", label: "ช่วงบ่าย", start_time: "13:00:00", end_time: "18:00:00", sort_order: 20 })),
+    ],
+    appointment_purposes: [
+      { id: PURPOSE_BLOOD, name: "เจาะเลือด", default_days: null, reminder_extra_text: "งดน้ำงดอาหาร 8–12 ชม. (ดื่มน้ำเปล่าได้)", sort_order: 20, active: true },
+      { id: PURPOSE_LAB, name: "ฟังผลแล็บ", default_days: 7, reminder_extra_text: null, sort_order: 10, active: true },
+      { id: PURPOSE_OFF, name: "เลิกใช้", default_days: null, reminder_extra_text: null, sort_order: 90, active: false },
+    ], chat_tasks: [], chat_notes: [], bookings: [], push_subscriptions: [],
     tags: [], tag_rules: [], tag_events: [], reply_examples: [], staff: [
       { id: "nurse", role: "pharmacy", active: true, display_name: "พยาบาล", must_change_password: false },
       { id: "agent", role: "agent", active: true, display_name: "เอ", must_change_password: false },
@@ -85,7 +97,8 @@ const inDays = (n) => rules.addDays(today, n);
 function addAppointment(extra = {}) {
   const row = {
     id: crypto.randomUUID(), hn: "HN001", patient_name: "สมชาย ใจดี", phone: "0812345678", conversation_id: "conv-line",
-    appoint_date: inDays(7), appoint_time: "10:00", purpose: "ติดตามความดัน", provider: "นพ.ทดสอบ", note: null,
+    appoint_date: inDays(7), time_mode: "exact", slot_id: null, time_start: "10:00", time_end: null,
+    purpose_id: null, purpose_text: "ติดตามความดัน", instructions: null, provider: "นพ.ทดสอบ", note: null,
     status: "scheduled", link_code: "ABC234", confirm_sent_at: null, reminder_sent_at: null, reminder_attempted_at: null,
     last_send_error: null, called_at: null, called_by: null, created_at: nextTime(), ...extra,
   };
@@ -175,7 +188,7 @@ test("เลือกช่องทาง: LINE ส่งได้เสมอ 
 
 test("ลงนัดแชท Facebook นอก 24 ชม.: ไม่ยิง Graph API บันทึกว่าส่งไม่ได้-ต้องโทร", async () => {
   inboundLast("conv-fb", Date.now() - 30 * HOUR);
-  const { appointment, delivery } = await store.createAppointment({ patient_name: "John", appoint_date: inDays(3), appoint_time: "14:00", conversation_id: "conv-fb" }, "agent");
+  const { appointment, delivery } = await store.createAppointment({ patient_name: "John", appoint_date: inDays(3), time_mode: "exact", time_start: "14:00", conversation_id: "conv-fb" }, "agent");
   assert.equal(delivery.sent, false);
   assert.equal(outbound.filter((o) => o.url.includes("graph.facebook.com")).length, 0);
   assert.match(appt(appointment.id).last_send_error, /ส่งไม่ได้-ต้องโทร/);
@@ -185,7 +198,7 @@ test("ลงนัดแชท Facebook นอก 24 ชม.: ไม่ยิง
 
 test("ลงนัดแชท Facebook ภายใน 24 ชม.: button template แบบ RESPONSE ไม่มี tag ภาษาอังกฤษตามแชท", async () => {
   inboundLast("conv-fb", Date.now() - HOUR);
-  const { appointment, delivery } = await store.createAppointment({ patient_name: "John", appoint_date: inDays(3), appoint_time: "14:00", conversation_id: "conv-fb", purpose: "HIV test" }, "agent");
+  const { appointment, delivery } = await store.createAppointment({ patient_name: "John", appoint_date: inDays(3), time_mode: "exact", time_start: "14:00", conversation_id: "conv-fb", purpose_text: "HIV test" }, "agent");
   assert.deepEqual(delivery, { sent: true, via: "facebook" });
   const sent = outbound.find((o) => o.url.includes("/me/messages"));
   assert.equal(sent.body.messaging_type, "RESPONSE");
@@ -206,13 +219,13 @@ test("Instagram ใช้ quick reply และเหตุผลนัดไม
   state.tables.settings.push({ key: "appointment_settings", value: { send_purpose_in_message: true } });
   inboundLast("conv-ig", Date.now() - HOUR);
   conv("conv-ig").sensitive = true;
-  await store.createAppointment({ patient_name: "ไอจี", appoint_date: inDays(2), appoint_time: "09:00", conversation_id: "conv-ig", purpose: "ผลเลือด" }, "agent");
+  await store.createAppointment({ patient_name: "ไอจี", appoint_date: inDays(2), time_mode: "exact", time_start: "09:00", conversation_id: "conv-ig", purpose_text: "ผลเลือด" }, "agent");
   const sent = outbound.find((o) => o.url.includes("/me/messages")).body.message;
   assert.equal(sent.quick_replies.length, 2);
   assert.doesNotMatch(sent.text, /ผลเลือด/);
   conv("conv-ig").sensitive = false;
   outbound = [];
-  await store.createAppointment({ patient_name: "ไอจี", appoint_date: inDays(2), appoint_time: "09:30", conversation_id: "conv-ig", purpose: "ผลเลือด" }, "agent");
+  await store.createAppointment({ patient_name: "ไอจี", appoint_date: inDays(2), time_mode: "exact", time_start: "09:30", conversation_id: "conv-ig", purpose_text: "ผลเลือด" }, "agent");
   assert.match(outbound.find((o) => o.url.includes("/me/messages")).body.message.text, /เรื่อง: ผลเลือด/);
 });
 
@@ -220,7 +233,7 @@ test("ลงนัดจากหน้านัดหมาย: HN ผูกแ
   state.tables.patient_links.push({ conversation_id: "conv-line", hn: "HN777", linked_at: nextTime() });
   const res = await appointmentsRoute.POST(new Request("https://app.test/api/appointments", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hn: "HN777", patient_name: "สมชาย", appoint_date: inDays(14), appoint_time: "13:00", provider: "นพ.ก" }),
+    body: JSON.stringify({ hn: "HN777", patient_name: "สมชาย", appoint_date: inDays(14), time_mode: "exact", time_start: "13:00", provider: "นพ.ก" }),
   }));
   assert.equal(res.status, 200);
   const j = await res.json();
@@ -238,7 +251,7 @@ test("ลงนัดจากหน้านัดหมาย: HN ผูกแ
   outbound = [];
   const res2 = await appointmentsRoute.POST(new Request("https://app.test/api/appointments", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ hn: "HN999", patient_name: "คนใหม่", appoint_date: inDays(14), appoint_time: "13:00" }),
+    body: JSON.stringify({ hn: "HN999", patient_name: "คนใหม่", appoint_date: inDays(14), time_mode: "exact", time_start: "13:00" }),
   }));
   const j2 = await res2.json();
   assert.equal(j2.delivery.sent, false);
@@ -249,7 +262,7 @@ test("ลงนัดจากหน้านัดหมาย: HN ผูกแ
 test("ห้องยาทำนัดจากแชทไม่ได้", async () => {
   const res = await appointmentsRoute.POST(new Request("https://app.test/api/appointments", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ patient_name: "x", appoint_date: inDays(1), appoint_time: "10:00", conversation_id: "conv-line" }),
+    body: JSON.stringify({ patient_name: "x", appoint_date: inDays(1), time_mode: "exact", time_start: "10:00", conversation_id: "conv-line" }),
   }));
   assert.equal(res.status, 403);
 });
@@ -428,7 +441,7 @@ test("แปลงนัดที่ AI รับไว้เป็นนัด�
   state.currentUser = { id: "agent", email: "a@test" };
   const res = await appointmentsRoute.POST(new Request("https://app.test/api/appointments", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ patient_name: "สมชาย", appoint_date: inDays(2), appoint_time: "09:00", purpose: "ตรวจเลือด", conversation_id: "conv-line", booking_id: "bk1", hn: "HN42" }),
+    body: JSON.stringify({ patient_name: "สมชาย", appoint_date: inDays(2), time_mode: "exact", time_start: "09:00", purpose_text: "ตรวจเลือด", conversation_id: "conv-line", booking_id: "bk1", hn: "HN42" }),
   }));
   assert.equal(res.status, 200);
   assert.equal(state.tables.bookings[0].status, "recorded");
@@ -559,7 +572,114 @@ test("แอดมินยืนยันการจับคู่ HN แล�
 test("แอดมินทำนัดจากแชทพร้อม HN = ยืนยันการจับคู่ ใช้ชื่อจาก iService", async () => {
   his.HN42 = { name: "ชื่อจริง HIS", phone: "" };
   state.currentUser = { id: "adm", email: "adm@test" };
-  await appointmentsRoute.POST(jsonReq("POST", { patient_name: "ชื่อที่พิมพ์", hn: "HN42", appoint_date: inDays(2), appoint_time: "09:00", conversation_id: "conv-line" }));
+  await appointmentsRoute.POST(jsonReq("POST", { patient_name: "ชื่อที่พิมพ์", hn: "HN42", appoint_date: inDays(2), time_mode: "exact", time_start: "09:00", conversation_id: "conv-line" }));
   assert.equal(contact("c-line").patient_full_name, "ชื่อจริง HIS");
   assert.equal(state.tables.patient_link_events.at(-1).staff_id, "adm");
+});
+
+// ---------------------------------------------------------------------------
+// ช่วงเวลา เวลาเปิดคลินิก preset เหตุผลนัด การปฏิบัติตัว
+// ---------------------------------------------------------------------------
+const SCHEDULE = { hours: rules.DEFAULT_CLINIC_HOURS, closures: { "2030-01-07": "หยุดชดเชย" } };
+// 2030-01-05 เสาร์, 2030-01-06 อาทิตย์, 2030-01-07 จันทร์ (หยุดพิเศษ), 2030-01-08 อังคาร
+
+test("วลีเวลา: ช่วงเวลา (ตรวจตามลำดับคิว) และเวลาตรง", () => {
+  const slot = { time_mode: "slot", time_start: "08:00", time_end: "12:00" };
+  const exact = { time_mode: "exact", time_start: "09:30", time_end: null };
+  assert.equal(rules.timePhrase(slot), "มาได้ช่วง 08.00–12.00 น. (ตรวจตามลำดับคิว)");
+  assert.equal(rules.timePhrase(exact), "เวลา 09.30 น.");
+  assert.equal(rules.timePhrase(slot, "en"), "Please come between 08:00–12:00 (seen in queue order)");
+  assert.equal(rules.timePhrase(exact, "en"), "at 09:30");
+  assert.equal(rules.timeShort(slot), "08.00–12.00");
+});
+
+test("เวลาเปิด: จ–ศ เช้า+บ่าย เสาร์–อาทิตย์ เช้าอย่างเดียว วันหยุดพิเศษปิด", () => {
+  assert.deepEqual(rules.slotsForDate("2030-01-08", SCHEDULE).map((s) => s.slot_id), ["morning", "afternoon"]);
+  assert.deepEqual(rules.slotsForDate("2030-01-05", SCHEDULE).map((s) => s.slot_id), ["morning"]);
+  assert.deepEqual(rules.slotsForDate("2030-01-07", SCHEDULE), []);
+  assert.equal(rules.isClosedDate("2030-01-07", SCHEDULE), true);
+  assert.equal(rules.nextOpenDate("2030-01-07", SCHEDULE), "2030-01-08");
+  const closedSunday = { hours: { ...rules.DEFAULT_CLINIC_HOURS, 0: [] }, closures: { "2030-01-07": "" } };
+  assert.equal(rules.nextOpenDate("2030-01-05", closedSunday), "2030-01-08", "ข้ามอาทิตย์ปิดและวันหยุดพิเศษ");
+  assert.equal(rules.isWithinOpenHours("2030-01-08", "09:00", SCHEDULE), true);
+  assert.equal(rules.isWithinOpenHours("2030-01-08", "12:30", SCHEDULE), false, "พักกลางวัน");
+  assert.equal(rules.isWithinOpenHours("2030-01-08", "18:00", SCHEDULE), false);
+  assert.equal(rules.isWithinOpenHours("2030-01-05", "14:00", SCHEDULE), false, "เสาร์บ่ายปิด");
+});
+
+test("วันนัดแบบตัวเลข + หน่วย นับจากวันนี้", () => {
+  assert.equal(rules.relativeDate("2030-01-31", 10, "day"), "2030-02-10");
+  assert.equal(rules.relativeDate("2030-01-02", 6, "week"), "2030-02-13");
+  assert.equal(rules.relativeDate("2030-01-31", 1, "month"), "2030-02-28");
+  assert.equal(rules.relativeDate("2030-01-02", -1, "day"), null);
+  assert.equal(rules.relativeDate("2030-01-02", Number.NaN, "day"), null);
+});
+
+const nextWeekday = (wd) => { for (let i = 1; i <= 7; i++) { const d = inDays(i); if (rules.weekdayOf(d) === wd) return d; } };
+
+test("ลงนัดแบบช่วง: ระบบใช้เวลาจาก clinic_hours ไม่เชื่อเวลาจากหน้าเว็บ และส่งวลีช่วงเวลา", async () => {
+  const tue = nextWeekday(2);
+  const { appointment } = await store.createAppointment({
+    patient_name: "สมชาย", appoint_date: tue, time_mode: "slot", slot_id: "afternoon", time_start: "03:00", conversation_id: "conv-line",
+  }, "agent");
+  const a = appt(appointment.id);
+  assert.deepEqual([a.time_mode, a.slot_id, a.time_start, a.time_end], ["slot", "afternoon", "13:00", "18:00"]);
+  const flex = linePosts()[0].body.messages[0];
+  assert.match(flex.altText, /มาได้ช่วง 13\.00–18\.00 น\. \(ตรวจตามลำดับคิว\)/);
+
+  const sat = nextWeekday(6);
+  await assert.rejects(store.createAppointment({ patient_name: "x", appoint_date: sat, time_mode: "slot", slot_id: "afternoon" }, "agent"), /ไม่มีช่วงเวลานี้/);
+  // เวลาตรงนอกเวลาทำการบันทึกได้ (หน้าเว็บให้ยืนยันก่อน)
+  const { appointment: lunch } = await store.createAppointment({ patient_name: "y", appoint_date: tue, time_mode: "exact", time_start: "12:30" }, "agent");
+  assert.deepEqual([appt(lunch.id).time_mode, appt(lunch.id).time_start, appt(lunch.id).time_end], ["exact", "12:30", null]);
+});
+
+test("preset เหตุผลนัด: ชื่อมาจาก preset การปฏิบัติตัวส่งเสมอ แต่ชื่อเหตุผลไม่ส่งตามค่าเริ่มต้น", async () => {
+  const { appointment } = await store.createAppointment({
+    patient_name: "สมชาย", appoint_date: inDays(3), time_mode: "exact", time_start: "08:30", conversation_id: "conv-line",
+    purpose_id: PURPOSE_BLOOD, instructions: "งดน้ำงดอาหาร 8–12 ชม. (ดื่มน้ำเปล่าได้)",
+  }, "agent");
+  assert.equal(appt(appointment.id).purpose_text, "เจาะเลือด");
+  assert.equal(appt(appointment.id).purpose_id, PURPOSE_BLOOD);
+  const flex = linePosts()[0].body.messages[0];
+  assert.match(flex.altText, /การปฏิบัติตัว: งดน้ำงดอาหาร/);
+  assert.doesNotMatch(JSON.stringify(flex), /เจาะเลือด/, "send_purpose_in_message = false");
+  assert.match(JSON.stringify(flex.contents.body), /งดน้ำงดอาหาร/);
+
+  // เตือนก่อนวันนัดก็มีการปฏิบัติตัว
+  outbound = [];
+  const tomorrowAppt = addAppointment({ appoint_date: inDays(1), instructions: "กรุณานำยาเดิมมาด้วย", link_code: "MED111" });
+  await store.runAppointmentReminders(Date.parse(`${today}T16:00:00+07:00`));
+  assert.ok(appt(tomorrowAppt.id).reminder_sent_at);
+  assert.match(linePosts()[0].body.messages[0].altText, /กรุณานำยาเดิมมาด้วย/);
+
+  await assert.rejects(store.createAppointment({ patient_name: "x", appoint_date: inDays(3), time_mode: "exact", time_start: "09:00", purpose_id: "not-a-uuid" }, "agent"), /เหตุผลนัดไม่ถูกต้อง/);
+});
+
+test("ข้อมูลฟอร์ม: preset ที่เปิดใช้เรียงตาม sort_order และเวลาเปิดคลินิก", async () => {
+  const data = await store.appointmentFormData(null);
+  assert.deepEqual(data.presets.map((p) => p.name), ["ฟังผลแล็บ", "เจาะเลือด"]);
+  assert.deepEqual(data.schedule.hours[6].map((s) => s.slot_id), ["morning"]);
+  assert.equal(data.schedule.hours[3][1].end, "18:00");
+});
+
+test("นัดไว้แล้วต่อวันและต่อช่วง นับเฉพาะนัดที่ยังเปิดอยู่", async () => {
+  const d = inDays(5);
+  addAppointment({ appoint_date: d, time_mode: "slot", slot_id: "morning", time_start: "08:00", time_end: "12:00", link_code: "C00001" });
+  addAppointment({ appoint_date: d, time_mode: "slot", slot_id: "morning", time_start: "08:00", time_end: "12:00", status: "confirmed", link_code: "C00002" });
+  addAppointment({ appoint_date: d, time_mode: "exact", time_start: "15:00", status: "reschedule_requested", link_code: "C00003" });
+  addAppointment({ appoint_date: d, time_mode: "slot", slot_id: "afternoon", time_start: "13:00", time_end: "18:00", status: "cancelled", link_code: "C00004" });
+  const counts = await store.appointmentDayCounts(d, d);
+  assert.deepEqual(counts[d], { total: 3, slots: { morning: 2, exact: 1 } });
+});
+
+test("ใบนัดและหน้าจอใช้คอลัมน์ใหม่: ไม่มี appoint_time/purpose เดิมหลงเหลือ", () => {
+  for (const f of ["src/app/(staff)/appointments/[id]/print/print-client.tsx", "src/app/(staff)/appointments/appointments-client.tsx", "src/lib/appointment-store.ts", "src/lib/appointment-rules.ts"]) {
+    const src = readFileSync(f, "utf8");
+    assert.doesNotMatch(src, /appoint_time|(?<!opts)\.purpose\b/, f);
+  }
+  const slip = readFileSync("src/app/(staff)/appointments/[id]/print/print-client.tsx", "utf8");
+  assert.match(slip, /timePhrase\(a\)/);
+  assert.match(slip, /a\.instructions/);
+  assert.match(slip, /a\.purpose_text/);
 });
