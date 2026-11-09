@@ -1642,13 +1642,13 @@ test("หน้าตั้งค่ามาตรฐาน: เมนูหม
   const css = readFileSync("src/app/globals.css", "utf8");
   assert.match(css, /\.settings-layout \{ display: grid; grid-template-columns: 220px minmax\(0, 1fr\);/);
   assert.match(css, /\.settings-nav \{ position: sticky;/);
-  assert.match(css, /\.settings-page \.set-group2-head h2 \{ font-size: 18px; font-weight: 700;/);
+  assert.match(css, /\.settings-page \.set-group2-head h2 \{ font-size: var\(--fs-card-title\); font-weight: 700;/);
   assert.match(css, /\.set-line \{ display: grid; grid-template-columns: minmax\(0, 35fr\) minmax\(0, 65fr\);/);
   assert.match(css, /@media \(max-width: 1023px\) \{\n  \.set-line \{ grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(css, /\.settings-savebar \{ position: sticky; bottom: 0;[^}]*background: var\(--card\); border-top: 1px solid var\(--line\);/);
   assert.doesNotMatch(css, /settings-masonry|backdrop-filter: blur\(6px\)/);
-  assert.match(css, /\.set-table td, \.set-table tbody th \{ height: 52px;/);
-  for (const v of ["--fs-card-title: 20px", "--fs-group: 16px", "--fs-label: 15px", "--fs-body: 16px", "--fs-help: 14px", "--fs-badge: 14px", "--field-h: 44px", "--field-px: 14px", "--gap-label: 6px", "--gap-field: 16px", "--gap-group: 24px", "--check-size: 20px"]) assert.ok(css.includes(v), v);
+  assert.match(css, /\.set-table td, \.set-table tbody th \{ height: 46px;/);
+  for (const v of ["--fs-page-title: 20px", "--fs-card-title: 16px", "--fs-group: 15px", "--fs-label: 14px", "--fs-body: 14px", "--fs-help: 13px", "--fs-badge: 12px", "--field-h: 38px", "--field-px: 12px", "--gap-label: 4px", "--gap-field: 12px", "--gap-group: 20px", "--check-size: 18px"]) assert.ok(css.includes(v), v);
   const scoped = css.split(/\r?\n/).filter((l) => /^\.(set-|health-|line-usage|ai-models|var-chip|info-tip|tiny-note|settings-|preset-table|hours-grid)/.test(l.trim()));
   assert.deepEqual(scoped.filter((l) => /font-size: [\d.]+px/.test(l) && !/^\.settings-page \.set-group2-head h2/.test(l.trim())), []);
 });
