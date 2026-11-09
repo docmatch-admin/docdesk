@@ -10,6 +10,44 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+/** key ฝั่ง server ทั้งหมดของโปรเจกต์: SUPABASE_SERVICE_ROLE_KEY และทุกค่าใน SUPABASE_SECRET_KEYS (JSON) */
+function serverKeys(): string[] {
+  const keys: string[] = [];
+  const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (legacy) keys.push(legacy);
+  const raw = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (raw) {
+    const collect = (v: unknown) => {
+      if (typeof v === "string" && v.length > 20) keys.push(v);
+      else if (v && typeof v === "object") Object.values(v as Record<string, unknown>).forEach(collect);
+    };
+    try { collect(JSON.parse(raw)); } catch { collect(raw); }
+  }
+  return keys;
+}
+
+/**
+ * key ที่ส่งมามีสิทธิ์ service_role จริงไหม: verify_cron_secret เรียกได้เฉพาะ service_role (migration 040)
+ * key ของผู้ใช้หรือ anon จะได้ permission denied
+ */
+async function hasServiceRole(auth: string): Promise<boolean> {
+  const key = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!key || key.split(".").length === 3 && !key.startsWith("sb_") && isUserJwt(key)) return false;
+  const sb = createClient(Deno.env.get("SUPABASE_URL")!, key, { auth: { persistSession: false } });
+  const { error } = await sb.rpc("verify_cron_secret", { p_secret: "" });
+  return !error;
+}
+
+/** JWT ของผู้ใช้ที่ล็อกอิน (role authenticated) ไม่ต้องลอง */
+function isUserJwt(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload.role === "authenticated";
+  } catch {
+    return false;
+  }
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control": "no-store" } });
 
@@ -19,8 +57,8 @@ Deno.serve(async (req) => {
 
   const auth = req.headers.get("Authorization") ?? "";
   // server ของ DocDesk เรียกด้วย service role ตอนผูก HN เพื่อเอาชื่อจาก HIS เอง
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const isServer = !!serviceKey && auth === `Bearer ${serviceKey}`;
+  // รับทั้ง service role แบบเดิม (JWT) และ secret key แบบใหม่ (sb_secret_…) ที่แอปบน Vercel อาจใช้
+  const isServer = serverKeys().some((k) => auth === `Bearer ${k}`) || (await hasServiceRole(auth));
   if (!isServer) {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
       global: { headers: { Authorization: auth } },
@@ -40,7 +78,7 @@ Deno.serve(async (req) => {
     if (b.action === "visits") {
       const visits = await visitsOn(bangkokToday());
       // ล่าสุดก่อน
-      visits.sort((a, z) => z.time.localeCompare(a.time));
+      visits.sort((a, z) => z.time.localeCompare(a.time) || z.seq - a.seq);
       return json({ visits });
     }
     if (b.action === "patients") {

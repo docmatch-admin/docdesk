@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type AppointmentDraft } from "./appointment-form";
 
-interface Visit { hn: string; name: string; doctor: string; time: string; phone: string }
+interface Visit { hn: string; name: string; doctor: string; time: string; phone: string; seq?: number }
 interface Patient { hn: string; name: string; phone: string }
 type Source = "today" | "search" | "manual";
 
@@ -106,7 +106,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
           <div className="appt-pick-list">
             {shownVisits.map((v, i) => (
               <button type="button" key={`${v.hn}-${v.time}-${i}`} className="appt-pick" onClick={() => pick(v)}>
-                <span className="appt-pick-time">{clock(v.time)}</span>
+                <span className="appt-pick-time">{v.time ? clock(v.time) : v.seq ? `คิว ${v.seq}` : ""}</span>
                 <span className="appt-pick-name">{v.name || "ไม่มีชื่อ"}<span className="muted small"> HN {v.hn}</span></span>
                 <span className="muted small">{v.doctor}</span>
               </button>

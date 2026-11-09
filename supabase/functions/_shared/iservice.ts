@@ -127,15 +127,19 @@ const pick = (r: Record<string, unknown>, keys: string[]): string => {
   return "";
 };
 
-export interface Visit { hn: string; name: string; doctor: string; time: string; phone: string }
+export interface Visit { hn: string; name: string; doctor: string; time: string; phone: string; seq: number }
 export interface Patient { hn: string; name: string; phone: string }
 
 export function toVisit(r: Record<string, unknown>): Visit {
   return {
     hn: pick(r, ["hn"]),
     name: pick(r, ["pt_name", "patient", "patient_name", "NAMESS", "fullname", "full_name", "ptname", "name"]),
-    doctor: pick(r, ["doctor", "doctor_name", "doctorname", "dr_name", "dname", "provider"]),
-    time: pick(r, ["vsttime", "visit_time", "time", "vn_time", "regist_time", "created_at"]),
+    // ovst_list ของ iService ใช้ doctor_dx (แพทย์ผู้ตรวจ)
+    doctor: pick(r, ["doctor_dx", "doctor", "doctor_name", "doctorname", "dr_name", "dname", "provider"]),
+    // vsttime อาจว่าง ไม่ใช้ vstdate แทนเพราะเป็นวันที่ ไม่ใช่เวลา
+    time: pick(r, ["vsttime", "visit_time", "time", "vn_time", "regist_time"]),
+    // ลำดับคิวของวัน ใช้เรียงเมื่อไม่มีเวลา
+    seq: Number(pick(r, ["oqueue", "no"])) || 0,
     phone: pick(r, ["mobile_phone_number", "phone", "mobile", "tel"]),
   };
 }
