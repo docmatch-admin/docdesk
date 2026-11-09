@@ -44,3 +44,52 @@ export function bangkokMonthStart(now = Date.now()): { month: string; startIso: 
   const ym = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit" }).format(new Date(now));
   return { month: ym, startIso: new Date(`${ym}-01T00:00:00+07:00`).toISOString() };
 }
+
+// ---------------------------------------------------------------------------
+// โควตาใกล้หมด/หมด
+// ---------------------------------------------------------------------------
+/** ok, warn = ใช้ ≥ 80% (แถบเหลือง), low = เหลือน้อยกว่า 10% (งด push ข้อความลงนัด/เปลี่ยนนัด), out = หมด (แถบแดง) */
+export type QuotaLevel = "ok" | "warn" | "low" | "out";
+
+export const QUOTA_WARN_RATIO = 0.8;
+export const QUOTA_LOW_RATIO = 0.9;
+
+export function quotaLevel(limit: number | null, used: number, exhausted = false): QuotaLevel {
+  if (exhausted) return "out";
+  if (limit == null || limit <= 0) return "ok";
+  if (used >= limit) return "out";
+  const ratio = used / limit;
+  if (ratio >= QUOTA_LOW_RATIO) return "low";
+  if (ratio >= QUOTA_WARN_RATIO) return "warn";
+  return "ok";
+}
+
+export interface QuotaState { type: string; limit: number | null; used: number; remaining: number | null; level: QuotaLevel; checkedAt: string | null }
+
+/** ข้อความแถบบนทุกหน้า (ไม่มีแถบเมื่อ ok) */
+export function quotaBanner(s: Pick<QuotaState, "level" | "remaining">): { tone: "warn" | "out"; text: string } | null {
+  if (s.level === "out") return { tone: "out", text: "โควตา LINE เดือนนี้หมดแล้ว — ข้อความนัด/เตือนที่ส่งไม่ออกเข้ารายการ \"ต้องโทร\" พนักงานตอบได้เฉพาะตอนลูกค้าเพิ่งทักมา" };
+  if (s.level === "warn" || s.level === "low") {
+    return { tone: "warn", text: `โควตา LINE เหลือ ${(s.remaining ?? 0).toLocaleString("th-TH")} ข้อความ — นัดอาจส่งไม่ได้${s.level === "low" ? " (งดส่งข้อความลงนัด/เปลี่ยนนัดแบบ push เก็บไว้ใช้เตือนก่อนวันนัด)" : ""}` };
+  }
+  return null;
+}
+
+/**
+ * คาดการณ์วันที่โควตาหมดจากอัตราการใช้ตั้งแต่ต้นเดือน (เวลาไทย)
+ * null = ไม่จำกัด หรือยังไม่ได้ใช้ / beforeMonthEnd=false = ใช้อัตรานี้ไม่หมดก่อนสิ้นเดือน
+ */
+export function quotaForecast(limit: number | null, used: number, now = Date.now()): { date: string; beforeMonthEnd: boolean } | null {
+  if (limit == null || limit <= 0 || used <= 0) return null;
+  const { month, startIso } = bangkokMonthStart(now);
+  const [y, m] = month.split("-").map(Number);
+  const monthEnd = Date.parse(`${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01T00:00:00+07:00`);
+  if (used >= limit) return { date: bangkokDate(now), beforeMonthEnd: true };
+  // อย่างน้อย 1 วัน ต้นเดือนใช้นิดเดียวจะได้ไม่คาดการณ์เกินจริง
+  const elapsedDays = Math.max(1, (now - Date.parse(startIso)) / 86_400_000);
+  const perDay = used / elapsedDays;
+  const at = now + ((limit - used) / perDay) * 86_400_000;
+  return { date: bangkokDate(Math.min(at, 8.64e15)), beforeMonthEnd: at < monthEnd };
+}
+
+const bangkokDate = (t: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(t));

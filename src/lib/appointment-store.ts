@@ -2,11 +2,13 @@ import {
   addDays, appointmentFlex, callQueue, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
   metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT,
   reminderDecision, TEST_APPOINTMENT_ID, thaiShortDate, timeShort, weekdayOf,
-  canRestore, CANCEL_REASON_LABEL, defaultSeriesLabel, notifiesOnCancel, shiftFollowing,
+  canRestore, CANCEL_REASON_LABEL, DELIVERY_SKIP_TEXT, type DeliverySkip, defaultSeriesLabel, notifiesOnCancel, shiftFollowing,
   type Appointment, type AppointmentSettings, type CancelReason, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
 } from "./appointment-rules";
 import { sendPushToStaff } from "./booking-store";
 import { lineSendMessages } from "./channels/line";
+import { LinePushSkipped, LineQuotaError } from "./channels/line-log";
+import { lineQuotaState } from "./line-quota";
 import { claimReplyTokenWithAge } from "./channels/reply-token";
 import { metaSendMessage } from "./channels/meta";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
@@ -199,7 +201,7 @@ async function alreadyHandled(externalId: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 // ส่งข้อความนัด
 // ---------------------------------------------------------------------------
-export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string; /** ส่งถึงกี่บัญชี (มากกว่า 1) */ accounts?: number }
+export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string; /** ส่งถึงกี่บัญชี (มากกว่า 1) */ accounts?: number; /** งดส่งทันทีโดยตั้งใจ (ไม่ใช่ส่งไม่ได้) */ skipped?: boolean }
 
 function messageInput(appt: MessageInput["appointment"], kind: MessageKind, info: ConversationInfo, settings: AppointmentSettings, clinic: string): MessageInput {
   return {
@@ -213,12 +215,12 @@ function messageInput(appt: MessageInput["appointment"], kind: MessageKind, info
 }
 
 /** ส่งตามช่องทาง คืน mid ของ Meta ไว้กัน echo ซ้ำ */
-async function pushAppointment(info: ConversationInfo, via: "line" | "facebook" | "instagram", input: MessageInput, replyToken?: string): Promise<string | null> {
+async function pushAppointment(info: ConversationInfo, via: "line" | "facebook" | "instagram", input: MessageInput, replyToken?: string, replyOnly = false): Promise<string | null> {
   if (via === "line") {
     // ไม่มี token จาก event (กดปุ่ม/ส่งรหัส) ใช้ token ล่าสุดของแชทถ้ายังไม่ถูกใช้ ไม่งั้น push
     const claimed = replyToken ? undefined : await claimReplyTokenWithAge(supabaseAdmin(), info.id);
     await lineSendMessages(info.externalId, [appointmentFlex(input)], replyToken ?? claimed?.token, {
-      kind: input.kind === "reminder" ? "reminder" : "appointment", conversationId: info.id, tokenAgeMs: claimed?.ageMs ?? (replyToken ? 0 : null),
+      kind: input.kind === "reminder" ? "reminder" : "appointment", conversationId: info.id, tokenAgeMs: claimed?.ageMs ?? (replyToken ? 0 : null), replyOnly,
     });
     return null;
   }
@@ -245,8 +247,17 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
     return { sent: false, error: DELIVERY_FAILURE_TEXT.no_chat };
   }
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
+  // LINE push สำหรับลงนัด/เปลี่ยนนัด: ปิดส่งทันที (เฉพาะลงนัด) หรือโควตาเหลือน้อยกว่า 10% → ส่งได้เฉพาะ reply
+  // เก็บโควตาไว้ให้ข้อความเตือนก่อนวันนัด
+  let pushSkip: DeliverySkip | null = null;
+  if (kind === "new" && !settings.send_on_create) pushSkip = "send_on_create_off";
+  else if (kind === "new" || kind === "changed") {
+    const q = await lineQuotaState().catch(() => null);
+    if (q && (q.level === "low" || q.level === "out")) pushSkip = "quota_low";
+  }
   const sent: { id: string; via: ChannelType }[] = [];
   const failed: { id: string; via?: ChannelType; reason?: string; error: string }[] = [];
+  const skipped: { id: string; reason: DeliverySkip }[] = [];
   for (const target of targets) {
     const info = await conversationInfo(target);
     const delivery = chooseDelivery({ channelType: info?.channelType ?? null, lastInboundAt: info?.lastInboundAt ?? null, archived: info?.archived, unfollowed: info?.unfollowed, now: opts.now });
@@ -258,11 +269,14 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
     const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous, series: opts.series, seriesPosition: opts.seriesPosition };
     try {
       // replyToken ใช้ได้กับแชทที่ส่ง event มาเท่านั้น
-      const mid = await pushAppointment(info, delivery.via, input, opts.only === target ? opts.replyToken : undefined);
+      const mid = await pushAppointment(info, delivery.via, input, opts.only === target ? opts.replyToken : undefined, delivery.via === "line" && !!pushSkip);
       await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.lang, externalId: mid });
       sent.push({ id: target, via: delivery.via });
     } catch (e) {
+      if (e instanceof LinePushSkipped && pushSkip) { skipped.push({ id: target, reason: pushSkip }); continue; }
       console.error("appointment send failed", delivery.via, kind);
+      // โควตาหมด: ไม่ลองซ้ำ เข้ารายการต้องโทร
+      if (e instanceof LineQuotaError) { failed.push({ id: target, via: delivery.via, reason: "quota", error: DELIVERY_FAILURE_TEXT.quota }); continue; }
       failed.push({ id: target, via: delivery.via, error: `ส่งไม่สำเร็จ-ต้องโทร: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}` });
     }
   }
@@ -273,9 +287,16 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
       detail: { kind, ...(f.reason ? { reason: f.reason } : { error: f.error }), ...(multi ? { conversation_id: f.id } : {}) },
     });
   }
+  for (const s of skipped) {
+    await logAppointmentEvent(appt.id, "send_skipped", actor, { staffId: opts.staffId, channel: "line", detail: { kind, reason: s.reason, ...(multi ? { conversation_id: s.id } : {}) } });
+  }
+  if (!sent.length && skipped.length && !failed.some((f) => f.reason === "quota")) {
+    // งดส่งทันทีโดยตั้งใจ: ไม่ใช่ส่งไม่ได้ ไม่เข้ารายการต้องโทร ยังมีเตือนก่อนวันนัด
+    return { sent: false, via: "line", error: DELIVERY_SKIP_TEXT[skipped[0].reason], skipped: true };
+  }
   if (!sent.length) {
-    // ไม่มีบัญชีไหนได้รับ: แจ้งเหตุผลของแชทหลัก ทีมต้องโทร
-    const error = failed[0]?.error ?? DELIVERY_FAILURE_TEXT.no_chat;
+    // ไม่มีบัญชีไหนได้รับ: แจ้งเหตุผลของแชทหลัก ทีมต้องโทร (โควตาหมดมาก่อน)
+    const error = failed.find((f) => f.reason === "quota")?.error ?? failed[0]?.error ?? DELIVERY_FAILURE_TEXT.no_chat;
     await db.from("appointments").update({ last_send_error: error, updated_at: nowIso() }).eq("id", appt.id);
     return { sent: false, via: failed[0]?.via, error };
   }

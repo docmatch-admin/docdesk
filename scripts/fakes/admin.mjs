@@ -232,6 +232,17 @@ const client = {
     if (fn === "revoke_staff_sessions") { state.revoked.push(args.p_user); return { error: null }; }
     if (fn === "match_examples") return { data: state.matchExamples };
     if (fn === "match_knowledge") return { data: state.matchKnowledge };
+    if (fn === "line_send_summary") {
+      const groups = new Map();
+      for (const r of state.tables.line_sends ?? []) {
+        if (Date.parse(r.created_at) < Date.parse(args.p_from)) continue;
+        const k = [r.mode, r.kind, r.ok, r.fallback].join("|");
+        const g = groups.get(k) ?? { mode: r.mode, kind: r.kind, ok: r.ok, fallback: r.fallback, requests: 0, messages: 0 };
+        g.requests++; g.messages += r.message_count;
+        groups.set(k, g);
+      }
+      return { data: [...groups.values()], error: null };
+    }
     return { data: null };
   },
 };

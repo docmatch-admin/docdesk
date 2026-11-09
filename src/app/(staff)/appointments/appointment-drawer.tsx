@@ -24,6 +24,7 @@ const KIND_LABEL: Record<string, string> = { new: "นัดใหม่", chang
 /** รหัสเหตุผลการส่งไม่ได้ในประวัติ */
 const REASON_LABEL: Record<string, string> = {
   no_chat: "ยังไม่มีแชท", outside_24h: "เกิน 24 ชม. (Facebook/Instagram)", web: "แชทหน้าเว็บ", archived: "แชทนำเข้า", unsupported: "ช่องทางไม่รองรับ",
+  unfollowed: "เลิกติดตาม LINE", quota: "โควตา LINE หมด", quota_low: "โควตา LINE เหลือน้อย งดส่งทันที", send_on_create_off: "ปิดส่งทันทีเมื่อลงนัด",
 };
 const ACTOR_LABEL ={ staff: "เจ้าหน้าที่", customer: "คนไข้", system: "ระบบ" };
 const timeTh = (iso: string) => new Date(iso).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });

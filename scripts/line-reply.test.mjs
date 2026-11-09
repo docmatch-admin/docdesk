@@ -4,10 +4,12 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, test } from "node:test";
 import { fake } from "./fakes/hooks.mjs";
 const { resetDb, state } = await import(fake("admin"));
-const { lineSend, lineSendMessages } = await import("../src/lib/channels/line.ts");
+const { lineSend, lineSendMessages, resetLineQuotaBackoff } = await import("../src/lib/channels/line.ts");
+const { LineQuotaError, LinePushSkipped, isMonthlyLimit } = await import("../src/lib/channels/line-log.ts");
+const { quotaLevel, quotaBanner, quotaForecast } = await import("../src/lib/line-usage-rules.ts");
 const { claimReplyToken, claimReplyTokenWithAge, lineQuotaHint, REPLY_TOKEN_MAX_AGE_MS, REPLY_TOKEN_SURE_MS } = await import("../src/lib/channels/reply-token.ts");
 const { summarizeLineSends, bangkokMonthStart } = await import("../src/lib/line-usage-rules.ts");
-beforeEach(() => resetDb({ line_sends: [] }));
+beforeEach(() => { resetDb({ line_sends: [], settings: [] }); resetLineQuotaBackoff(); });
 
 /** จำลองแถวเดียวในตาราง conversations พอให้ทดสอบ select + update แบบมีเงื่อนไข */
 function fakeDb(row) {
@@ -193,4 +195,59 @@ test("ทุกทางส่ง LINE ผ่าน lineSendMessages (บัน�
   assert.equal((pipeline.match(/kind: "chat"/g) ?? []).length + (pipeline.match(/kind: "chat" as const/g) ?? []).length >= 2, true);
   const appt = readFileSync("src/lib/appointment-store.ts", "utf8");
   assert.match(appt, /kind: input\.kind === "reminder" \? "reminder" : "appointment"/);
+});
+
+// ---- โควตาหมด ----
+const QUOTA_BODY = '{"message":"You have reached your monthly limit."}';
+
+test("push ล้มเพราะโควตาหมด (429 monthly limit): ไม่ retry บันทึก quota_exceeded จำสถานะหมด และงดเรียก push ซ้ำ", async () => {
+  let pushes = 0;
+  globalThis.fetch = async (url) => { if (String(url).endsWith("/message/push")) pushes++; return new Response(QUOTA_BODY, { status: 429 }); };
+  await assert.rejects(lineSendMessages("U1", msgs(1), undefined, { kind: "reminder" }), LineQuotaError);
+  assert.equal(pushes, 1, "ไม่ retry");
+  assert.equal(state.tables.line_sends[0].quota_exceeded, true);
+  assert.ok(state.tables.settings.find((r) => r.key === "line_quota_state").value.exhausted_at, "แถบแดงขึ้นทันที");
+  await assert.rejects(lineSendMessages("U2", msgs(1), undefined, { kind: "reminder" }), LineQuotaError);
+  assert.equal(pushes, 1, "รู้แล้วว่าหมด ไม่ยิง API ซ้ำ");
+  assert.equal(state.tables.line_sends.length, 2);
+  assert.ok(state.tables.line_sends.every((r) => r.quota_exceeded && !r.ok));
+});
+
+test("429 แบบเรียกถี่เกิน (rate limit) ไม่ถือว่าโควตาหมด", async () => {
+  assert.equal(isMonthlyLimit(429, QUOTA_BODY), true);
+  assert.equal(isMonthlyLimit(429, '{"message":"The API rate limit has been exceeded."}'), false);
+  globalThis.fetch = async () => new Response('{"message":"The API rate limit has been exceeded."}', { status: 429 });
+  await assert.rejects(lineSendMessages("U1", msgs(1), undefined, { kind: "chat" }), (e) => !(e instanceof LineQuotaError));
+  assert.equal(state.tables.line_sends[0].quota_exceeded, false);
+});
+
+test("replyOnly: มี token ส่ง reply ได้ ไม่มี token หรือ reply ไม่ผ่าน → ไม่ push (LinePushSkipped)", async () => {
+  const bodies = captureFetch(() => new Response("{}", { status: 200 }));
+  await lineSendMessages("U1", msgs(1), "T1", { kind: "appointment", replyOnly: true });
+  assert.deepEqual(bodies.map((b) => b.kind), ["reply"]);
+  await assert.rejects(lineSendMessages("U1", msgs(1), undefined, { kind: "appointment", replyOnly: true }), LinePushSkipped);
+  const failing = captureFetch(() => new Response("{}", { status: 400 }));
+  await assert.rejects(lineSendMessages("U1", msgs(1), "T2", { kind: "appointment", replyOnly: true }), LinePushSkipped);
+  assert.deepEqual(failing.map((b) => b.kind), ["reply"], "ไม่ push");
+});
+
+test("ระดับโควตา: ≥80% เหลือง <10% เหลือ = low หมด = แดง ไม่จำกัด = ok", () => {
+  assert.equal(quotaLevel(300, 100), "ok");
+  assert.equal(quotaLevel(300, 240), "warn");
+  assert.equal(quotaLevel(300, 271), "low");
+  assert.equal(quotaLevel(300, 300), "out");
+  assert.equal(quotaLevel(300, 10, true), "out", "เจอ 429 แล้ว");
+  assert.equal(quotaLevel(null, 99999), "ok");
+  assert.deepEqual(quotaBanner({ level: "ok", remaining: 200 }), null);
+  assert.match(quotaBanner({ level: "warn", remaining: 60 }).text, /^โควตา LINE เหลือ 60 ข้อความ — นัดอาจส่งไม่ได้/);
+  assert.equal(quotaBanner({ level: "out", remaining: 0 }).tone, "out");
+});
+
+test("คาดการณ์วันที่หมดจากอัตราตั้งแต่ต้นเดือน", () => {
+  // 10 พ.ย. 12:00 เวลาไทย ใช้ไป 100 ใน 9.5 วัน เหลือ 200 → ราว 19 วัน = 29 พ.ย.
+  const now = Date.parse("2026-11-10T12:00:00+07:00");
+  assert.deepEqual(quotaForecast(300, 100, now), { date: "2026-11-29", beforeMonthEnd: true });
+  assert.equal(quotaForecast(300, 20, now).beforeMonthEnd, false);
+  assert.equal(quotaForecast(null, 100, now), null);
+  assert.equal(quotaForecast(300, 0, now), null);
 });

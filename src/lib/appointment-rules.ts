@@ -84,6 +84,8 @@ export const STATUS_LABEL: Record<AppointmentStatus, string> = {
 export interface AppointmentSettings {
   reminder_time: string;
   send_purpose_in_message: boolean;
+  /** ส่งข้อความนัดทันทีเมื่อลงนัด (LINE push) ปิด = ส่งแค่เตือนก่อนวันนัด ยกเว้นมี reply token */
+  send_on_create: boolean;
   template_th: string;
   template_en: string;
   clinic_phone: string;
@@ -99,6 +101,7 @@ export const TEMPLATE_VARIABLES = ["{name}", "{date}", "{time}", "{clinic}", "{p
 export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
   reminder_time: "10:00",
   send_purpose_in_message: false,
+  send_on_create: true,
   template_th: "เรียน คุณ{name}\nนัดหมายครั้งต่อไปที่ {clinic}\n{date}\n{time}\nสอบถามโทร {phone}",
   template_en: "Dear {name},\nYour next appointment at {clinic}\n{date}\n{time}\nQuestions? Call {phone}",
   clinic_phone: "02-000-4586",
@@ -115,6 +118,7 @@ export function normalizeAppointmentSettings(value: unknown): AppointmentSetting
   return {
     reminder_time: time,
     send_purpose_in_message: v.send_purpose_in_message === true,
+    send_on_create: v.send_on_create !== false,
     template_th: text(v.template_th, DEFAULT_APPOINTMENT_SETTINGS.template_th),
     template_en: text(v.template_en, DEFAULT_APPOINTMENT_SETTINGS.template_en),
     clinic_phone: text(v.clinic_phone, DEFAULT_APPOINTMENT_SETTINGS.clinic_phone, 50),
@@ -385,7 +389,7 @@ export function parseAppointmentPostback(data: unknown): { action: PostbackActio
 // ---------------------------------------------------------------------------
 export const META_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export type DeliveryFailure = "no_chat" | "outside_24h" | "web" | "archived" | "unsupported" | "unfollowed";
+export type DeliveryFailure = "no_chat" | "outside_24h" | "web" | "archived" | "unsupported" | "unfollowed" | "quota";
 export type Delivery = { ok: true; via: "line" | "facebook" | "instagram" } | { ok: false; reason: DeliveryFailure };
 
 export const DELIVERY_FAILURE_TEXT: Record<DeliveryFailure, string> = {
@@ -395,6 +399,14 @@ export const DELIVERY_FAILURE_TEXT: Record<DeliveryFailure, string> = {
   archived: "ส่งไม่ได้-ต้องโทร: แชทนำเข้าจาก LINE OA ยังส่งข้อความไม่ได้",
   unsupported: "ส่งไม่ได้-ต้องโทร: ช่องทางนี้ยังไม่รองรับ",
   unfollowed: "ส่งไม่ได้-ต้องโทร: คนไข้เลิกติดตาม/บล็อก LINE OA",
+  quota: "ส่งไม่ได้-ต้องโทร: โควตา LINE หมด",
+};
+
+/** ไม่ได้ส่งทันที (ไม่ใช่ความผิดพลาด ไม่เข้ารายการต้องโทร ยังมีเตือนก่อนวันนัด) */
+export type DeliverySkip = "quota_low" | "send_on_create_off";
+export const DELIVERY_SKIP_TEXT: Record<DeliverySkip, string> = {
+  quota_low: "ยังไม่ส่ง: โควตา LINE เหลือน้อย เก็บไว้ส่งเตือนก่อนวันนัด",
+  send_on_create_off: "ยังไม่ส่ง: ปิด \"ส่งข้อความทันทีเมื่อลงนัด\" จะส่งเตือนก่อนวันนัด",
 };
 
 /**

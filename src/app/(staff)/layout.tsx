@@ -5,6 +5,7 @@ import { getStaffContext } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase/server";
 import { AppointmentBadge } from "./appointment-badge";
 import { HealthBanner } from "./health-banner";
+import { QuotaBanner } from "./quota-banner";
 import { Icon } from "./icons";
 import { NAV_BOOT_SCRIPT, NavToggle } from "./nav-toggle";
 import { PushToggle } from "./push-toggle";
@@ -39,6 +40,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       {/* อ่านสถานะเมนูก่อนวาด ไม่ให้กระพริบ */}
       <script dangerouslySetInnerHTML={{ __html: NAV_BOOT_SCRIPT }} />
       <HealthBanner />
+      <QuotaBanner />
       <div className="shell">
       <nav className="nav">
         <div className="brand"><span className="nav-label">Doc<span>Desk</span></span><span className="brand-short" aria-hidden="true">D</span></div>

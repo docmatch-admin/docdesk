@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { logLineSend, type LineSendMeta } from "./line-log";
+import { isMonthlyLimit, LinePushSkipped, LineQuotaError, logLineSend, markQuotaExhausted, type LineSendMeta } from "./line-log";
 
 const API = "https://api.line.me/v2/bot";
 const token = () => process.env.LINE_CHANNEL_ACCESS_TOKEN!;
@@ -29,6 +29,14 @@ export function lineContentRequest(messageId: string) {
 }
 
 export type LineMessage = Record<string, unknown>;
+
+/**
+ * เจอโควตาหมดแล้วใน instance นี้: งดเรียก push ซ้ำ 10 นาที (ไม่ retry ไม่ยิง API ที่รู้ว่าไม่ผ่าน)
+ * หลังจากนั้นลองใหม่ได้ เผื่อคลินิกซื้อโควตาเพิ่มระหว่างเดือน
+ */
+const QUOTA_BACKOFF_MS = 10 * 60_000;
+let quotaExhaustedAt = 0;
+export const resetLineQuotaBackoff = () => { quotaExhaustedAt = 0; };
 
 /** LINE รับได้สูงสุด 5 ข้อความต่อคำขอ (ทั้ง reply และ push) */
 export const LINE_MAX_MESSAGES = 5;
@@ -67,10 +75,23 @@ export async function lineSendMessages(userId: string, messages: LineMessage[], 
       await logLineSend({ ...base, mode: "reply", message_count: chunk.length, ok: false, fallback: false, token_age_ms: meta.tokenAgeMs ?? null, error });
       fallback = true;
     }
+    // ห้าม push (โควตาเหลือน้อย / ปิดส่งทันทีเมื่อลงนัด): ไม่ส่ง ให้ผู้เรียกบันทึกว่าข้าม
+    if (meta.replyOnly) throw new LinePushSkipped();
+    if (quotaExhaustedAt && Date.now() - quotaExhaustedAt < QUOTA_BACKOFF_MS) {
+      await logLineSend({ ...base, mode: "push", message_count: chunk.length, ok: false, fallback, token_age_ms: null, error: "ไม่ได้ส่ง: โควตาหมด (เพิ่งเจอ 429)", quota_exceeded: true });
+      throw new LineQuotaError();
+    }
     const res = await post("push", { to: userId }, chunk);
     if (!res.ok) {
-      const error = `LINE push failed ${res.status}: ${await res.text()}`;
-      await logLineSend({ ...base, mode: "push", message_count: chunk.length, ok: false, fallback, token_age_ms: null, error: error.slice(0, 300) });
+      const body = await res.text().catch(() => "");
+      const error = `LINE push failed ${res.status}: ${body}`;
+      const quota = isMonthlyLimit(res.status, body);
+      await logLineSend({ ...base, mode: "push", message_count: chunk.length, ok: false, fallback, token_age_ms: null, error: error.slice(0, 300), quota_exceeded: quota });
+      if (quota) {
+        quotaExhaustedAt = Date.now();
+        await markQuotaExhausted();
+        throw new LineQuotaError();
+      }
       throw new Error(error);
     }
     await logLineSend({ ...base, mode: "push", message_count: chunk.length, ok: true, fallback, token_age_ms: null, error: null });

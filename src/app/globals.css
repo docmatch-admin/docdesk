@@ -813,3 +813,8 @@ body > .appt-slip { display: none; }
 .ai-models-table { width: 100%; }
 .ai-models-table td:last-child, .ai-models-table th:last-child { text-align: left; }
 .ai-models form { margin-top: 10px; }
+.quota-banner { padding: 6px 16px; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+.quota-banner.warn { background: #ffe9a8; color: #5c4400; }
+.quota-banner.out { background: #b3263a; color: #fff; }
+.send-error { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #fde8eb; color: #9b1c2e; font-size: 13px; font-weight: 600; }
+.line-usage-forecast { margin: 4px 0 8px; font-size: 14px; }

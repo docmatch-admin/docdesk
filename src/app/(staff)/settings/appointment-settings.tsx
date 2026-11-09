@@ -80,6 +80,13 @@ export function AppointmentSettings() {
         <input type="checkbox" checked={s.send_purpose_in_message} onChange={(e) => set({ send_purpose_in_message: e.target.checked })} />
         ใส่เหตุผลนัดในข้อความ (แชทลับจะไม่ใส่เสมอ)
       </label>
+      <label className="raw small" style={{ marginLeft: 0 }}>
+        <input type="checkbox" checked={s.send_on_create} onChange={(e) => set({ send_on_create: e.target.checked })} />
+        ส่งข้อความทันทีเมื่อลงนัด
+      </label>
+      <p className="muted small" style={{ marginTop: -4 }}>
+        ปิดแล้ว LINE จะส่งแค่ข้อความเตือนก่อนวันนัด (ประหยัดโควตา) ยกเว้นคนไข้เพิ่งทักหรือเพิ่งสแกน QR ระบบตอบใบนัดดิจิทัลแบบ reply ได้ตามปกติ (ไม่นับโควตา) · Facebook/Instagram ส่งตามปกติ
+      </p>
       <p className="muted small">ตัวแปร: {TEMPLATE_VARIABLES.join(" ")} — {"{time}"} = "มาได้ช่วง 08.00–12.00 น. (ตรวจตามลำดับคิว)" หรือ "เวลา 09.30 น." · การปฏิบัติตัวต่อท้ายข้อความให้เสมอ · ไม่ผ่าน AI</p>
       <label>ข้อความภาษาไทย<textarea rows={5} value={s.template_th} onChange={(e) => set({ template_th: e.target.value })} /></label>
       <label>ข้อความภาษาอังกฤษ (แชทที่คุยภาษาอังกฤษ)<textarea rows={5} value={s.template_en} onChange={(e) => set({ template_en: e.target.value })} /></label>

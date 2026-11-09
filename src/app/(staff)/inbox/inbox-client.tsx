@@ -87,6 +87,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const [sending, setSending] = useState(false);
   // อายุ replyToken ของ LINE เปลี่ยนตามเวลา อัปเดตป้ายโควตาทุก 15 วินาที
   const [nowTick, setNowTick] = useState(() => Date.now());
+  // ส่งไม่ออก (เช่น โควตา LINE หมด): แสดงค้างไว้ ไม่หายเงียบ
+  const [sendError, setSendError] = useState("");
+  useEffect(() => { setSendError(""); }, [selectedId]);
   useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 15_000); return () => clearInterval(t); }, []);
   const [globalMode, setGlobalMode] = useState<AiMode>("assist");
   const [toast, setToast] = useState("");
@@ -394,7 +397,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       body: JSON.stringify({ text, suggestionId: suggestion?.id ?? null, chosenIndex: chosen, skipTranslate: rawMode, cancelBookingId }),
     });
     setSending(false);
-    if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "ส่งไม่สำเร็จ");
+    if (!res.ok) {
+      const msg = (await res.json().catch(() => ({}))).error ?? "ส่งไม่สำเร็จ";
+      setSendError(msg);
+      return flash(msg);
+    }
+    setSendError("");
     setText(""); setChosen(null); setSuggestion(null); setCancelBookingId(null);
     if (cancelBookingId) loadBookings(selectedId);
   }
@@ -520,7 +528,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           fileName: attachment.kind === "file" ? attachment.name : undefined,
         }),
       });
-      if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "ส่งไม่สำเร็จ");
+      if (!res.ok) {
+        const msg = (await res.json().catch(() => ({}))).error ?? "ส่งไม่สำเร็จ";
+        setSendError(msg);
+        return flash(msg);
+      }
+      setSendError("");
       setAttachment(null); setCaption(""); setSuggestion(null); setChosen(null);
     } catch (e) {
       flash(e instanceof Error ? e.message : "ส่งไม่สำเร็จ");
@@ -917,6 +930,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 onPaste={onPaste}
                 placeholder={customerLang !== "th" && !rawMode ? "พิมพ์ภาษาไทย ระบบจะแปลให้ลูกค้า… (Ctrl+Enter ส่ง)" : "พิมพ์ข้อความ… (Ctrl+Enter ส่ง)"}
               />
+              {sendError && (
+                <div className="send-error" role="alert">⛔ {sendError} — ข้อความยังอยู่ในช่องพิมพ์ ยังไม่ถึงลูกค้า{/โควตา LINE/.test(sendError) ? " (ตอบได้อีกครั้งเมื่อลูกค้าทักมาใหม่ หรือโทรหาลูกค้า)" : ""}</div>
+              )}
               <div className="composer-foot">
                 <div className="muted small">
                   <button className="btn ghost small attach-btn" title="แนบรูปหรือ PDF (ลากวาง หรือ Ctrl+V ได้)" aria-label="แนบรูปหรือ PDF"

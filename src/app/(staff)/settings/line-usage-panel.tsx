@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LINE_KIND_LABEL, LINE_KINDS, type LineUsageSummary } from "@/lib/line-usage-rules";
+import { LINE_KIND_LABEL, LINE_KINDS, quotaForecast, type LineUsageSummary } from "@/lib/line-usage-rules";
 
 type Usage = LineUsageSummary & { quota: { type: string; limit: number | null; used: number | null; error: string | null } };
 
@@ -36,6 +36,7 @@ export function LineUsagePanel() {
                     <span style={{ width: `${Math.min(100, ((u.quota.used ?? 0) / Math.max(1, u.quota.limit)) * 100)}%` }} />
                   </div>
                 )}
+                <Forecast limit={u.quota.limit} used={u.quota.used ?? 0} />
                 <div className="muted small">ตัวเลขจาก LINE (รวมการส่งจากระบบอื่นและ LINE OA Manager)</div>
               </>
             )}
@@ -55,5 +56,21 @@ export function LineUsagePanel() {
         </>
       )}
     </section>
+  );
+}
+
+const thaiDate = (d: string) => new Date(`${d}T12:00:00+07:00`).toLocaleDateString("th-TH", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Bangkok" });
+
+/** ถ้าใช้อัตรานี้ (ตั้งแต่ต้นเดือน) จะหมดประมาณวันที่ไหน */
+function Forecast({ limit, used }: { limit: number | null; used: number }) {
+  const f = quotaForecast(limit, used);
+  if (!f) return null;
+  if (limit != null && used >= limit) return <div className="line-usage-forecast error">โควตาเดือนนี้หมดแล้ว</div>;
+  return (
+    <div className="line-usage-forecast">
+      {f.beforeMonthEnd
+        ? <>ถ้าใช้อัตรานี้ จะหมดประมาณ <b>{thaiDate(f.date)}</b></>
+        : <>ถ้าใช้อัตรานี้ ไม่หมดก่อนสิ้นเดือน</>}
+    </div>
   );
 }

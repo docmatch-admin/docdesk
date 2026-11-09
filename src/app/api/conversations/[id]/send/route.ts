@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { LineQuotaError } from "@/lib/channels/line-log";
 import { denyArchivedChat, denySensitiveChat, requireStaff } from "@/lib/auth";
 import { isStillBookable } from "@/lib/booking-rules";
 import { cancelBooking, loadBusinessHours } from "@/lib/booking-store";
@@ -46,6 +47,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (body.cancelBookingId) await cancelBooking(body.cancelBookingId, id);
     return NextResponse.json(res);
   } catch (e) {
+    if (e instanceof LineQuotaError) return NextResponse.json({ error: "ส่งไม่ได้: โควตา LINE เดือนนี้หมด", code: "line_quota" }, { status: 429 });
     console.error(e);
     return NextResponse.json({ error: e instanceof Error ? e.message : "ส่งไม่สำเร็จ" }, { status: 500 });
   }

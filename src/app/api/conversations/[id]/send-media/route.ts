@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { LineQuotaError } from "@/lib/channels/line-log";
 import { denyArchivedChat, denySensitiveChat, requireStaff } from "@/lib/auth";
 import { MediaError } from "@/lib/media";
 import { sendMediaReply } from "@/lib/pipeline";
@@ -43,6 +44,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       origin: new URL(req.url).origin,
     }));
   } catch (e) {
+    if (e instanceof LineQuotaError) return NextResponse.json({ error: "ส่งไม่ได้: โควตา LINE เดือนนี้หมด", code: "line_quota" }, { status: 429 });
     if (e instanceof MediaError) {
       return NextResponse.json({ error: MEDIA_ERROR_TEXT[e.code] }, { status: 400 });
     }

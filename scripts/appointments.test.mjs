@@ -1218,3 +1218,91 @@ test("หน้าพิมพ์ใบนัด: เปิดเป็น TH �
   assert.equal((src.match(/void translate\(\)/g) ?? []).length, 2, "กด EN ครั้งแรก + ปุ่มลองใหม่");
   assert.doesNotMatch(src, /useEffect\([^)]*translate/);
 });
+
+// ---------------------------------------------------------------------------
+// โควตา LINE ใกล้หมด/หมด
+// ---------------------------------------------------------------------------
+const quotaLib = await import("../src/lib/line-quota.ts");
+const lineLib = await import("../src/lib/channels/line.ts");
+/** สถานะโควตาที่เพิ่งอ่านจาก LINE (ไม่เรียก /quota ระหว่างเทสต์) */
+const setQuota = (used, limit = 300, extra = {}) => {
+  const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit" }).format(new Date());
+  state.tables.settings = state.tables.settings.filter((r) => r.key !== "line_quota_state");
+  state.tables.settings.push({ key: "line_quota_state", value: { type: "limited", limit, used, month, checked_at: new Date().toISOString(), ...extra } });
+};
+beforeEach(() => { quotaLib.clearQuotaMemo(); lineLib.resetLineQuotaBackoff(); setQuota(0); });
+const quotaFetch = () => {
+  globalThis.fetch = async (url, init) => {
+    outbound.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null });
+    if (String(url).endsWith("/message/push")) return new Response('{"message":"You have reached your monthly limit."}', { status: 429 });
+    return new Response("{}", { status: 400 });
+  };
+};
+
+test("โควตาหมดตอนเตือนนัด: ไม่ retry เข้ารายการต้องโทร เหตุผล โควตา LINE หมด", async () => {
+  quotaFetch();
+  const tomorrow = inDays(1);
+  const now = Date.parse(`${today}T16:59:00+07:00`);
+  const a = addAppointment({ appoint_date: tomorrow, confirm_sent_at: new Date(now - 5 * 24 * HOUR).toISOString() });
+  const r = await store.runAppointmentReminders(now);
+  assert.deepEqual(r, { sent: 0, failed: 1, skipped: 0 });
+  assert.equal(appt(a.id).last_send_error, "ส่งไม่ได้-ต้องโทร: โควตา LINE หมด");
+  assert.equal(rules.callQueue(state.tables.appointments, now).mustCall, 1);
+  assert.equal(outbound.filter((o) => o.url.endsWith("/message/push")).length, 1, "ไม่ลองซ้ำ");
+  assert.equal(state.tables.appointment_events.find((e) => e.kind === "send_failed").detail.reason, "quota");
+  assert.equal((await quotaLib.lineQuotaState(Date.now(), false)).level, "out");
+});
+
+test("โควตาเหลือน้อยกว่า 10%: ลงนัดใหม่งด push บันทึกว่าข้าม ไม่เข้าต้องโทร แต่ยังตอบด้วย reply token ได้", async () => {
+  setQuota(280);
+  const r = await store.createAppointment({ hn: "HN001", patient_name: "สมชาย", appoint_date: inDays(3), time_mode: "slot", slot_id: "morning", conversation_id: "conv-line" }, "agent");
+  assert.equal(r.delivery.sent, false);
+  assert.equal(r.delivery.skipped, true);
+  assert.match(r.delivery.error, /โควตา LINE เหลือน้อย/);
+  assert.equal(linePosts().length, 0, "ไม่ push");
+  assert.ok(!appt(r.appointment.id).last_send_error, "ไม่เข้ารายการต้องโทร");
+  assert.equal(state.tables.appointment_events.find((e) => e.kind === "send_skipped").detail.reason, "quota_low");
+
+  // คนไข้เพิ่งทัก (มี reply token) → ส่งด้วย reply ได้
+  Object.assign(conv("conv-line"), { line_reply_token: "RT9", line_reply_token_at: new Date().toISOString() });
+  const r2 = await store.createAppointment({ hn: "HN001", patient_name: "สมชาย", appoint_date: inDays(4), time_mode: "slot", slot_id: "morning", conversation_id: "conv-line" }, "agent");
+  assert.equal(r2.delivery.sent, true);
+  assert.deepEqual(linePosts().map((o) => o.url.split("/").pop()), ["reply"]);
+
+  // เตือนก่อนวันนัดยังใช้โควตาได้
+  outbound = [];
+  const now = Date.parse(`${today}T16:59:00+07:00`);
+  const due = addAppointment({ appoint_date: inDays(1), confirm_sent_at: new Date(now - 5 * 24 * HOUR).toISOString(), link_code: "QLW234" });
+  await store.runAppointmentReminders(now);
+  assert.ok(appt(due.id).reminder_sent_at);
+  assert.equal(linePosts().filter((o) => o.url.endsWith("/push")).length, 1);
+});
+
+test("ปิด ส่งข้อความทันทีเมื่อลงนัด: ลงนัดไม่ push / มี reply token ส่งได้ / เปลี่ยนนัดยังส่ง", async () => {
+  state.tables.settings.push({ key: "appointment_settings", value: { send_on_create: false } });
+  assert.equal(rules.normalizeAppointmentSettings({}).send_on_create, true, "ค่าเริ่มต้นเปิด");
+  const r = await store.createAppointment({ hn: "HN001", patient_name: "สมชาย", appoint_date: inDays(3), time_mode: "slot", slot_id: "morning", conversation_id: "conv-line" }, "agent");
+  assert.equal(r.delivery.skipped, true);
+  assert.match(r.delivery.error, /ปิด "ส่งข้อความทันทีเมื่อลงนัด"/);
+  assert.equal(linePosts().length, 0);
+  assert.equal(state.tables.appointment_events.find((e) => e.kind === "send_skipped").detail.reason, "send_on_create_off");
+  Object.assign(conv("conv-line"), { line_reply_token: "RT7", line_reply_token_at: new Date().toISOString() });
+  const r2 = await store.createAppointment({ hn: "HN001", patient_name: "สมชาย", appoint_date: inDays(4), time_mode: "slot", slot_id: "morning", conversation_id: "conv-line" }, "agent");
+  assert.equal(r2.delivery.sent, true);
+  outbound = [];
+  const moved = await store.updateAppointment(r.appointment.id, { appoint_date: inDays(5) }, "agent");
+  assert.equal(moved.delivery.sent, true, "เปลี่ยนนัดส่งตามปกติ");
+});
+
+test("ข้อความพนักงานส่งไม่ได้เพราะโควตาหมด: API ตอบ 429 ข้อความชัด หน้าแชทแสดงค้าง", async () => {
+  quotaFetch();
+  state.currentUser = { id: "agent", email: "a@test" };
+  const sendRoute = await import("../src/app/api/conversations/[id]/send/route.ts");
+  const res = await sendRoute.POST(new Request("https://app.test/x", { method: "POST", body: JSON.stringify({ text: "สวัสดีค่ะ" }) }), { params: Promise.resolve({ id: "conv-line" }) });
+  assert.equal(res.status, 429);
+  assert.equal((await res.json()).error, "ส่งไม่ได้: โควตา LINE เดือนนี้หมด");
+  assert.equal(messagesOf("conv-line").filter((m) => m.direction === "out").length, 0, "ไม่บันทึกว่าส่งแล้ว");
+  const src = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
+  assert.match(src, /setSendError\(msg\)/);
+  assert.match(src, /\{sendError && \(/);
+});
