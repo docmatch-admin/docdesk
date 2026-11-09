@@ -810,3 +810,6 @@ body > .appt-slip { display: none; }
 .quota-hint { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; padding: 2px 6px; border-radius: 999px; white-space: nowrap; }
 .quota-hint.push { background: #fff1e0; color: #8a4b00; }
 .quota-hint.maybe { background: var(--bg); color: var(--muted); }
+.ai-models-table { width: 100%; }
+.ai-models-table td:last-child, .ai-models-table th:last-child { text-align: left; }
+.ai-models form { margin-top: 10px; }

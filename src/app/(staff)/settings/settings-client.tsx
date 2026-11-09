@@ -9,6 +9,7 @@ import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { AppointmentSettings } from "./appointment-settings";
 import { HealthPanel } from "./health-panel";
+import { AiModelsPanel } from "./ai-models-panel";
 import { LineUsagePanel } from "./line-usage-panel";
 import { PriceAlerts } from "./price-alerts";
 import { TagSettings } from "./tag-settings";
@@ -235,6 +236,8 @@ export function SettingsClient() {
           {stats.unpricedModels.length > 0 && <> · ไม่รวมโมเดลที่ไม่รู้ราคา: {stats.unpricedModels.join(", ")}</>}
         </p>
       </section>
+
+      <AiModelsPanel />
 
       <TagSettings />
 

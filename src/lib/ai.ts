@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import OpenAI from "openai";
 import { chatParams, unsupportedParam, type AiTask } from "./ai-params";
+import { modelFor } from "./ai-models";
 import { recordLlmUsage } from "./llm-usage";
 import { supabaseAdmin } from "./supabase/admin";
 
@@ -22,11 +23,12 @@ function logUsage(kind: "chat" | "embedding", model: string, input: number, outp
   }
 }
 
-/** ชื่อโมเดลอ่านจาก env ที่เดียว ทุกงานใช้ค่านี้ */
-export const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
-export const EMBED_MODEL = process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
-
+/**
+ * ชื่อโมเดลอ่านจากหน้าตั้งค่า (settings.ai_models) เป็นหลัก env เป็นค่าสำรองตอนฐานข้อมูลยังไม่มีค่า
+ * ดู ai-models.ts
+ */
 export async function embed(text: string): Promise<number[]> {
+  const EMBED_MODEL = await modelFor("embed");
   const res = await openai().embeddings.create({ model: EMBED_MODEL, input: text.slice(0, 8000) });
   logUsage("embedding", EMBED_MODEL, res.usage?.prompt_tokens ?? 0, 0);
   return res.data[0].embedding;
@@ -35,6 +37,7 @@ export async function embed(text: string): Promise<number[]> {
 /** embedding ทีละชุด เร็วกว่าและถูกกว่าการเรียกทีละข้อความตอนนำเข้า */
 export async function embedMany(texts: string[]): Promise<number[][]> {
   if (!texts.length) return [];
+  const EMBED_MODEL = await modelFor("embed");
   const res = await openai().embeddings.create({ model: EMBED_MODEL, input: texts.map((t) => t.slice(0, 8000)) });
   logUsage("embedding", EMBED_MODEL, res.usage?.prompt_tokens ?? 0, 0);
   return [...res.data].sort((a, b) => a.index - b.index).map((d) => d.embedding);
@@ -46,7 +49,7 @@ export interface CallModelInput {
   user: string;
   /** ใช้เฉพาะโมเดลที่ไม่ใช่ reasoning */
   temperature?: number;
-  /** ใช้ทดสอบเทียบโมเดล ปกติใช้ CHAT_MODEL */
+  /** ใช้ทดสอบเทียบโมเดล ปกติใช้โมเดลของงานจากหน้าตั้งค่า */
   model?: string;
 }
 
@@ -56,7 +59,8 @@ export interface CallModelInput {
  * ถ้า OpenAI ไม่รับพารามิเตอร์ใด log ชื่อพารามิเตอร์กับโมเดลให้ชัด แล้วลองใหม่หนึ่งครั้งโดยตัดพารามิเตอร์นั้น
  */
 export async function callModel<T>(input: CallModelInput): Promise<T> {
-  const model = input.model ?? CHAT_MODEL;
+  // งานแปลใช้โมเดลแปล (ว่าง = โมเดลหลัก) งานอื่นใช้โมเดลหลัก
+  const model = input.model ?? await modelFor(input.task === "translate" ? "translate" : "draft");
   let params = chatParams({ model, task: input.task, temperature: input.temperature });
   for (let attempt = 0; attempt < 2; attempt++) {
     try {

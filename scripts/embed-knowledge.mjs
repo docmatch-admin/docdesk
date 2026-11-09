@@ -11,7 +11,10 @@ if (!url || !key || !process.env.OPENAI_API_KEY) {
 }
 const db = createClient(url, key, { auth: { persistSession: false } });
 const openai = new OpenAI();
-const model = process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
+// โมเดลเดียวกับแอป: หน้าตั้งค่า (settings.ai_models.embed) ก่อน env สำรอง
+const { data: aiModels } = await db.from("settings").select("value").eq("key", "ai_models").maybeSingle();
+const model = aiModels?.value?.embed?.trim() || process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
+console.log(`embedding model: ${model}`);
 
 async function run(table, toText) {
   const { data, error } = await db.from(table).select("*").is("embedding", null).limit(500);

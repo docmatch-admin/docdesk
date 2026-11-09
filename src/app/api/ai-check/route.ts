@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { callModel, CHAT_MODEL } from "@/lib/ai";
+import { callModel } from "@/lib/ai";
+import { activeModels } from "@/lib/ai-models";
 import { isReasoningModel } from "@/lib/ai-params";
 import { requireAdmin } from "@/lib/auth";
 import { fromThai, toThai } from "@/lib/translate";
@@ -23,14 +24,15 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ ok: boolean; ms: number
 
 /**
  * แอดมินตรวจว่า AI ทำงานกับโมเดลปัจจุบัน และเทียบเวลาแปลกับโมเดลเดิม
- * ?model=gpt-5-mini ลองโมเดลอื่นก่อนเปลี่ยน OPENAI_CHAT_MODEL (ไม่บันทึกค่า)
+ * ?model=gpt-5-mini ลองโมเดลอื่นก่อนเปลี่ยนในหน้าตั้งค่า (ไม่บันทึกค่า)
  */
 export async function GET(req: Request) {
   const { error } = await requireAdmin();
   if (error) return error;
   const asked = new URL(req.url).searchParams.get("model")?.trim() ?? "";
   if (asked && !/^[a-z0-9][a-z0-9.-]{1,40}$/i.test(asked)) return NextResponse.json({ error: "ชื่อโมเดลไม่ถูกต้อง" }, { status: 400 });
-  const model = asked || CHAT_MODEL;
+  const active = await activeModels(true);
+  const model = asked || active.draft.model;
   const translateUser = SAMPLE_EN;
   const translateSystem = `Detect the language of the message (ISO 639-1) and translate it into natural Thai. Return JSON: {"language": "<code>", "th": "<Thai>"}`;
   const [toTh, toEn, draft, baseline] = await Promise.all([
@@ -49,7 +51,8 @@ export async function GET(req: Request) {
   ]);
   return NextResponse.json({
     model,
-    configured_model: CHAT_MODEL,
+    configured_model: active.draft.model,
+    configured_source: active.draft.source,
     reasoning: isReasoningModel(model),
     translate_en_to_th: toTh,
     translate_th_to_en: toEn,

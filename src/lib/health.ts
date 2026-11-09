@@ -1,4 +1,5 @@
-import { EMBED_MODEL, openai } from "./ai";
+import { openai } from "./ai";
+import { modelFor } from "./ai-models";
 import { debugPageToken } from "./channels/meta";
 import { HEALTH_LABEL, type HealthRow } from "./health-rules";
 import { supabaseAdmin } from "./supabase/admin";
@@ -45,7 +46,7 @@ async function checkSupabase(): Promise<CheckResult> {
 
 /** เรียกตรง ไม่ผ่าน embed() เพื่อไม่ให้ปนกับสถิติการใช้ AI ของแชท */
 async function checkOpenAi(): Promise<CheckResult> {
-  await openai().embeddings.create({ model: EMBED_MODEL, input: "ping" }, { timeout: CHECK_TIMEOUT_MS, maxRetries: 0 });
+  await openai().embeddings.create({ model: await modelFor("embed"), input: "ping" }, { timeout: CHECK_TIMEOUT_MS, maxRetries: 0 });
   return { ok: true, detail: "เรียกได้" };
 }
 
