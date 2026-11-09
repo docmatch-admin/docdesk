@@ -84,7 +84,7 @@ export function SettingsClient() {
   const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <div className="page narrow">
+    <div className="page narrow settings-page">
       <h1>ตั้งค่า AI</h1>
 
       <HealthPanel />

@@ -3,17 +3,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { bangkokToday, thaiFullDate } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { InfoTip } from "./info-tip";
 
-interface Preset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; sort_order: number; active: boolean }
-interface Slot { weekday: number; slot_id: string; label: string; start_time: string; end_time: string; sort_order: number }
+export interface Preset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; sort_order: number; active: boolean }
+export interface Slot { weekday: number; slot_id: string; label: string; start_time: string; end_time: string; sort_order: number }
 interface Closure { closed_on: string; reason: string | null }
 
 const DAY = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
 
 /** preset เหตุผลนัด: เพิ่ม แก้ ลากเรียง ปิดใช้ (admin เขียนตรงผ่าน RLS) */
-export function PurposePresets() {
+export function PurposePresets({ initial = [] }: { initial?: Preset[] } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [rows, setRows] = useState<Preset[]>([]);
+  // initial: ข้อมูลตั้งต้นก่อนโหลด (ภาพตัวอย่าง/เทสต์) หน้าใช้งานจริงโหลดจากฐานข้อมูลเสมอ
+  const [rows, setRows] = useState<Preset[]>(initial);
   const [drag, setDrag] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
   const [draft, setDraft] = useState({ name: "", default_days: "", reminder_extra_text: "" });
@@ -66,42 +68,54 @@ export function PurposePresets() {
 
   return (
     <div className="appt-settings-block">
-      <h3>เหตุผลนัด (preset)</h3>
-      <p className="muted small">ลากเพื่อเรียงลำดับ · "นัดอีก (วัน)" = เลือกวันนัดให้อัตโนมัติ · "การปฏิบัติตัว" = ค่าเริ่มต้นที่ส่งในข้อความนัดเสมอ</p>
-      <div className="preset-list">
-        {rows.map((r, i) => (
-          <div key={r.id} className={`preset-row ${r.active ? "" : "off"} ${drag === i ? "dragging" : ""}`} draggable
-            onDragStart={() => setDrag(i)} onDragOver={(e) => e.preventDefault()} onDragEnd={() => setDrag(null)}
-            onDrop={(e) => { e.preventDefault(); if (drag !== null) move(drag, i); setDrag(null); }}>
-            <span className="preset-handle" aria-hidden="true">⋮⋮</span>
-            <input aria-label="ชื่อเหตุผลนัด" value={r.name} onChange={(e) => setRow(i, { name: e.target.value })} />
-            <input aria-label="นัดอีกกี่วัน" type="number" min={1} placeholder="วัน" className="preset-days"
-              value={r.default_days ?? ""} onChange={(e) => setRow(i, { default_days: days(e.target.value) })} />
-            <input aria-label="การปฏิบัติตัว" placeholder="การปฏิบัติตัว" className="preset-extra"
-              value={r.reminder_extra_text ?? ""} onChange={(e) => setRow(i, { reminder_extra_text: e.target.value })} />
-            <label className="raw small"><input type="checkbox" checked={r.active} onChange={(e) => setRow(i, { active: e.target.checked })} /> ใช้</label>
-            <button type="button" className="btn ghost small" aria-label={`เลื่อน ${r.name} ขึ้น`} disabled={i === 0} onClick={() => move(i, i - 1)}>↑</button>
-            <button type="button" className="btn ghost small" aria-label={`เลื่อน ${r.name} ลง`} disabled={i === rows.length - 1} onClick={() => move(i, i + 1)}>↓</button>
-            <button type="button" className="btn small" onClick={() => saveRow(r)}>บันทึก</button>
-          </div>
-        ))}
+      <h3>เหตุผลนัด (preset) <InfoTip text={'ลาก ⋮⋮ หรือกด ↑↓ เพื่อเรียงลำดับ · "นัดอีก (วัน)" = เลือกวันนัดให้อัตโนมัติ · "การปฏิบัติตัว" = ค่าเริ่มต้นที่ส่งในข้อความนัดเสมอ'} /></h3>
+      <div className="set-table-wrap">
+        <table className="set-table preset-table">
+          <thead>
+            <tr><th aria-label="ลากเรียง" /><th>เหตุผลนัด</th><th>นัดอีก (วัน)</th><th>การปฏิบัติตัว</th><th>ใช้</th><th aria-label="จัดการ" /></tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id} className={`${r.active ? "" : "off"} ${drag === i ? "dragging" : ""}`} draggable
+                onDragStart={() => setDrag(i)} onDragOver={(e) => e.preventDefault()} onDragEnd={() => setDrag(null)}
+                onDrop={(e) => { e.preventDefault(); if (drag !== null) move(drag, i); setDrag(null); }}>
+                <td className="preset-handle" aria-hidden="true">⋮⋮</td>
+                <td><input aria-label="ชื่อเหตุผลนัด" value={r.name} onChange={(e) => setRow(i, { name: e.target.value })} /></td>
+                <td className="num"><input aria-label="นัดอีกกี่วัน" type="number" min={1} placeholder="–"
+                  value={r.default_days ?? ""} onChange={(e) => setRow(i, { default_days: days(e.target.value) })} /></td>
+                <td><input aria-label="การปฏิบัติตัว" placeholder="–"
+                  value={r.reminder_extra_text ?? ""} onChange={(e) => setRow(i, { reminder_extra_text: e.target.value })} /></td>
+                <td className="center"><input type="checkbox" aria-label={`ใช้ ${r.name}`} checked={r.active} onChange={(e) => setRow(i, { active: e.target.checked })} /></td>
+                <td className="actions">
+                  <button type="button" className="icon-btn ghost-icon" aria-label={`เลื่อน ${r.name} ขึ้น`} disabled={i === 0} onClick={() => move(i, i - 1)}>↑</button>
+                  <button type="button" className="icon-btn ghost-icon" aria-label={`เลื่อน ${r.name} ลง`} disabled={i === rows.length - 1} onClick={() => move(i, i + 1)}>↓</button>
+                  <button type="button" className="btn small" onClick={() => saveRow(r)}>บันทึก</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className="preset-handle" aria-hidden="true">＋</td>
+              <td><input form="preset-add" aria-label="ชื่อเหตุผลนัดใหม่" placeholder="เหตุผลนัดใหม่" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></td>
+              <td className="num"><input form="preset-add" aria-label="นัดอีกกี่วัน" type="number" min={1} placeholder="วัน" value={draft.default_days} onChange={(e) => setDraft({ ...draft, default_days: e.target.value })} /></td>
+              <td><input form="preset-add" aria-label="การปฏิบัติตัว" placeholder="การปฏิบัติตัว" value={draft.reminder_extra_text} onChange={(e) => setDraft({ ...draft, reminder_extra_text: e.target.value })} /></td>
+              <td />
+              <td className="actions"><button form="preset-add" className="btn primary small" disabled={!draft.name.trim()}>เพิ่ม</button></td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
-      <form className="preset-row add" onSubmit={add}>
-        <span className="preset-handle" aria-hidden="true">＋</span>
-        <input aria-label="ชื่อเหตุผลนัดใหม่" placeholder="เหตุผลนัดใหม่" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-        <input aria-label="นัดอีกกี่วัน" type="number" min={1} placeholder="วัน" className="preset-days" value={draft.default_days} onChange={(e) => setDraft({ ...draft, default_days: e.target.value })} />
-        <input aria-label="การปฏิบัติตัว" placeholder="การปฏิบัติตัว" className="preset-extra" value={draft.reminder_extra_text} onChange={(e) => setDraft({ ...draft, reminder_extra_text: e.target.value })} />
-        <button className="btn primary small" disabled={!draft.name.trim()}>เพิ่ม</button>
-      </form>
+      <form id="preset-add" onSubmit={add} hidden />
       {msg && <div className="small">{msg}</div>}
     </div>
   );
 }
 
 /** เวลาเปิดคลินิกต่อวันในสัปดาห์ (หลายช่วงต่อวัน ไม่มีช่วง = ปิดทั้งวัน) และวันหยุดพิเศษ */
-export function ClinicHoursSettings() {
+export function ClinicHoursSettings({ initialSlots = [] }: { initialSlots?: Slot[] } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [slots, setSlots] = useState<Slot[]>([]);
+  const [slots, setSlots] = useState<Slot[]>(initialSlots);
   const [closures, setClosures] = useState<Closure[]>([]);
   const [newClosure, setNewClosure] = useState({ date: "", reason: "" });
   const [msg, setMsg] = useState("");
@@ -161,35 +175,45 @@ export function ClinicHoursSettings() {
 
   return (
     <div className="appt-settings-block">
-      <h3>เวลาเปิดคลินิก (ช่วงนัด)</h3>
-      <p className="muted small">ฟอร์มนัดแสดงปุ่มช่วงเวลาตามตารางนี้ วันที่ไม่มีช่วง = ปิดทั้งวัน · ช่วงเช้า (morning) เป็นค่าเริ่มต้น</p>
-      <div className="hours-table">
-        {DAY.map((name, d) => (
-          <div key={d} className="hours-day">
-            <b>{name}</b>
-            {ofDay(d).length === 0 && <span className="chip">ปิดทั้งวัน</span>}
-            {ofDay(d).map((s) => (
-              <span key={`${d}-${s.slot_id}`} className="hours-slot">
-                <input aria-label={`ชื่อช่วง ${name}`} value={s.label} onChange={(e) => update(s, { label: e.target.value })} />
-                <input aria-label="เริ่ม" type="time" value={s.start_time} onChange={(e) => update(s, { start_time: e.target.value })} />
-                <span>–</span>
-                <input aria-label="สิ้นสุด" type="time" value={s.end_time} onChange={(e) => update(s, { end_time: e.target.value })} />
-                <button type="button" className="btn ghost small" aria-label={`ลบ ${s.label} วัน${name}`} onClick={() => setSlots((l) => l.filter((x) => x !== s))}>✕</button>
-              </span>
-            ))}
-            <button type="button" className="btn ghost small" onClick={() => addSlot(d)}>+ ช่วง</button>
-          </div>
-        ))}
+      <div className="set-block-head">
+        <h3>เวลาเปิดคลินิก (ช่วงนัด) <InfoTip text="ปุ่มช่วงเวลาในฟอร์มนัดมาจากตารางนี้ · วันที่ไม่มีช่วง = ปิดทั้งวัน · ช่วงเช้า (morning) เป็นค่าเริ่มต้น" /></h3>
+        <button type="button" className="btn primary small" onClick={saveHours}>บันทึกเวลาเปิด</button>
       </div>
-      <div className="row"><button type="button" className="btn primary" onClick={saveHours}>บันทึกเวลาเปิด</button></div>
-
-      <h3 style={{ marginTop: 16 }}>วันหยุดพิเศษ</h3>
-      <form className="row" onSubmit={addClosure}>
+      <div className="set-table-wrap">
+        <table className="set-table hours-grid">
+          <thead><tr><th>วัน</th><th>ช่วงเวลา (ชื่อ · เริ่ม–สิ้นสุด)</th><th aria-label="เพิ่มช่วง" /></tr></thead>
+          <tbody>
+            {DAY.map((name, d) => (
+              <tr key={d}>
+                <th scope="row">{name}</th>
+                <td>
+                  <div className="hours-slots">
+                    {ofDay(d).length === 0 && <span className="muted small">ปิดทั้งวัน</span>}
+                    {ofDay(d).map((s) => (
+                      <span key={`${d}-${s.slot_id}`} className="hours-slot">
+                        <input aria-label={`ชื่อช่วง ${name}`} value={s.label} onChange={(e) => update(s, { label: e.target.value })} />
+                        <input aria-label="เริ่ม" type="time" value={s.start_time} onChange={(e) => update(s, { start_time: e.target.value })} />
+                        <span>–</span>
+                        <input aria-label="สิ้นสุด" type="time" value={s.end_time} onChange={(e) => update(s, { end_time: e.target.value })} />
+                        <button type="button" className="icon-btn ghost-icon" aria-label={`ลบ ${s.label} วัน${name}`} onClick={() => setSlots((l) => l.filter((x) => x !== s))}>✕</button>
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td className="actions"><button type="button" className="btn ghost small" onClick={() => addSlot(d)}>+ ช่วง</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <form className="row set-closure" onSubmit={addClosure}>
+        <b className="small">วันหยุดพิเศษ</b>
         <input type="date" aria-label="วันหยุด" min={today} value={newClosure.date} onChange={(e) => setNewClosure({ ...newClosure, date: e.target.value })} style={{ width: "auto" }} />
         <input aria-label="เหตุผล" placeholder="เช่น วันหยุดสงกรานต์" value={newClosure.reason} onChange={(e) => setNewClosure({ ...newClosure, reason: e.target.value })} style={{ flex: 1, width: "auto" }} />
         <button className="btn ghost" disabled={!newClosure.date}>เพิ่มวันหยุด</button>
+        {closures.length === 0 && <span className="muted small">ยังไม่มี</span>}
       </form>
-      {closures.length === 0 && <div className="muted small">ยังไม่มีวันหยุดพิเศษ</div>}
+
       {closures.map((c) => (
         <div key={c.closed_on} className="row small">
           <span>{thaiFullDate(c.closed_on)}{c.reason ? ` — ${c.reason}` : ""}</span>

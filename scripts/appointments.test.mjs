@@ -1582,3 +1582,21 @@ test("หน้าเว็บไม่ใช้ th-TH แสดงเวลา 
     assert.doesNotMatch(src, /toLocale(Time)?String\("th-TH", \{[^}]*hour/, f);
   }
 });
+
+test("ตั้งค่า → นัดหมาย: กลุ่มหัวข้อ กริดตามความกว้างการ์ด ชิปตัวแปรแทรกได้ ปุ่มบันทึกติดล่าง ตารางกะทัดรัด", () => {
+  const src = readFileSync("src/app/(staff)/settings/appointment-settings.tsx", "utf8");
+  for (const h of ["การติดต่อ", "LINE", "ที่อยู่", "ภาษาอังกฤษ (ใบนัด EN)", "การส่งข้อความ", "ข้อความนัด (template)"]) assert.match(src, new RegExp(`<h4>${h.replace(/[()]/g, "\\$&")}</h4>`), h);
+  assert.match(src, /className="var-chip".*onClick=\{\(\) => insertVar\(v\)\}/);
+  assert.match(src, /<div className="set-save">/);
+  // ชื่อฟิลด์เดิมทั้งหมด
+  for (const f of ["reminder_time", "clinic_phone", "clinic_mobile", "line_oa_id", "clinic_address", "clinic_name_en", "clinic_address_en", "send_purpose_in_message", "send_on_create", "template_th", "template_en"]) assert.match(src, new RegExp(`s\\.${f}`), f);
+  const css = readFileSync("src/app/globals.css", "utf8");
+  assert.match(css, /container-name: apptset/);
+  assert.match(css, /@container apptset \(min-width: 1024px\) \{ \.set-grid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
+  assert.match(css, /@container apptset \(min-width: 640px\) \{ \.set-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
+  assert.match(css, /\.set-save \{ position: sticky;/);
+  assert.match(css, /\.set-table td, \.set-table tbody th \{ height: 40px;/);
+  const presets = readFileSync("src/app/(staff)/settings/appointment-presets.tsx", "utf8");
+  assert.match(presets, /<table className="set-table preset-table">/);
+  assert.match(presets, /<table className="set-table hours-grid">/);
+});
