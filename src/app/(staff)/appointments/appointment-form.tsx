@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   bangkokToday, DEFAULT_CLINIC_HOURS, DEFAULT_SLOT_ID, defaultSeriesLabel, isClosedDate, isWithinOpenHours, nextOpenDate, offsetFromDays, planFromTemplate,
-  relativeDate, slotsForDate, thaiClock, thaiMediumDate,
+  relativeDate, slotsForDate, thaiMediumDate,
   type Appointment, type ClinicSchedule, type DateUnit, type SeriesFrom, type TimeMode,
 } from "@/lib/appointment-rules";
 import type { ChannelType } from "@/lib/types";
@@ -129,26 +129,49 @@ function DateSummary({ date, schedule, counts, onMove }: { date: string; schedul
   );
 }
 
-/** ปุ่มช่วงเวลาของวันนั้น + ระบุเวลา */
-function TimeChoice({ date, schedule, counts, mode, slotId, timeStart, onChange }: {
+const hhmm = (t: string) => t.slice(0, 5);
+
+/**
+ * ปุ่มช่วงเวลาของวันนั้น (ตาม clinic_hours) + ระบุเวลา แสดงตลอด กดครั้งเดียว
+ * "ระบุเวลา" กดแล้วจึงแสดงช่องเวลาในบรรทัดเดียวกัน
+ */
+function TimeChoice({ date, schedule, counts, mode, slotId, timeStart, notice, onChange }: {
   date: string; schedule: ClinicSchedule; counts: DayCounts; mode: TimeMode; slotId: string; timeStart: string;
+  /** แจ้งว่าระบบสลับช่วงให้ เพราะวันใหม่ไม่มีช่วงเดิม */
+  notice?: string;
   onChange: (p: { time_mode?: TimeMode; slot_id?: string; time_start?: string }) => void;
 }) {
   const slots = date ? slotsForDate(date, schedule) : [];
   const dayCount = date ? counts[date] : undefined;
   return (
-    <div className="appt-chips">
-      {slots.map((s) => (
-        <button type="button" key={s.slot_id} className={`appt-chip ${mode === "slot" && slotId === s.slot_id ? "on" : ""}`}
-          onClick={() => onChange({ time_mode: "slot", slot_id: s.slot_id })}>
-          {s.label} <span className="appt-chip-hint">{thaiClock(s.start)}–{thaiClock(s.end)}</span>
-          {dayCount?.slots[s.slot_id] ? <span className="appt-chip-count">{dayCount.slots[s.slot_id]}</span> : null}
-        </button>
-      ))}
-      <button type="button" className={`appt-chip ${mode === "exact" ? "on" : ""}`} onClick={() => onChange({ time_mode: "exact" })}>ระบุเวลา</button>
-      {mode === "exact" && <input type="time" aria-label="เวลานัด" className="appt-time" value={timeStart} onChange={(e) => onChange({ time_start: e.target.value })} />}
-    </div>
+    <>
+      <div className="appt-slots" role="radiogroup" aria-label="ช่วงเวลานัด">
+        {slots.map((s) => (
+          <button type="button" role="radio" aria-checked={mode === "slot" && slotId === s.slot_id} key={s.slot_id}
+            className={`appt-slot-btn ${mode === "slot" && slotId === s.slot_id ? "on" : ""}`}
+            onClick={() => onChange({ time_mode: "slot", slot_id: s.slot_id })}>
+            <b>{s.label}</b> <span>{hhmm(s.start)}–{hhmm(s.end)}</span>
+            {dayCount?.slots[s.slot_id] ? <span className="appt-chip-count" title="นัดไว้แล้ว">{dayCount.slots[s.slot_id]}</span> : null}
+          </button>
+        ))}
+        <button type="button" role="radio" aria-checked={mode === "exact"} className={`appt-slot-btn ${mode === "exact" ? "on" : ""}`}
+          onClick={() => onChange({ time_mode: "exact" })}><b>ระบุเวลา</b></button>
+        {mode === "exact" && (
+          <input type="time" aria-label="เวลานัด" className="appt-time" autoFocus value={timeStart} onChange={(e) => onChange({ time_start: e.target.value })} />
+        )}
+      </div>
+      {notice && <div className="appt-slot-notice" role="status">{notice}</div>}
+    </>
   );
+}
+
+/** ช่วงที่เลือกไม่มีในวันนั้น → ช่วงเช้า (หรือช่วงแรกของวัน) พร้อมข้อความแจ้ง */
+function fallbackSlot(date: string, schedule: ClinicSchedule, slotId: string): { slot_id: string; notice: string } | null {
+  const slots = date ? slotsForDate(date, schedule) : [];
+  if (!slots.length || slots.some((s) => s.slot_id === slotId)) return null;
+  const next = slots.find((s) => s.slot_id === DEFAULT_SLOT_ID) ?? slots[0];
+  const old = Object.values(schedule.hours).flat().find((s) => s.slot_id === slotId)?.label ?? "ช่วงเดิม";
+  return { slot_id: next.slot_id, notice: `วันนี้ไม่มี${old} — เปลี่ยนเป็น${next.label}ให้แล้ว` };
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +234,8 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
   const [calendarMonth, setCalendarMonth] = useState(monthOf(initial.appoint_date || bangkokToday()));
   const [outsideOk, setOutsideOk] = useState(false);
   const [blocks, setBlocks] = useState<SeriesBlock[]>([]);
+  // ข้อความแจ้งตอนสลับช่วงเวลาอัตโนมัติ: "main" หรือ key ของบล็อก
+  const [slotNotice, setSlotNotice] = useState<Record<string, string>>({});
   // ชุดฉีดหลายเข็ม: วันนี้ฉีดเข็มที่ N นัดแรกคือเข็ม N+1
   const [seriesOn, setSeriesOn] = useState(false);
   const [doseToday, setDoseToday] = useState(1);
@@ -263,11 +288,27 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
   }, [form.appoint_date, dates, loadMonth]);
   useEffect(() => { if (showCalendar) loadMonth(calendarMonth); }, [showCalendar, calendarMonth, loadMonth]);
 
-  // เปลี่ยนวันแล้วช่วงเดิมไม่มีในวันนั้น: เลือกช่วงเช้า (ค่าเริ่มต้น) หรือช่วงแรกของวัน
+  // ล้างข้อความแจ้งเดิมก่อน (effect ด้านล่างอาจตั้งใหม่ในรอบเดียวกัน)
+  useEffect(() => { setSlotNotice((n) => ({ ...n, main: "" })); }, [form.appoint_date]);
+  // เปลี่ยนวันแล้วช่วงเดิมไม่มีในวันนั้น: สลับเป็นช่วงเช้าพร้อมแจ้ง
   useEffect(() => {
-    if (form.time_mode !== "slot" || !slots.length || slots.some((s) => s.slot_id === form.slot_id)) return;
-    set({ slot_id: (slots.find((s) => s.slot_id === DEFAULT_SLOT_ID) ?? slots[0]).slot_id });
-  }, [form.appoint_date, form.time_mode, slots, form.slot_id]);
+    if (form.time_mode !== "slot") return;
+    const fb = fallbackSlot(form.appoint_date, schedule, form.slot_id);
+    if (!fb) return;
+    set({ slot_id: fb.slot_id });
+    setSlotNotice((n) => ({ ...n, main: fb.notice }));
+  }, [form.appoint_date, form.time_mode, form.slot_id, schedule]);
+
+  // บล็อกในชุดนัด: กติกาเดียวกัน
+  useEffect(() => {
+    blocks.forEach((b, i) => {
+      if (b.time_mode !== "slot") return;
+      const fb = fallbackSlot(dates[i], schedule, b.slot_id);
+      if (!fb) return;
+      setBlocks((bs) => bs.map((x) => (x.key === b.key ? { ...x, slot_id: fb.slot_id } : x)));
+      setSlotNotice((n) => ({ ...n, [b.key]: fb.notice }));
+    });
+  }, [dates, schedule, blocks]);
 
   useEffect(() => { setOutsideOk(false); }, [form.appoint_date, form.time_start, form.time_mode]);
 
@@ -452,7 +493,7 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
         )}
         <DateSummary date={form.appoint_date} schedule={schedule} counts={counts} onMove={pickDate} />
         <TimeChoice date={form.appoint_date} schedule={schedule} counts={counts} mode={form.time_mode} slotId={form.slot_id} timeStart={form.time_start}
-          onChange={(p) => set(p)} />
+          notice={slotNotice.main} onChange={(p) => { setSlotNotice((n) => ({ ...n, main: "" })); set(p); }} />
         {outside && (
           <label className="appt-warn raw">
             <input type="checkbox" checked={outsideOk} onChange={(e) => setOutsideOk(e.target.checked)} />
@@ -479,11 +520,14 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
           </div>
           <DateSummary date={dates[i]} schedule={schedule} counts={counts} onMove={() => {}} />
           <TimeChoice date={dates[i]} schedule={schedule} counts={counts} mode={b.time_mode} slotId={b.slot_id} timeStart={b.time_start}
-            onChange={(p) => setBlock(b.key, p)} />
+            notice={slotNotice[b.key]} onChange={(p) => { setSlotNotice((n) => ({ ...n, [b.key]: "" })); setBlock(b.key, p); }} />
         </fieldset>
       ))}
       {creating && (
-        <button type="button" className="btn ghost small appt-add-next" onClick={() => setBlocks((bs) => [...bs, newBlock()])}>+ เพิ่มนัดถัดไป</button>
+        <button type="button" className="btn ghost small appt-add-next" onClick={() => setBlocks((bs) => {
+          const prev = bs.at(-1) ?? form;
+          return [...bs, newBlock({ time_mode: prev.time_mode, slot_id: prev.slot_id, time_start: prev.time_start })];
+        })}>+ เพิ่มนัดถัดไป</button>
       )}
 
       <div className="appt-grid">

@@ -756,3 +756,15 @@ body > .appt-slip { display: none; }
 .appt-dose-row input[type="number"] { width: 80px; }
 .appt-dose-row input[type="date"] { width: auto; }
 .appt-slip-series tr.done td, .appt-slip-series tr.done th { font-weight: 500; }
+
+/* ปุ่มช่วงเวลา: ใหญ่ กดครั้งเดียว แสดงตลอด */
+.appt-slots { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.appt-slot-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 16px; border: 1.5px solid var(--line); border-radius: 10px; background: #fff; font-size: 15px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.appt-slot-btn span { color: var(--muted); font-size: 14px; }
+.appt-slot-btn:hover { border-color: var(--blue); }
+.appt-slot-btn.on { border-color: var(--blue); background: var(--blue); color: #fff; }
+.appt-slot-btn.on span { color: #e6ebff; }
+.appt-slot-btn.on .appt-chip-count { background: #fff; color: var(--blue); }
+.appt-slots .appt-time { width: auto; min-height: 48px; font-size: 15px; }
+.appt-slot-notice { font-size: 13px; color: #8a4b00; background: #fff4e0; border-radius: 8px; padding: 6px 10px; align-self: flex-start; }
+@media (max-width: 640px) { .appt-slot-btn { flex: 1 1 calc(50% - 8px); justify-content: center; } }
