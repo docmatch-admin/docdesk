@@ -13,7 +13,8 @@ const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:\-]{0,79}$/;
 async function timed<T>(fn: () => Promise<T>) {
   const t = performance.now();
   try {
-    return { ok: true as const, ms: Math.round(performance.now() - t), value: await fn() };
+    const value = await fn();
+    return { ok: true as const, ms: Math.round(performance.now() - t), value };
   } catch (e) {
     const err = e as { status?: number };
     return { ok: false as const, ms: Math.round(performance.now() - t), status: err?.status ?? null, error: aiErrorSummary(e, 400) };
