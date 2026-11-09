@@ -1,7 +1,7 @@
 // ไคลเอนต์ iService (HIS) ใช้ใน Edge Function เท่านั้น รหัสผ่านอยู่ใน Supabase secrets ไม่ถึงเบราว์เซอร์
 // secrets: ISERVICE_USERNAME, ISERVICE_PASSWORD, ISERVICE_CIS_CODE
 //
-// หมายเหตุ: รูปแบบคำตอบของ ovst_list และ patient_list ยังไม่ได้ยืนยันกับระบบจริง
+// ovst_list ยืนยันกับระบบจริงแล้ว ค้นคนไข้รายคนใช้ list_patient (HN 9 หลัก หรือเบอร์) ค้นด้วยชื่อไม่ได้
 // จึงอ่านแบบยืดหยุ่น (หา array แรกในคำตอบ และลองชื่อ field หลายแบบ) ตรวจกับข้อมูลจริงก่อนใช้งาน
 
 const BASE = "https://iservice.ehp.co.th";
@@ -119,39 +119,6 @@ export async function diagnose(date: string, q = "") {
       vnTimes: rows.map((r) => timeFromVn(String(r.vn ?? ""), String(r.vstdate ?? "").slice(0, 10))).filter(Boolean).slice(0, 5),
       message: j2 && typeof j2 === "object" && typeof (j2 as Record<string, unknown>).message === "string" ? ((j2 as Record<string, unknown>).message as string).slice(0, 200) : undefined,
     };
-    // patient_list: ลองชื่อพารามิเตอร์หลายแบบ รายงานแค่สถานะ จำนวน และโครงสร้าง
-    if (q) {
-      // GET แบบมี page/limit และ POST แบบ JSON body
-      const variants: Record<string, { method: "GET" | "POST"; params: Record<string, string> }> = {
-        get_page: { method: "GET", params: { page: "1", limit: "20" } },
-        get_page_search: { method: "GET", params: { page: "1", limit: "20", search: q } },
-        get_page_hn: { method: "GET", params: { page: "1", limit: "20", hn: q } },
-        get_offset: { method: "GET", params: { offset: "0", limit: "20", search: q } },
-        get_perpage: { method: "GET", params: { page: "1", per_page: "20", search: q } },
-        post_search: { method: "POST", params: { search: q } },
-        post_hn: { method: "POST", params: { hn: q } },
-        post_page_search: { method: "POST", params: { page: "1", limit: "20", search: q } },
-      };
-      const results: Record<string, unknown> = {};
-      for (const [k, { method, params }] of Object.entries(variants)) {
-        const all = { cis_code: cisCode(), ...params };
-        const qs3 = new URLSearchParams(all).toString();
-        const r3 = method === "GET"
-          ? await fetch(`${BASE}/api/patient/v1/patient_list?${qs3}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: AbortSignal.timeout(20_000) })
-          : await fetch(`${BASE}/api/patient/v1/patient_list`, { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(all), signal: AbortSignal.timeout(20_000) });
-        const t3 = await r3.text();
-        let j3: unknown = null;
-        try { j3 = JSON.parse(t3); } catch { /* ไม่ใช่ JSON */ }
-        const rows3 = rowsOf(j3);
-        results[k] = {
-          status: r3.status, rows: rows3.length,
-          matches: rows3.filter((r) => String(r.hn ?? r.HN ?? "").replace(/^0+/, "") === q.replace(/^0+/, "")).length,
-          message: j3 && typeof j3 === "object" && typeof (j3 as Record<string, unknown>).message === "string" ? ((j3 as Record<string, unknown>).message as string).slice(0, 160) : t3.slice(0, 80).replace(/[0-9]{6,}/g, "#"),
-          ...(rows3.length ? { shape: shapeOf(j3), rowKeys: Object.keys(rows3[0]) } : {}),
-        };
-      }
-      out.patient_list = results;
-    }
   } catch (e) {
     out.error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
   }
@@ -201,14 +168,6 @@ export function toVisit(r: Record<string, unknown>): Visit {
   };
 }
 
-export function toPatient(r: Record<string, unknown>): Patient {
-  return {
-    hn: pick(r, ["hn"]),
-    name: pick(r, ["NAMESS", "pt_name", "patient", "patient_name", "fullname", "full_name", "name"]),
-    phone: pick(r, ["mobile_phone_number", "phone", "mobile", "tel"]),
-  };
-}
-
 export const bangkokToday = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
@@ -226,29 +185,40 @@ export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 
 const digits = (s: string) => s.replace(/\D/g, "");
-/** เบอร์มือถือ/บ้านไทย 9–10 หลักขึ้นต้นด้วย 0 */
-const isPhone = (s: string) => /^0\d{8,9}$/.test(digits(s)) && digits(s).length === s.replace(/[\s-]/g, "").length;
+
+/** HN ของ iService เป็นตัวเลข 9 หลักเติม 0 ข้างหน้า (4714 → 000004714) */
+export const padHn = (hn: string) => digits(hn).padStart(9, "0");
 
 /**
- * ค้นด้วย HN (ตัวเลข) ชื่อ หรือเบอร์ ส่งพารามิเตอร์หลายชื่อเผื่อ API ใช้ชื่อต่างกัน แล้วกรองซ้ำฝั่งนี้
- * HN ค้นได้ทั้งแบบเต็มและแบบตัด 0 นำหน้า
+ * ค้นคนไข้รายคน: GET /api/report/v1/list_patient?hn=&cid=&phone=&cis_code=
+ * ใส่ hn หรือ phone อย่างใดอย่างหนึ่ง ค้นด้วยชื่อไม่ได้ ไม่เก็บและไม่ส่ง cid ออกไป
  */
-export async function searchPatients(q: string): Promise<Patient[]> {
-  const term = q.trim();
-  const phone = isPhone(term) ? digits(term) : "";
-  const params: Record<string, string> = {
-    search: phone || term, keyword: phone || term,
-    ...(phone ? { phone, mobile_phone_number: phone } : /^\d+$/.test(term) ? { hn: term } : { name: term }),
-  };
-  const json = await iserviceGet("/api/patient/v1/patient_list", params);
-  const needle = term.toLowerCase();
-  const hnNeedle = term.replace(/^0+(?=\d)/, "");
-  return rowsOf(json).map(toPatient)
-    .filter((p) => p.hn && (
-      phone ? digits(p.phone).includes(phone)
-        : p.hn.includes(term) || p.hn.replace(/^0+(?=\d)/, "") === hnNeedle || p.name.toLowerCase().includes(needle)
-    ))
-    .slice(0, 50);
+export async function listPatient(by: { hn?: string; phone?: string }): Promise<Patient[]> {
+  const json = await iserviceGet("/api/report/v1/list_patient", {
+    hn: by.hn ? padHn(by.hn) : "", cid: "", phone: by.phone ? digits(by.phone) : "",
+  }) as { data?: { patient?: Record<string, unknown>[] } };
+  const rows = Array.isArray(json?.data?.patient) ? json.data!.patient! : rowsOf(json);
+  return rows.map((r) => ({ hn: pick(r, ["hn"]), name: pick(r, ["name", "pt_name", "NAMESS"]), phone: pick(r, ["phone", "mobile_phone_number"]) }))
+    .filter((p) => p.hn);
+}
+
+export type SearchKind = "hn" | "phone" | "hn_or_phone" | "name";
+
+/**
+ * แยกสิ่งที่พิมพ์ในช่องค้นหา
+ * ตัวเลขล้วน ≤ 9 หลัก = HN, 9–10 หลักขึ้นต้น 0 หรือมีขีด = เบอร์, 9 หลักขึ้นต้น 0 = ลองทั้งสอง, มีตัวอักษร = ชื่อ
+ */
+export function classifySearch(q: string): { kind: SearchKind; value: string } | null {
+  const t = q.trim();
+  if (!t) return null;
+  if (/[^\d\s-]/.test(t)) return { kind: "name", value: t };
+  const d = digits(t);
+  if (!d) return null;
+  const dashed = /[\s-]/.test(t);
+  if (dashed || (d.length === 10 && d.startsWith("0"))) return d.length >= 9 && d.startsWith("0") ? { kind: "phone", value: d } : null;
+  if (d.length === 9 && d.startsWith("0")) return { kind: "hn_or_phone", value: d };
+  if (d.length <= 9) return { kind: "hn", value: d };
+  return null;
 }
 
 /** ชื่อสำหรับเทียบ: ตัดคำนำหน้า ช่องว่าง และวรรณยุกต์ที่พิมพ์ต่างกันไม่ได้ (คงตัวอักษรไว้) */

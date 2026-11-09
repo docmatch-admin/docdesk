@@ -3,7 +3,7 @@
 // ดึง ovst_list ไม่ได้ (iService ล่ม) → ห้ามตัดสิน no_show ลองใหม่รอบถัดไปจนสำเร็จ (ย้อนหลังสูงสุด 7 วัน)
 // deploy: supabase functions deploy mark-attendance --no-verify-jwt (ตรวจ x-cron-secret กับ Vault ผ่าน verify_cron_secret)
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
-import { bangkokToday, normalizeName, samePhone, searchPatients, visitsOn, type Visit } from "../_shared/iservice.ts";
+import { bangkokToday, listPatient, normalizeName, samePhone, visitsOn, type Visit } from "../_shared/iservice.ts";
 import { saveVisits } from "../_shared/his-cache.ts";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -25,14 +25,14 @@ async function decideDate(db: SupabaseClient, date: string, due: Due[], visits: 
   const knownHns = new Set(due.map((a) => a.hn?.trim()).filter(Boolean));
   for (const a of due) {
     if (!a.hn?.trim()) {
-      // คนไข้ใหม่ที่นัดจากแชท: visit วันนัดที่ชื่อตรง (และเช็กเบอร์จาก patient_list ถ้ามี) → เสนอให้แอดมินยืนยัน
+      // คนไข้ใหม่ที่นัดจากแชท: visit วันนัดที่ชื่อตรง (และเช็กเบอร์จาก list_patient ถ้ามี) → เสนอให้แอดมินยืนยัน
       const target = normalizeName(a.patient_name);
       const candidates = target.length >= 4 ? visits.filter((v) => !knownHns.has(v.hn.trim()) && normalizeName(v.name) === target) : [];
       if (candidates.length) {
         for (const v of candidates.slice(0, 3)) {
           let matchedBy = "name";
           if (a.phone) {
-            const p = await searchPatients(v.hn).then((list) => list.find((x) => x.hn === v.hn)).catch(() => undefined);
+            const p = await listPatient({ hn: v.hn }).then((list) => list[0]).catch(() => undefined);
             if (p?.phone && samePhone(p.phone, a.phone)) matchedBy = "name_phone";
           }
           const { error: insErr } = await db.from("appointment_hn_matches")

@@ -77,6 +77,7 @@ export async function linkConversationToHn(conversationId: string, rawHn: string
     await db.from("contacts").update({ patient_full_name: name, name_source: "his" }).eq("hn", hn);
   }
   await logLink({ conversation_id: conversationId, contact_id: contact.id, hn, action: "link", via: opts.via, name_source: source, staff_id: opts.staffId });
+  await upsertPatient({ hn, full_name: name, phone: opts.phone ?? (his.status === "found" ? his.phone : null) });
   return { hn, name, nameSource: source };
 }
 
@@ -103,4 +104,27 @@ export async function unlinkConversation(conversationId: string, staffId: string
   }
   await logLink({ conversation_id: conversationId, contact_id: contact.id, hn, action: "unlink", via: "staff", name_source: null, staff_id: staffId });
   return { hn };
+}
+
+/** HN ของ iService: ตัวเลขเติม 0 ให้ครบ 9 หลัก ไม่ใช่ตัวเลข (เช่น HN ทดสอบ) คืน null */
+export const normalizeHn = (hn: string | null | undefined) => {
+  const t = (hn ?? "").trim();
+  return /^\d{1,9}$/.test(t) ? t.padStart(9, "0") : null;
+};
+
+/**
+ * ตาราง patients ของ DocDesk: บันทึกเมื่อลงนัดหรือผูกแชทกับ HN เท่านั้น (ไม่ sync ทะเบียนทั้งหมด)
+ * ใช้ค้นด้วยชื่อ และเป็นเบอร์สำรองตอน iService ล่ม ไม่เก็บเลขบัตรประชาชน
+ */
+export async function upsertPatient(p: { hn: string | null | undefined; full_name?: string | null; phone?: string | null }) {
+  const hn = normalizeHn(p.hn);
+  if (!hn) return;
+  const phone = (p.phone ?? "").replace(/\D/g, "") || null;
+  const now = new Date().toISOString();
+  const { error } = await supabaseAdmin().from("patients").upsert({
+    hn, updated_at: now,
+    ...(p.full_name?.trim() ? { full_name: p.full_name.trim() } : {}),
+    ...(phone ? { phone, phone_fetched_at: now } : {}),
+  }, { onConflict: "hn" });
+  if (error) console.error("patients upsert failed", error.code);
 }

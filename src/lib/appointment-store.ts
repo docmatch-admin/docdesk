@@ -10,7 +10,7 @@ import { lineSendMessages } from "./channels/line";
 import { metaSendMessage } from "./channels/meta";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
 import { SENSITIVE_TAG } from "./sensitive-rules";
-import { linkConversationToHn } from "./patient-link-store";
+import { linkConversationToHn, upsertPatient } from "./patient-link-store";
 import { contactName, type ContactNameFields } from "./patient-name";
 import { supabaseAdmin } from "./supabase/admin";
 import type { ChannelType } from "./types";
@@ -439,6 +439,7 @@ export async function createAppointment(b: AppointmentInput, staffId: string, op
     if (conv) await db.rpc("set_conversation_tag", { p_conversation: conv, p_tag: "นัดแล้ว", p_action: "add", p_by: "staff" });
   }
 
+  await upsertPatient({ hn: fields.hn, full_name: fields.patient_name, phone: fields.phone });
   // ชุดนัด: การ์ดเดียวแสดงทุกนัด ปุ่มยืนยันเป็นของนัดแรก
   const delivery = seriesId
     ? await deliverAppointment(appointment, "new", { actor: "staff", staffId, now, series: seriesView(await loadSeries(seriesId)), alsoMark: followerIds })
@@ -474,6 +475,7 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
   if (moved) Object.assign(patch, { status: "scheduled", reminder_sent_at: null, reminder_attempted_at: null, called_at: null, called_by: null });
   const { error } = await supabaseAdmin().from("appointments").update(patch).eq("id", id);
   if (error) throw error;
+  if (fields.hn) await upsertPatient({ hn: fields.hn, full_name: fields.patient_name, phone: fields.phone });
   await logAppointmentEvent(id, moved ? "rescheduled" : "edited", "staff", {
     staffId, detail: moved ? { from: `${current.appoint_date} ${timeShort(current)}`, to: `${fields.appoint_date} ${timeShort(fields)}` } : {},
   });

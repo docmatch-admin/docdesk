@@ -2,12 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { thaiShortDate } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Icon } from "../icons";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type AppointmentDraft } from "./appointment-form";
 
 interface Visit { hn: string; name: string; doctor: string; time: string; phone: string; seq?: number }
-interface Patient { hn: string; name: string; phone: string }
+interface Patient { hn: string; name: string; phone: string; lineLinked?: boolean; lastAppointment?: string | null }
+
+/** 0812345678 → 081-XXX-5678 (ปิดกลางในรายการ ค่าเต็มใช้เติมฟอร์ม) */
+export const maskPhone = (p: string) => {
+  const d = p.replace(/\D/g, "");
+  if (d.length === 10) return `${d.slice(0, 3)}-XXX-${d.slice(6)}`;
+  if (d.length === 9) return `${d.slice(0, 2)}-XXX-${d.slice(5)}`;
+  return d ? "XXX" : "";
+};
 /** หน้านัดหมายทำนัดได้เฉพาะคนไข้ที่มี HN คนไข้ใหม่ทำนัดจากแชท */
 type Source = "today" | "search";
 
@@ -75,9 +84,24 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
       .then((j) => j && setBooked(new Set((j.hns as string[]).map((h) => h.trim())))).catch(() => {});
   }, []);
 
+  // ค้นอัตโนมัติหลังหยุดพิมพ์ 300ms
+  useEffect(() => {
+    if (source !== "search") return;
+    const t = setTimeout(() => { void runSearch(); }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, source]);
+
+  const isNameQuery = /[^\d\s-]/.test(query.trim());
+
   async function search(e: React.FormEvent) {
     e.preventDefault();
-    if (query.trim().length < 2) return;
+    await runSearch();
+  }
+
+  async function runSearch() {
+    const q = query.trim();
+    if (!q || (isNameQuery && q.length < 2)) { setPatients(null); return; }
     setErr("");
     setLoading(true);
     const d = await call<{ patients: Patient[]; cached?: boolean; cachedAt?: string | null }>({ action: "patients", q: query.trim() });
@@ -86,16 +110,23 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
     setLoading(false);
   }
 
-  /** เติมเบอร์จาก patient_list ถ้า visit ไม่มีเบอร์ ผู้นัดเริ่มต้น = หมอที่ตรวจ visit นั้น */
+  /** เลือกแล้วเรียก list_patient ด้วย HN ทันที เติมชื่อ+เบอร์ (แก้ได้) ผู้นัดเริ่มต้น = หมอที่ตรวจ visit นั้น */
   async function pick(p: { hn: string; name: string; phone?: string; doctor?: string }) {
     let phone = p.phone ?? "";
     setHisName(p.name);
     setSelectedHn(p.hn);
     setDraft({ ...EMPTY_DRAFT, hn: p.hn, patient_name: p.name, phone, provider: tidy(p.doctor ?? "") });
-    if (!phone && p.hn) {
+    if (p.hn) {
       const d = await call<{ patient: Patient | null }>({ action: "patient", hn: p.hn });
-      phone = d?.patient?.phone ?? "";
-      if (phone) setDraft((cur) => (cur && cur.hn === p.hn && !cur.phone ? { ...cur, phone } : cur));
+      const his = d?.patient;
+      phone = phone || his?.phone || "";
+      if (his) setHisName(his.name || p.name);
+      // ไม่ทับค่าที่พยาบาลแก้ไปแล้วระหว่างรอ
+      setDraft((cur) => (cur && cur.hn === p.hn ? {
+        ...cur,
+        phone: cur.phone || phone,
+        patient_name: cur.patient_name === p.name && his?.name ? his.name : cur.patient_name,
+      } : cur));
     }
   }
 
@@ -152,8 +183,8 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
         {source === "search" && (
           <form className="search-box with-button" onSubmit={search}>
             <Icon name="search" size={16} />
-            <input autoFocus type="search" aria-label="ค้นหาคนไข้เก่า" placeholder="HN / ชื่อ / เบอร์โทร แล้วกด Enter" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <button className="btn primary small" disabled={loading || query.trim().length < 2}>ค้นหา</button>
+            <input autoFocus type="search" aria-label="ค้นหาคนไข้เก่า" placeholder="HN, เบอร์โทร หรือชื่อ (คนไข้ที่เคยนัด)" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <button className="btn primary small" disabled={loading || !query.trim()}>ค้นหา</button>
           </form>
         )}
       </div>
@@ -195,20 +226,24 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
       {source === "search" && (
         <>
           {loading && <div className="appt-pick-meta">กำลังค้นหา…</div>}
-          {patients && !patients.length && !loading && <div className="appt-empty small">ไม่พบใน iService — ถ้าเป็นคนไข้ใหม่ ให้ทำนัดจากแชทของคนไข้</div>}
+          {isNameQuery && <div className="appt-pick-meta">ค้นด้วยชื่อได้เฉพาะคนไข้ที่เคยนัด — ค้นจาก iService ใช้ HN หรือเบอร์</div>}
+          {patients && !patients.length && !loading && (
+            <div className="appt-empty small">{isNameQuery ? "ไม่พบคนไข้ที่เคยนัดชื่อนี้ — ลองค้นด้วย HN หรือเบอร์" : "ไม่พบใน iService — ถ้าเป็นคนไข้ใหม่ ให้ทำนัดจากแชทของคนไข้"}</div>
+          )}
           {!!patients?.length && (
             <div className="appt-pick-list" role="list">
               {patients.map((p) => (
                 <button type="button" role="listitem" key={p.hn} className={`appt-pick ${selectedHn === p.hn ? "selected" : ""}`} onClick={() => pick(p)}>
-                  <span className="appt-pick-time">HN</span>
+                  <span className="appt-pick-time">{p.lineLinked ? <span className="chip tiny ch-line" title="ผูกแชท LINE แล้ว">LINE ✓</span> : null}</span>
                   <span className="appt-pick-main">
-                    <span className="appt-pick-name">{p.name}</span>
-                    <span className="appt-pick-hn">HN {shortHn(p.hn)}</span>
+                    <span className="appt-pick-name">{p.name || "ไม่มีชื่อ"}</span>
+                    <span className="appt-pick-hn">HN {shortHn(p.hn)}{p.phone ? ` · ${maskPhone(p.phone)}` : ""}</span>
                   </span>
                   <span className="appt-pick-side">
-                    <span className="appt-pick-doctor">{p.phone}</span>
+                    {p.lastAppointment && <span className="appt-pick-doctor">นัดล่าสุด {thaiShortDate(p.lastAppointment)}</span>}
                     {booked.has(p.hn.trim()) && <span className="chip tiny appt-booked">มีนัดแล้ว</span>}
                   </span>
+                  <span className="appt-pick-sub" aria-hidden="true">HN {shortHn(p.hn)}{p.phone ? ` · ${maskPhone(p.phone)}` : ""}{p.lineLinked ? " · LINE ✓" : ""}</span>
                 </button>
               ))}
             </div>

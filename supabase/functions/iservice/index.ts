@@ -2,8 +2,37 @@
 // เรียกด้วย session ของเจ้าหน้าที่ (supabase.functions.invoke) ตรวจสิทธิ์ด้วย is_appointment_staff()
 // deploy: supabase functions deploy iservice --no-verify-jwt (ตรวจสิทธิ์เอง: session เจ้าหน้าที่ผ่าน is_appointment_staff() หรือ service role ของ server)
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { bangkokToday, diagnose, searchPatients, visitsOn, withTimeout } from "../_shared/iservice.ts";
-import { cachedPatients, cachedVisits, pruneVisits, savePatients, saveVisits } from "../_shared/his-cache.ts";
+import { bangkokToday, classifySearch, diagnose, listPatient, padHn, visitsOn, withTimeout, type Patient } from "../_shared/iservice.ts";
+import { cachedVisits, pruneVisits, saveVisits } from "../_shared/his-cache.ts";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+
+/** คนไข้ในตาราง patients ของ DocDesk (สร้างตอนบันทึกนัด/ผูกแชท) ใช้ค้นชื่อ และสำรองตอน iService ล่ม */
+const TITLES = /^(นาย|นางสาว|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.|เด็กชาย|เด็กหญิง|mr\.?|mrs\.?|ms\.?|miss)\s*/i;
+async function docdeskPatients(admin: SupabaseClient, by: { name?: string; hn?: string; phone?: string }): Promise<Patient[]> {
+  let q = admin.from("patients").select("hn, full_name, phone").limit(30);
+  if (by.name) {
+    const term = by.name.trim().replace(TITLES, "").replace(/[%,()]/g, " ").trim();
+    if (term.length < 2) return [];
+    q = q.ilike("full_name", `%${term}%`);
+  } else if (by.hn) q = q.eq("hn", padHn(by.hn));
+  else if (by.phone) q = q.eq("phone", by.phone.replace(/\D/g, ""));
+  const { data } = await q;
+  return ((data ?? []) as { hn: string; full_name: string | null; phone: string | null }[]).map((r) => ({ hn: r.hn, name: r.full_name ?? "", phone: r.phone ?? "" }));
+}
+
+/** ผลค้น: ป้าย LINE ✓ ถ้าผูกแชท LINE (ยังติดตาม) และนัดล่าสุด */
+async function enrich(admin: SupabaseClient, list: Patient[]) {
+  const hns = [...new Set(list.map((p) => p.hn))];
+  if (!hns.length) return [];
+  const [{ data: line }, { data: appts }] = await Promise.all([
+    admin.from("contacts").select("hn, line_unfollowed_at, channels!inner(type)").in("hn", hns).eq("channels.type", "line"),
+    admin.from("appointments").select("hn, appoint_date, status").in("hn", hns).neq("series_done", true).neq("status", "cancelled").order("appoint_date", { ascending: false }),
+  ]);
+  const linked = new Set(((line ?? []) as { hn: string; line_unfollowed_at: string | null }[]).filter((c) => !c.line_unfollowed_at).map((c) => c.hn));
+  const last = new Map<string, string>();
+  for (const a of (appts ?? []) as { hn: string; appoint_date: string }[]) if (!last.has(a.hn)) last.set(a.hn, a.appoint_date);
+  return list.map((p) => ({ ...p, lineLinked: linked.has(p.hn), lastAppointment: last.get(p.hn) ?? null }));
+}
 
 /** iService ตอบช้ากว่านี้ถือว่าล่ม ใช้ cache */
 const LIVE_TIMEOUT_MS = 8_000;
@@ -115,30 +144,35 @@ Deno.serve(async (req) => {
         return json({ visits: sortVisits(cached.visits), cached: true, cachedAt: cached.at });
       }
     }
+    // ค้นหา: HN/เบอร์ → list_patient ของ iService, ชื่อ → patients ของ DocDesk (iService ค้นชื่อไม่ได้)
     if (b.action === "patients") {
-      const q = (b.q ?? "").trim().slice(0, 60);
-      if (q.length < 2) return json({ patients: [] });
+      const c = classifySearch(b.q ?? "");
+      if (!c) return json({ patients: [], kind: null });
+      if (c.kind === "name") {
+        return json({ patients: await enrich(admin, await docdeskPatients(admin, { name: c.value })), kind: c.kind, source: "docdesk" });
+      }
+      const queries = c.kind === "hn" ? [{ hn: c.value }] : c.kind === "phone" ? [{ phone: c.value }] : [{ hn: c.value }, { phone: c.value }];
       try {
-        const patients = await live(() => searchPatients(q));
-        await savePatients(admin, patients);
-        return json({ patients });
+        const found = (await live(() => Promise.all(queries.map((q) => listPatient(q))))).flat();
+        const unique = [...new Map(found.map((p) => [p.hn, p])).values()];
+        return json({ patients: await enrich(admin, unique), kind: c.kind, source: "iservice" });
       } catch (e) {
-        console.error("iservice search failed, using cache", e instanceof Error ? e.message : e);
-        const cached = await cachedPatients(admin, q);
-        return json({ patients: cached.patients, cached: true, cachedAt: cached.at });
+        console.error("list_patient failed, using DocDesk patients", e instanceof Error ? e.message : e);
+        const local = (await Promise.all(queries.map((q) => docdeskPatients(admin, q)))).flat();
+        return json({ patients: await enrich(admin, [...new Map(local.map((p) => [p.hn, p])).values()]), kind: c.kind, source: "docdesk", cached: true, cachedAt: null });
       }
     }
+    // เลือกคนไข้แล้ว: ชื่อ + เบอร์จาก list_patient ถ้าล่มใช้เบอร์ใน patients ของ DocDesk
     if (b.action === "patient") {
       const hn = (b.hn ?? "").trim().slice(0, 30);
       if (!hn) return json({ patient: null });
       try {
-        const found = (await live(() => searchPatients(hn))).find((p) => p.hn === hn) ?? null;
-        if (found) await savePatients(admin, [found]);
+        const found = (await live(() => listPatient({ hn }))).find((p) => padHn(p.hn) === padHn(hn)) ?? null;
         return json({ patient: found });
       } catch (e) {
-        console.error("iservice patient failed, using cache", e instanceof Error ? e.message : e);
-        const { data } = await admin.from("his_patient_cache").select("hn, full_name, phone, fetched_at").eq("hn", hn).maybeSingle();
-        return json({ patient: data ? { hn: data.hn, name: data.full_name ?? "", phone: data.phone ?? "" } : null, cached: true, cachedAt: data?.fetched_at ?? null });
+        console.error("list_patient failed, using DocDesk patients", e instanceof Error ? e.message : e);
+        const [local] = await docdeskPatients(admin, { hn });
+        return json({ patient: local ?? null, cached: true, cachedAt: null });
       }
     }
     return json({ error: "unknown action" }, 400);
