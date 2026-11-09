@@ -6,7 +6,7 @@ import { fake } from "./fakes/hooks.mjs";
 process.env.OPENAI_API_KEY = "sk-test";
 const { calls } = await import(fake("ai"));
 const { resetDb, state } = await import(fake("admin"));
-const { chatParams, effortFor, isReasoningModel, unsupportedParam } = await import("../src/lib/ai-params.ts");
+const { adjustForUnsupported, aiErrorSummary, chatParams, effortFor, isReasoningModel, parseJsonReply, unsupportedParam } = await import("../src/lib/ai-params.ts");
 // import ตรงจาก scripts/ จึงได้ ai.ts ตัวจริง (ไม่ผ่าน fake) เพื่อทดสอบการลองใหม่
 const real = await import("../src/lib/ai.ts");
 const { storeIncoming } = await import("../src/lib/pipeline.ts");
@@ -15,8 +15,8 @@ const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
 
 test("แยกโมเดล reasoning", () => {
-  for (const m of ["gpt-5", "gpt-5-mini", "gpt-5.1", "o1-mini", "o3", "o4-mini"]) assert.equal(isReasoningModel(m), true, m);
-  for (const m of ["gpt-4o-mini", "gpt-4.1", "gpt-4.1-nano"]) assert.equal(isReasoningModel(m), false, m);
+  for (const m of ["gpt-5", "gpt-5-mini", "gpt-5.1", "o1-mini", "o3", "o4-mini", "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-7"]) assert.equal(isReasoningModel(m), true, m);
+  for (const m of ["gpt-4o-mini", "gpt-4.1", "gpt-4.1-nano", "gpt-4o", "gpt-3.5-turbo"]) assert.equal(isReasoningModel(m), false, m);
 });
 
 test("โมเดล reasoning: ไม่ส่ง temperature ใช้ max_completion_tokens และ reasoning_effort ตามงาน", () => {
@@ -83,4 +83,44 @@ test("AI แปลไม่ได้: ข้อความลูกค้าย
   assert.equal(msg.body_th, null);
   assert.ok(state.tables.system_errors.some((e) => e.source === "ai:translate"));
   assert.ok(!state.tables.system_errors.some((e) => e.source.startsWith("webhook")));
+});
+
+test("gpt-6: ส่ง max_completion_tokens ไม่ส่ง temperature/max_tokens ตั้งแต่แรก", () => {
+  const p = chatParams({ model: "gpt-6-luna", task: "translate", temperature: 0 });
+  assert.equal("temperature" in p, false);
+  assert.equal("max_tokens" in p, false);
+  assert.ok(p.max_completion_tokens > 0);
+});
+
+test("ปรับพารามิเตอร์ทีละตัวตาม error จริงของ OpenAI (โมเดลที่ระบบไม่รู้จัก)", () => {
+  let p = chatParams({ model: "custom-model", task: "translate", temperature: 0 });
+  assert.deepEqual(Object.keys(p).sort(), ["max_tokens", "model", "temperature"]);
+  p = adjustForUnsupported(p, "max_tokens", "translate");
+  assert.equal("max_tokens" in p, false);
+  assert.equal(p.max_completion_tokens, 1200 + 2000);
+  p = adjustForUnsupported(p, "temperature", "translate");
+  assert.equal("temperature" in p, false);
+  assert.deepEqual(Object.keys(p).sort(), ["max_completion_tokens", "model"]);
+  let r = { model: "x", reasoning_effort: "minimal" };
+  r = adjustForUnsupported(r, "reasoning_effort", "translate");
+  assert.equal(r.reasoning_effort, "low");
+  r = adjustForUnsupported(r, "reasoning_effort", "translate");
+  assert.equal("reasoning_effort" in r, false);
+  assert.equal(adjustForUnsupported({ model: "x" }, "model", "draft"), null);
+  assert.equal(adjustForUnsupported({ model: "x" }, "messages", "draft"), null);
+});
+
+test("error ของ OpenAI แบบสั้นมี status และข้อความจริง", () => {
+  assert.equal(aiErrorSummary({ status: 400, message: "400 Unsupported parameter: 'max_tokens' is not supported with this model." }), "OpenAI 400: Unsupported parameter: 'max_tokens' is not supported with this model.");
+  assert.match(aiErrorSummary({ status: 404, error: { message: "The model `gpt-6-x` does not exist or you do not have access to it." } }), /^OpenAI 404: The model/);
+  assert.match(aiErrorSummary({ name: "APIConnectionTimeoutError", message: "Request timed out." }), /^OpenAI timeout:/);
+  assert.ok(aiErrorSummary({ status: 400, message: "x".repeat(500) }).length <= 180);
+});
+
+test("อ่านคำตอบ JSON: JSON ล้วน / ห่อ ```json / มีข้อความนำ / ไม่ใช่ JSON", () => {
+  assert.deepEqual(parseJsonReply('{"text":"Fast 8–12 hrs"}'), { text: "Fast 8–12 hrs" });
+  assert.deepEqual(parseJsonReply('```json\n{"items":{"1":"Blood test"}}\n```'), { items: { 1: "Blood test" } });
+  assert.deepEqual(parseJsonReply('Here you go: {"text":"ok"}'), { text: "ok" });
+  assert.deepEqual(parseJsonReply(""), {});
+  assert.throws(() => parseJsonReply("Fasting 8-12 hours"), /ไม่เป็น JSON/);
 });

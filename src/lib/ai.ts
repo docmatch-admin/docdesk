@@ -1,6 +1,6 @@
 import { after } from "next/server";
 import OpenAI from "openai";
-import { chatParams, unsupportedParam, type AiTask } from "./ai-params";
+import { adjustForUnsupported, chatParams, parseJsonReply, unsupportedParam, type AiTask } from "./ai-params";
 import { modelFor } from "./ai-models";
 import { recordLlmUsage } from "./llm-usage";
 import { supabaseAdmin } from "./supabase/admin";
@@ -56,13 +56,18 @@ export interface CallModelInput {
 /**
  * เรียก LLM ทุกงานผ่านที่นี่ ให้ตอบเป็น JSON
  * โมเดล reasoning ไม่ส่ง temperature และใช้ reasoning_effort ตามงาน
- * ถ้า OpenAI ไม่รับพารามิเตอร์ใด log ชื่อพารามิเตอร์กับโมเดลให้ชัด แล้วลองใหม่หนึ่งครั้งโดยตัดพารามิเตอร์นั้น
+ * ถ้า OpenAI ไม่รับพารามิเตอร์ใด log ชื่อพารามิเตอร์กับโมเดลให้ชัด แล้วปรับทีละตัวแล้วลองใหม่ (สูงสุด 4 ครั้ง)
+ * และจำไว้ต่อโมเดล ครั้งต่อไปส่งพารามิเตอร์ที่รับได้ตั้งแต่แรก ไม่ต้องล้มก่อน
  */
+const learned = new Map<string, string[]>();
+const MAX_ATTEMPTS = 4;
+
 export async function callModel<T>(input: CallModelInput): Promise<T> {
   // งานแปลใช้โมเดลแปล (ว่าง = โมเดลหลัก) งานอื่นใช้โมเดลหลัก
   const model = input.model ?? await modelFor(input.task === "translate" ? "translate" : "draft");
   let params = chatParams({ model, task: input.task, temperature: input.temperature });
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (const p of learned.get(model) ?? []) params = adjustForUnsupported(params, p, input.task) ?? params;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       const res = await openai().chat.completions.create({
         ...params,
@@ -73,23 +78,19 @@ export async function callModel<T>(input: CallModelInput): Promise<T> {
         ],
       } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
       logUsage("chat", model, res.usage?.prompt_tokens ?? 0, res.usage?.completion_tokens ?? 0);
-      const raw = res.choices[0]?.message?.content ?? "{}";
-      return JSON.parse(raw || "{}") as T;
+      const choice = res.choices[0];
+      const raw = choice?.message?.content ?? "";
+      // โมเดล reasoning ใช้ token หมดกับการคิดจนไม่มีคำตอบ
+      if (!raw.trim() && choice?.finish_reason === "length") throw new Error(`AI ใช้ token หมดก่อนตอบ (finish_reason=length, model ${model})`);
+      return parseJsonReply<T>(raw);
     } catch (e) {
       const bad = unsupportedParam(e);
       if (!bad) throw e;
       console.error(`OpenAI 400 unsupported parameter "${bad.param}" for model ${model} (task ${input.task}): ${bad.message}`);
-      if (attempt > 0) throw e;
-      // ลองใหม่: effort "minimal" ไม่รองรับ → "low", พารามิเตอร์อื่นตัดทิ้ง
-      if (bad.param === "reasoning_effort" && params.reasoning_effort !== "low") {
-        params = chatParams({ model, task: input.task, effort: "low" });
-      } else if (bad.param in params) {
-        const rest = { ...params };
-        delete rest[bad.param];
-        params = rest;
-      } else {
-        throw e;
-      }
+      const next = adjustForUnsupported(params, bad.param, input.task);
+      if (!next || attempt === MAX_ATTEMPTS - 1) throw e;
+      params = next;
+      learned.set(model, [...new Set([...(learned.get(model) ?? []), bad.param])]);
     }
   }
   throw new Error("unreachable");

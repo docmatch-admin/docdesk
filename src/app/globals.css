@@ -877,3 +877,4 @@ body > .appt-slip { display: none; }
 .appt-side-pick { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; margin-top: -4px; }
 .appt-side-pick .btn { justify-content: flex-start; gap: 6px; }
 .appt-side-more { align-self: flex-start; font-size: 12px; }
+.appt-translate-error { flex-basis: 100%; font-size: 12px; opacity: .9; overflow-wrap: anywhere; }

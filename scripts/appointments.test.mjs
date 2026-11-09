@@ -1204,12 +1204,12 @@ test("แปลใบนัด: ส่งเฉพาะเหตุผล/ก�
 test("แปลใบนัดไม่สำเร็จ: AI ล้มหรือตัวเลขไม่ตรงต้นฉบับ → failed ใช้ต้นฉบับไทย ไม่เก็บ cache", async () => {
   state.tables.slip_translations = [];
   const a = addAppointment({ purpose_text: "ติดตามอาการ", instructions: "กินยา 2 เม็ด ก่อน 09:00", note: null, link_code: "TRF234" });
-  calls.failNext = new Error("openai down");
+  calls.failNext = Object.assign(new Error("400 Unsupported parameter: 'max_tokens' is not supported with this model."), { status: 400 });
   const r1 = await store.translateSlip(a.id);
-  assert.deepEqual(r1, { en: {}, failed: ["purpose", "instructions"] });
+  assert.deepEqual(r1, { en: {}, failed: ["purpose", "instructions"], error: "OpenAI 400: Unsupported parameter: 'max_tokens' is not supported with this model." }, "ส่ง error จริงแบบสั้นให้หน้าพิมพ์");
   aiReplies.next = { items: { 1: "Follow-up", 2: "Take 3 tablets before 9 am" } };
   const r2 = await store.translateSlip(a.id);
-  assert.deepEqual(r2, { en: { purpose: "Follow-up" }, failed: ["instructions"] }, "เลข 2 และ 09:00 หาย ถือว่าแปลไม่สำเร็จ");
+  assert.deepEqual(r2, { en: { purpose: "Follow-up" }, failed: ["instructions"], error: "ตัวเลข/เวลาในคำแปลไม่ตรงต้นฉบับ" }, "เลข 2 และ 09:00 หาย ถือว่าแปลไม่สำเร็จ");
   assert.deepEqual(state.tables.slip_translations.map((t) => t.text_en), ["Follow-up"]);
 });
 

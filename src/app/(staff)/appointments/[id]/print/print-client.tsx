@@ -30,6 +30,7 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
   const [lang, setLang] = useState<SlipLang>("th");
   const [en, setEn] = useState<SlipTexts | null>(null);
   const [failed, setFailed] = useState<SlipField[]>([]);
+  const [failError, setFailError] = useState("");
   const [translating, setTranslating] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const [err, setErr] = useState("");
@@ -69,11 +70,13 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
     try {
       const r = await fetch(`/api/appointments/${id}/translate`, { method: "POST" });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error();
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       setEn((cur) => ({ ...(j.en ?? {}), ...pickEdited(cur, j.failed ?? []) }));
       setFailed((j.failed ?? []) as SlipField[]);
-    } catch {
+      setFailError(j.error ?? "");
+    } catch (e) {
       // แปลไม่ได้ทั้งหมด: แสดงต้นฉบับไทย ให้แก้เองหรือลองใหม่
+      setFailError(e instanceof Error ? e.message : "เรียก API แปลไม่สำเร็จ");
       setEn((cur) => cur ?? {});
       setFailed(slip ? (Object.keys(slipSourceTexts(slip)) as SlipField[]) : []);
     } finally {
@@ -125,6 +128,7 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
         <div className="appt-translate-state warn" role="alert">
           แปลไม่สำเร็จ: {failed.map((f) => FIELD_LABEL[f]).join(", ")} — ใบนี้แสดงต้นฉบับไทย แก้ข้อความในใบได้เลย หรือ
           <button type="button" className="btn ghost small" onClick={() => void translate()}>ลองใหม่</button>
+          {failError && <div className="appt-translate-error"><code>{failError}</code></div>}
         </div>
       )}
       {lang === "en" && !translating && failed.length === 0 && view.rows.some((r) => r.field) && (

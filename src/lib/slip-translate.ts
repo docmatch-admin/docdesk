@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { callModel } from "./ai";
+import { aiErrorSummary } from "./ai-params";
 import { supabaseAdmin } from "./supabase/admin";
 import { looksThai } from "./translate";
 
@@ -34,9 +35,10 @@ export function keepsNumbers(source: string, text: string): boolean {
   return [...want].every(([n, c]) => (got.get(n) ?? 0) >= c);
 }
 
-export async function translateSlipTexts(texts: SlipTexts): Promise<{ en: SlipTexts; failed: SlipField[] }> {
+export async function translateSlipTexts(texts: SlipTexts): Promise<{ en: SlipTexts; failed: SlipField[]; error?: string }> {
   const en: SlipTexts = {};
   const failed: SlipField[] = [];
+  let error: string | undefined;
   const pending = new Map<string, { source: string; fields: SlipField[] }>();
   for (const f of SLIP_FIELDS) {
     const source = texts[f]?.trim();
@@ -69,13 +71,18 @@ export async function translateSlipTexts(texts: SlipTexts): Promise<{ en: SlipTe
     });
     out = res?.items ?? {};
   } catch (e) {
-    console.error("slip translate failed", e instanceof Error ? e.message : e);
+    error = aiErrorSummary(e);
+    console.error("slip translate failed", error);
   }
   const rows: { source_hash: string; source: string; text_en: string; edited: boolean; updated_at: string }[] = [];
   ids.forEach((h, i) => {
     const p = pending.get(h)!;
     const t = typeof out[String(i + 1)] === "string" ? (out[String(i + 1)] as string).trim().slice(0, 2000) : "";
-    if (!t || !keepsNumbers(p.source, t)) { failed.push(...p.fields); return; }
+    if (!t || !keepsNumbers(p.source, t)) {
+      failed.push(...p.fields);
+      error ??= !t ? "AI ไม่ได้ส่งคำแปลกลับมา (รูปแบบคำตอบไม่ตรง)" : "ตัวเลข/เวลาในคำแปลไม่ตรงต้นฉบับ";
+      return;
+    }
     for (const f of p.fields) en[f] = t;
     rows.push({ source_hash: h, source: p.source.slice(0, 2000), text_en: t, edited: false, updated_at: new Date().toISOString() });
   });
@@ -83,7 +90,7 @@ export async function translateSlipTexts(texts: SlipTexts): Promise<{ en: SlipTe
     const { error } = await db.from("slip_translations").upsert(rows, { onConflict: "source_hash", ignoreDuplicates: true });
     if (error) console.error("slip translation cache failed", error.code);
   }
-  return { en, failed };
+  return { en, failed, ...(error && failed.length ? { error } : {}) };
 }
 
 /** พนักงานแก้คำแปลใน preview: ใช้คำที่แก้เป็นค่าใน cache ครั้งถัดไป */
