@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { bangkokToday, thaiFullDate } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
-interface Preset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; name_en: string | null; reminder_extra_text_en: string | null; sort_order: number; active: boolean }
+interface Preset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; sort_order: number; active: boolean }
 interface Slot { weekday: number; slot_id: string; label: string; start_time: string; end_time: string; sort_order: number }
 interface Closure { closed_on: string; reason: string | null }
 
@@ -16,10 +16,10 @@ export function PurposePresets() {
   const [rows, setRows] = useState<Preset[]>([]);
   const [drag, setDrag] = useState<number | null>(null);
   const [msg, setMsg] = useState("");
-  const [draft, setDraft] = useState({ name: "", default_days: "", reminder_extra_text: "", name_en: "", reminder_extra_text_en: "" });
+  const [draft, setDraft] = useState({ name: "", default_days: "", reminder_extra_text: "" });
 
   const load = useCallback(async () => {
-    const { data } = await sb.from("appointment_purposes").select("id, name, default_days, reminder_extra_text, name_en, reminder_extra_text_en, sort_order, active").order("sort_order");
+    const { data } = await sb.from("appointment_purposes").select("id, name, default_days, reminder_extra_text, sort_order, active").order("sort_order");
     setRows((data ?? []) as Preset[]);
   }, [sb]);
   useEffect(() => { load(); }, [load]);
@@ -29,7 +29,7 @@ export function PurposePresets() {
 
   async function saveRow(r: Preset) {
     const { error } = await sb.from("appointment_purposes").update({
-      name: r.name.trim(), default_days: r.default_days, reminder_extra_text: r.reminder_extra_text?.trim() || null, name_en: r.name_en?.trim() || null, reminder_extra_text_en: r.reminder_extra_text_en?.trim() || null, active: r.active, updated_at: new Date().toISOString(),
+      name: r.name.trim(), default_days: r.default_days, reminder_extra_text: r.reminder_extra_text?.trim() || null, active: r.active, updated_at: new Date().toISOString(),
     }).eq("id", r.id);
     flash(error ? `บันทึกไม่สำเร็จ: ${error.message}` : "บันทึกแล้ว ✓");
     load();
@@ -54,11 +54,11 @@ export function PurposePresets() {
     e.preventDefault();
     if (!draft.name.trim()) return;
     const { error } = await sb.from("appointment_purposes").insert({
-      name: draft.name.trim(), default_days: days(draft.default_days), reminder_extra_text: draft.reminder_extra_text.trim() || null, name_en: draft.name_en.trim() || null, reminder_extra_text_en: draft.reminder_extra_text_en.trim() || null,
+      name: draft.name.trim(), default_days: days(draft.default_days), reminder_extra_text: draft.reminder_extra_text.trim() || null,
       sort_order: (rows.at(-1)?.sort_order ?? 0) + 10,
     });
     if (error) return flash(error.code === "23505" ? "มีชื่อนี้แล้ว" : `เพิ่มไม่สำเร็จ: ${error.message}`);
-    setDraft({ name: "", default_days: "", reminder_extra_text: "", name_en: "", reminder_extra_text_en: "" });
+    setDraft({ name: "", default_days: "", reminder_extra_text: "" });
     load();
   }
 
@@ -79,10 +79,6 @@ export function PurposePresets() {
               value={r.default_days ?? ""} onChange={(e) => setRow(i, { default_days: days(e.target.value) })} />
             <input aria-label="การปฏิบัติตัว" placeholder="การปฏิบัติตัว" className="preset-extra"
               value={r.reminder_extra_text ?? ""} onChange={(e) => setRow(i, { reminder_extra_text: e.target.value })} />
-            <input aria-label="ชื่อภาษาอังกฤษ" placeholder="English" className="preset-en" lang="en"
-              value={r.name_en ?? ""} onChange={(e) => setRow(i, { name_en: e.target.value })} />
-            <input aria-label="การปฏิบัติตัวภาษาอังกฤษ" placeholder="Instructions (EN)" className="preset-extra" lang="en"
-              value={r.reminder_extra_text_en ?? ""} onChange={(e) => setRow(i, { reminder_extra_text_en: e.target.value })} />
             <label className="raw small"><input type="checkbox" checked={r.active} onChange={(e) => setRow(i, { active: e.target.checked })} /> ใช้</label>
             <button type="button" className="btn ghost small" aria-label={`เลื่อน ${r.name} ขึ้น`} disabled={i === 0} onClick={() => move(i, i - 1)}>↑</button>
             <button type="button" className="btn ghost small" aria-label={`เลื่อน ${r.name} ลง`} disabled={i === rows.length - 1} onClick={() => move(i, i + 1)}>↓</button>
@@ -95,8 +91,6 @@ export function PurposePresets() {
         <input aria-label="ชื่อเหตุผลนัดใหม่" placeholder="เหตุผลนัดใหม่" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
         <input aria-label="นัดอีกกี่วัน" type="number" min={1} placeholder="วัน" className="preset-days" value={draft.default_days} onChange={(e) => setDraft({ ...draft, default_days: e.target.value })} />
         <input aria-label="การปฏิบัติตัว" placeholder="การปฏิบัติตัว" className="preset-extra" value={draft.reminder_extra_text} onChange={(e) => setDraft({ ...draft, reminder_extra_text: e.target.value })} />
-        <input aria-label="ชื่อภาษาอังกฤษ" placeholder="English" className="preset-en" lang="en" value={draft.name_en} onChange={(e) => setDraft({ ...draft, name_en: e.target.value })} />
-        <input aria-label="การปฏิบัติตัวภาษาอังกฤษ" placeholder="Instructions (EN)" className="preset-extra" lang="en" value={draft.reminder_extra_text_en} onChange={(e) => setDraft({ ...draft, reminder_extra_text_en: e.target.value })} />
         <button className="btn primary small" disabled={!draft.name.trim()}>เพิ่ม</button>
       </form>
       {msg && <div className="small">{msg}</div>}

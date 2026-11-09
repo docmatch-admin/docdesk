@@ -27,8 +27,6 @@ export interface Appointment {
   purpose_text: string | null;
   /** การปฏิบัติตัว ส่งในข้อความนัดเสมอ */
   instructions: string | null;
-  /** การปฏิบัติตัวภาษาอังกฤษ (ใบนัด English) ว่าง = ใช้ภาษาไทย */
-  instructions_en?: string | null;
   provider: string | null;
   note: string | null;
   status: AppointmentStatus;

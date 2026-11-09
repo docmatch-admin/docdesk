@@ -10,8 +10,9 @@ import { lineSendMessages } from "./channels/line";
 import { metaSendMessage } from "./channels/meta";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
 import { SENSITIVE_TAG } from "./sensitive-rules";
-import { defaultSlipLang, type SlipData, type SlipLang } from "./appointment-slip";
-import { unlinkConversation, linkConversationToHn, linkedConversationsOf, normalizeHn, upsertPatient, type PatientRelation } from "./patient-link-store";
+import { slipSourceTexts, type SlipData } from "./appointment-slip";
+import { saveSlipTranslation, translateSlipTexts, type SlipField } from "./slip-translate";
+import { unlinkConversation, linkConversationToHn, linkedConversationsOf, upsertPatient, type PatientRelation } from "./patient-link-store";
 import { contactName, type ContactNameFields } from "./patient-name";
 import { supabaseAdmin } from "./supabase/admin";
 import type { ChannelType } from "./types";
@@ -22,7 +23,7 @@ import type { ChannelType } from "./types";
  */
 export const APPOINTMENT_SENDER_NAME = "ระบบนัด";
 
-export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, instructions_en, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, series_done, created_by, created_at, updated_at";
+export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, series_done, created_by, created_at, updated_at";
 
 export const loadAppointmentSettings = async (): Promise<AppointmentSettings> =>
   normalizeAppointmentSettings(await getSetting<unknown>("appointment_settings", {}));
@@ -328,7 +329,7 @@ export interface AppointmentInput {
   hn?: unknown; patient_name?: unknown; phone?: unknown; appoint_date?: unknown;
   /** slot: ส่ง slot_id ระบบหาเวลาเริ่ม-สิ้นสุดจาก clinic_hours เอง / exact: ส่ง time_start */
   time_mode?: unknown; slot_id?: unknown; time_start?: unknown;
-  purpose_id?: unknown; purpose_text?: unknown; instructions?: unknown; instructions_en?: unknown;
+  purpose_id?: unknown; purpose_text?: unknown; instructions?: unknown;
   provider?: unknown; note?: unknown; conversation_id?: unknown; booking_id?: unknown;
   /** ชื่อมาจาก iService และไม่ได้แก้ */
   name_from_his?: unknown;
@@ -351,7 +352,7 @@ export class AppointmentError extends Error {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-interface PurposeRow { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; name_en?: string | null; reminder_extra_text_en?: string | null; sort_order: number; active: boolean }
+interface PurposeRow { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; sort_order: number; active: boolean }
 
 /** เวลาเปิดคลินิกและวันหยุดพิเศษ ตั้งค่าที่หน้าตั้งค่า → นัดหมาย */
 export async function loadClinicSchedule(from?: string, to?: string): Promise<ClinicSchedule> {
@@ -412,7 +413,6 @@ async function resolveFields(b: AppointmentInput, today: string) {
     purpose_id,
     purpose_text,
     instructions: clip(b.instructions, 1000) || null,
-    instructions_en: clip(b.instructions_en, 1000) || null,
     provider: clip(b.provider, 120) || null,
     note: clip(b.note, 1000) || null,
   };
@@ -539,7 +539,7 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
   const fields = await resolveFields({
     hn: current.hn, patient_name: current.patient_name, phone: current.phone, appoint_date: current.appoint_date,
     time_mode: current.time_mode, slot_id: current.slot_id, time_start: current.time_start.slice(0, 5),
-    purpose_id: current.purpose_id, purpose_text: current.purpose_text, instructions: current.instructions, instructions_en: current.instructions_en,
+    purpose_id: current.purpose_id, purpose_text: current.purpose_text, instructions: current.instructions,
     provider: current.provider, note: current.note,
     ...Object.fromEntries(Object.entries(b).filter(([k, v]) => v !== undefined && !["shift_following", "series_items", "series_title", "series_label"].includes(k))),
   }, bangkokToday(now));
@@ -939,24 +939,16 @@ export async function appointmentSlip(id: string, issuerId?: string | null) {
   const db = supabaseAdmin();
   const [settings, clinic, accounts] = await Promise.all([loadAppointmentSettings(), clinicName(), linkedAccounts(appt)]);
   const series = appt.series_id ? (await loadSeries(appt.series_id)).filter((a) => a.status !== "cancelled") : [];
-  const hn = normalizeHn(appt.hn);
-  const [{ data: seriesRow }, { data: purpose }, { data: patient }, { data: issuer }] = await Promise.all([
-    appt.series_id ? db.from("appointment_series").select("title, title_en").eq("id", appt.series_id).maybeSingle() : Promise.resolve({ data: null }),
-    appt.purpose_id ? db.from("appointment_purposes").select("name, name_en").eq("id", appt.purpose_id).maybeSingle() : Promise.resolve({ data: null }),
-    hn ? db.from("patients").select("slip_lang").eq("hn", hn).maybeSingle() : Promise.resolve({ data: null }),
+  const [{ data: seriesRow }, { data: issuer }] = await Promise.all([
+    appt.series_id ? db.from("appointment_series").select("title").eq("id", appt.series_id).maybeSingle() : Promise.resolve({ data: null }),
     issuerId ? db.from("staff").select("display_name").eq("id", issuerId).maybeSingle() : Promise.resolve({ data: null }),
   ]);
-  const primary = appt.conversation_id ? await conversationInfo(appt.conversation_id) : null;
-  const p = purpose as { name: string; name_en: string | null } | null;
-  const s = seriesRow as { title: string | null; title_en: string | null } | null;
+  const s = seriesRow as { title: string | null } | null;
   const data: SlipData = {
     appointment: appt,
     series,
     // ชุดนัด: หัวใบใช้ชื่อชุดที่ตั้งเอง (ถ้าเป็นแค่ชื่อเหตุผลนัดใช้ "ใบนัดวัคซีน")
     seriesTitle: s?.title && s.title !== appt.purpose_text ? s.title : null,
-    seriesTitleEn: s?.title_en ?? null,
-    // ชื่ออังกฤษของ preset ใช้เมื่อเหตุผลยังเป็นชื่อ preset (พิมพ์เองพิมพ์ตามที่กรอก)
-    purposeEn: p && p.name === appt.purpose_text ? p.name_en : null,
     clinic: { name: clinic, nameEn: settings.clinic_name_en, address: settings.clinic_address, addressEn: settings.clinic_address_en, phone: settings.clinic_phone },
     linkedLine: accounts.some((a) => a.channel === "line" && a.following),
     issuedBy: ((issuer as { display_name?: string } | null)?.display_name ?? "").trim() || "เจ้าหน้าที่",
@@ -965,17 +957,29 @@ export async function appointmentSlip(id: string, issuerId?: string | null) {
   return {
     ...data,
     accounts,
-    defaultLang: defaultSlipLang((patient as { slip_lang?: string | null } | null)?.slip_lang, [primary?.language]),
     qrUrl: lineOaMessageUrl(settings.line_oa_id, appt.link_code),
   };
 }
 
-/** บันทึกภาษาใบนัดที่เลือกล่าสุดของคนไข้ (เฉพาะนัดที่มี HN) */
-export async function saveSlipLang(id: string, lang: SlipLang): Promise<boolean> {
-  const appt = await loadAppointment(id);
-  const hn = normalizeHn(appt?.hn);
-  if (!appt || !hn) return false;
-  await upsertPatient({ hn, full_name: appt.patient_name, slip_lang: lang });
+/** ต้นฉบับข้อความที่แปลได้ของใบนัดนี้ (ไม่มีชื่อ HN เบอร์) */
+async function slipSources(id: string) {
+  const slip = await appointmentSlip(id);
+  return slip ? slipSourceTexts(slip) : null;
+}
+
+/** กด EN บนหน้าพิมพ์: แปลเหตุผล การปฏิบัติตัว หมายเหตุ ชื่อชุดนัด (ใช้ cache ก่อน) */
+export async function translateSlip(id: string) {
+  const src = await slipSources(id);
+  if (!src) return null;
+  return translateSlipTexts(src);
+}
+
+/** พนักงานแก้คำแปลใน preview: เก็บเป็นค่าใน cache ของต้นฉบับข้อความนั้น */
+export async function editSlipTranslation(id: string, field: SlipField, text: string): Promise<boolean> {
+  const src = await slipSources(id);
+  const source = src?.[field];
+  if (!source) return false;
+  await saveSlipTranslation(source, text);
   return true;
 }
 
@@ -1014,7 +1018,7 @@ export async function appointmentEvents(id: string) {
 }
 
 export async function loadPurposes(): Promise<PurposeRow[]> {
-  const { data } = await supabaseAdmin().from("appointment_purposes").select("id, name, default_days, reminder_extra_text, name_en, reminder_extra_text_en, sort_order, active");
+  const { data } = await supabaseAdmin().from("appointment_purposes").select("id, name, default_days, reminder_extra_text, sort_order, active");
   return ((data ?? []) as PurposeRow[]).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
 }
 

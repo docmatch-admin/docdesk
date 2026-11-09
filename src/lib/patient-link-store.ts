@@ -153,7 +153,7 @@ export const normalizeHn = (hn: string | null | undefined) => {
  * ตาราง patients ของ DocDesk: บันทึกเมื่อลงนัดหรือผูกแชทกับ HN เท่านั้น (ไม่ sync ทะเบียนทั้งหมด)
  * ใช้ค้นด้วยชื่อ และเป็นเบอร์สำรองตอน iService ล่ม ไม่เก็บเลขบัตรประชาชน
  */
-export async function upsertPatient(p: { hn: string | null | undefined; full_name?: string | null; phone?: string | null; slip_lang?: "th" | "en" }) {
+export async function upsertPatient(p: { hn: string | null | undefined; full_name?: string | null; phone?: string | null }) {
   const hn = normalizeHn(p.hn);
   if (!hn) return;
   const phone = (p.phone ?? "").replace(/\D/g, "") || null;
@@ -162,7 +162,6 @@ export async function upsertPatient(p: { hn: string | null | undefined; full_nam
     hn, updated_at: now,
     ...(p.full_name?.trim() ? { full_name: p.full_name.trim() } : {}),
     ...(phone ? { phone, phone_fetched_at: now } : {}),
-    ...(p.slip_lang ? { slip_lang: p.slip_lang } : {}),
   }, { onConflict: "hn" });
   if (error) console.error("patients upsert failed", error.code);
 }

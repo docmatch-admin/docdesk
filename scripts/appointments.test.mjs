@@ -676,7 +676,7 @@ test("นัดไว้แล้วต่อวันและต่อช่�
 test("ใบนัดและหน้าจอใช้คอลัมน์ใหม่: ไม่มี appoint_time/purpose เดิมหลงเหลือ", () => {
   for (const f of ["src/app/(staff)/appointments/[id]/print/print-client.tsx", "src/lib/appointment-slip.ts", "src/app/(staff)/appointments/appointments-client.tsx", "src/lib/appointment-store.ts", "src/lib/appointment-rules.ts"]) {
     const src = readFileSync(f, "utf8");
-    assert.doesNotMatch(src, /appoint_time|(?<!opts)\.purpose\b/, f);
+    assert.doesNotMatch(src, /appoint_time|(?<!opts|src|out)\.purpose\b/, f);
   }
   const slip = readFileSync("src/lib/appointment-slip.ts", "utf8");
   assert.match(slip, /slipTime\(a, lang\)/);
@@ -1072,16 +1072,17 @@ test("API บัญชีที่ผูก: แก้ป้ายและย�
 });
 
 // ---------------------------------------------------------------------------
-// ใบนัด: QR ทุกใบ เลือกภาษา ไทย/English
+// ใบนัด: QR ทุกใบ ไทยเป็นค่าเริ่มต้น EN แปลอัตโนมัติตอนกดเท่านั้น
 // ---------------------------------------------------------------------------
+const { replies: aiReplies } = await import(fake("ai"));
 const slipBase = (extra = {}) => ({
   appointment: {
     id: "a1", hn: "4714", patient_name: "สมชาย ใจดี", phone: null, conversation_id: null, appoint_date: "2026-11-23",
     time_mode: "slot", slot_id: "morning", time_start: "08:00", time_end: "12:00", purpose_id: "p", purpose_text: "เจาะเลือด",
-    instructions: "งดน้ำงดอาหาร 8–12 ชม. (ดื่มน้ำเปล่าได้)", instructions_en: null, provider: "นพ.ทดสอบ", note: null,
+    instructions: "งดน้ำงดอาหาร 8–12 ชม. (ดื่มน้ำเปล่าได้)", provider: "นพ.ทดสอบ", note: null,
     status: "scheduled", link_code: "ABC234", confirm_sent_at: null, reminder_sent_at: null, last_send_error: null, called_at: null, called_by: null,
   },
-  series: [], purposeEn: "Blood test",
+  series: [],
   clinic: { name: "คลินิกทดสอบ", nameEn: "HappiWell Medical Clinic", address: "ถนนสุขุมวิท", addressEn: "Sukhumvit Rd", phone: "02-000-4586" },
   linkedLine: false, issuedBy: "พยาบาล", issuedAt: "2026-11-09T07:30:00Z", ...extra,
 });
@@ -1100,8 +1101,9 @@ test("ใบนัดไทย: หัว ชื่อ HN 9 หลัก วั�
   assert.deepEqual(v.qr.below, ["สแกนแล้วกดส่ง", "เพื่อรับข้อความเตือนนัดทาง LINE"]);
   assert.equal(v.code, "#ABC234");
   assert.deepEqual(v.footer, ["หากไม่สะดวกมาตามนัด กรุณาแจ้งล่วงหน้า", "ออกโดย พยาบาล · 9 พ.ย. 2569 14.30 น."]);
-  const all = JSON.stringify(v);
-  assert.doesNotMatch(all, /Appointment|Morning|Scan|Doctor|Issued|Tel /, "ใบไทยไม่มีภาษาอังกฤษปน");
+  assert.doesNotMatch(JSON.stringify(v), /Appointment|Morning|Scan|Doctor|Issued|Tel /, "ใบไทยไม่มีภาษาอังกฤษปน");
+  // ใบไทยไม่ใช้คำแปล แม้จะมีอยู่แล้ว
+  assert.equal(slipLib.slipView(slipBase(), "th", { purpose: "Blood test" }).rows[1].value, "เจาะเลือด");
 
   const linked = slipLib.slipView(slipBase({ linkedLine: true }), "th");
   assert.equal(linked.qr.sizeMm, 30);
@@ -1110,8 +1112,9 @@ test("ใบนัดไทย: หัว ชื่อ HN 9 หลัก วั�
   assert.equal(linked.code, "#ABC234", "ผูกแล้วยังพิมพ์รหัส");
 });
 
-test("ใบนัด English: ข้อความอังกฤษล้วน ค.ศ. ชื่อ preset อังกฤษ instructions_en ว่างใช้ไทย ชื่อคน/หมอไม่แปล", () => {
-  const v = slipLib.slipView(slipBase(), "en");
+test("ใบนัด EN: ส่วนตายตัวเขียนในโค้ด ข้อความที่พิมพ์ใช้คำแปล ไม่มีคำแปลใช้ไทย ชื่อคน/หมอไม่แปล", () => {
+  const en = { purpose: "Blood test", instructions: "Fast for 8–12 hours (plain water is OK)" };
+  const v = slipLib.slipView(slipBase(), "en", en);
   assert.equal(v.clinicName, "HappiWell Medical Clinic");
   assert.equal(v.clinicAddress, "Sukhumvit Rd");
   assert.equal(v.clinicPhone, "Tel 02-000-4586");
@@ -1121,25 +1124,27 @@ test("ใบนัด English: ข้อความอังกฤษล้ว�
   assert.equal(v.queueNote, "(Seen in queue order)");
   assert.deepEqual(v.rows, [
     { label: "Doctor", value: "นพ.ทดสอบ" },
-    { label: "Purpose", value: "Blood test" },
-    { label: "Instructions", value: "งดน้ำงดอาหาร 8–12 ชม. (ดื่มน้ำเปล่าได้)" },
+    { label: "Purpose", value: "Blood test", field: "purpose" },
+    { label: "Instructions", value: "Fast for 8–12 hours (plain water is OK)", field: "instructions" },
   ]);
   assert.equal(v.name.value, "สมชาย ใจดี");
   assert.deepEqual(v.footer, ["Please let us know in advance if you can't make it.", "Issued by พยาบาล · 9 Nov 2026 14:30"]);
-  const en = slipLib.slipView(slipBase({ appointment: { ...slipBase().appointment, instructions_en: "Fast 8–12 hrs (plain water OK)", time_mode: "exact", time_start: "14:30", time_end: null } }), "en");
-  assert.equal(en.rows[2].value, "Fast 8–12 hrs (plain water OK)");
-  assert.equal(en.time, "Time 14:30");
-  assert.equal(en.queueNote, null);
+  assert.equal(slipLib.slipView(slipBase(), "en").rows[1].value, "เจาะเลือด", "แปลไม่สำเร็จ แสดงต้นฉบับไทย");
+  const exact = slipLib.slipView(slipBase({ appointment: { ...slipBase().appointment, time_mode: "exact", time_start: "14:30", time_end: null } }), "en", en);
+  assert.equal(exact.time, "Time 14:30");
+  assert.equal(exact.queueNote, null);
   assert.equal(slipLib.slipView(slipBase({ linkedLine: true }), "en").qr.above[0], "✓ LINE linked — reminders 1 day before");
-  assert.equal(slipLib.slipView(slipBase({ purposeEn: null, appointment: { ...slipBase().appointment, purpose_text: "ตรวจตา" } }), "en").rows[1].value, "ตรวจตา", "เหตุผลพิมพ์เองไม่แปล");
+  // ข้อความที่ส่งไปแปลมีแค่เหตุผล การปฏิบัติตัว หมายเหตุ ชื่อชุดนัด
+  assert.deepEqual(slipLib.slipSourceTexts(slipBase()), { purpose: "เจาะเลือด", instructions: "งดน้ำงดอาหาร 8–12 ชม. (ดื่มน้ำเปล่าได้)" });
 });
 
-test("ใบนัด series: ตารางเข็ม ✓ ฉีดแล้ว เข็มที่นัดตัวหนา บรรทัดช่วงเวลาใต้ตาราง ทั้งไทยและอังกฤษ", () => {
+test("ใบนัด series: ตารางเข็ม ✓ ฉีดแล้ว เข็มที่นัดตัวหนา บรรทัดช่วงเวลาใต้ตาราง ชื่อชุดแปลได้", () => {
   const dose = (seq, date, extra = {}) => ({ ...slipBase().appointment, id: `d${seq}`, series_seq: seq, series_label: `เข็ม ${seq}`, appoint_date: date, ...extra });
   const series = [dose(1, "2026-11-09", { series_done: true }), dose(2, "2026-12-09"), dose(3, "2027-05-09", { time_start: "13:00", time_end: "18:00" })];
   const data = slipBase({ appointment: series[1], series, seriesTitle: null });
   const th = slipLib.slipView(data, "th");
   assert.equal(th.title, "ใบนัดวัคซีน");
+  assert.equal(th.titleEditable, false);
   assert.deepEqual(th.series.map((r) => [r.label, r.when, r.current]), [
     ["✓ เข็ม 1", "ฉีดแล้ว จันทร์ 9 พ.ย. 2569", false],
     ["เข็ม 2", "พุธ 9 ธ.ค. 2569 · เช้า", true],
@@ -1154,18 +1159,62 @@ test("ใบนัด series: ตารางเข็ม ✓ ฉีดแล้
     ["Dose 3", "Sun 9 May 2027 · Afternoon"],
   ]);
   assert.equal(en.seriesNote, "Morning 08:00–12:00 · Afternoon 13:00–18:00");
-  assert.equal(slipLib.slipView({ ...data, seriesTitle: "วัคซีนตับอักเสบบี", seriesTitleEn: "Hepatitis B vaccine" }, "en").title, "Hepatitis B vaccine");
+  const titled = { ...data, seriesTitle: "วัคซีนตับอักเสบบี" };
+  assert.equal(slipLib.slipSourceTexts(titled).title, "วัคซีนตับอักเสบบี");
+  assert.equal(slipLib.slipView(titled, "en", { title: "Hepatitis B vaccine" }).title, "Hepatitis B vaccine");
+  assert.equal(slipLib.slipView(titled, "en", { title: "Hepatitis B vaccine" }).titleEditable, true);
 });
 
-test("ภาษาเริ่มต้นของใบนัด: ค่าที่เลือกล่าสุดของคนไข้ก่อน แล้วภาษาแชท ไม่งั้นไทย", async () => {
-  assert.equal(slipLib.defaultSlipLang(null, ["en"]), "en");
-  assert.equal(slipLib.defaultSlipLang("en", ["th"]), "en");
-  assert.equal(slipLib.defaultSlipLang("th", ["en"]), "th");
-  assert.equal(slipLib.defaultSlipLang(null, [null, "th"]), "th");
-  const a = addAppointment({ hn: "4714", conversation_id: "conv-fb", link_code: "LNG234" });
-  assert.equal((await store.appointmentSlip(a.id)).defaultLang, "en", "แชท Facebook ภาษาอังกฤษ");
-  assert.equal(await store.saveSlipLang(a.id, "th"), true);
-  assert.equal(state.tables.patients.find((p) => p.hn === "000004714").slip_lang, "th");
-  assert.equal((await store.appointmentSlip(a.id)).defaultLang, "th");
-  assert.equal(await store.saveSlipLang(addAppointment({ hn: null, link_code: "LNG235" }).id, "en"), false, "ไม่มี HN ไม่บันทึก");
+test("แปลใบนัด: ส่งเฉพาะเหตุผล/การปฏิบัติตัว/หมายเหตุ ไม่ส่งชื่อ HN เบอร์ cache ต่อข้อความ แก้คำแปลใช้ครั้งถัดไป", async () => {
+  state.tables.slip_translations = [];
+  const a = addAppointment({ hn: "4714", patient_name: "ลับมาก นามสกุลลับ", phone: "0899999999", purpose_text: "เจาะเลือด", instructions: "งดน้ำงดอาหาร 8–12 ชม.", note: "นำผลเลือดเดิมมาด้วย" });
+  aiReplies.next = { items: { 1: "Blood test", 2: "No food or drink for 8–12 hrs.", 3: "Please bring your previous blood results" } };
+  const route = await import("../src/app/api/appointments/[id]/translate/route.ts");
+  const ctx = { params: Promise.resolve({ id: a.id }) };
+  const res = await route.POST(new Request("https://app.test/x", { method: "POST" }), ctx);
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.deepEqual(j, { en: { purpose: "Blood test", instructions: "No food or drink for 8–12 hrs.", note: "Please bring your previous blood results" }, failed: [] });
+  assert.equal(calls.chat, 1);
+  assert.doesNotMatch(calls.lastPrompt, /ลับมาก|นามสกุลลับ|0899999999|4714|000004714/, "ไม่ส่งชื่อ HN เบอร์ไปแปล");
+  assert.match(calls.lastPrompt, /Keep every number, unit and time exactly/);
+  assert.match(calls.lastPrompt, /Do not add medical advice/);
+  assert.equal(state.tables.slip_translations.length, 3);
+
+  // ข้อความ preset เดิม: ใช้ cache ไม่เรียก AI ซ้ำ
+  const b = addAppointment({ hn: "5000", purpose_text: "เจาะเลือด", instructions: "งดน้ำงดอาหาร 8–12 ชม.", note: null, link_code: "TRB234" });
+  const j2 = await (await route.POST(new Request("https://app.test/x", { method: "POST" }), { params: Promise.resolve({ id: b.id }) })).json();
+  assert.equal(j2.en.purpose, "Blood test");
+  assert.equal(calls.chat, 1, "cache hit");
+
+  // พนักงานแก้คำแปล → ใช้คำที่แก้ครั้งถัดไป
+  const put = (body) => route.PUT(new Request("https://app.test/x", { method: "PUT", body: JSON.stringify(body) }), ctx);
+  assert.equal((await put({ field: "instructions", text: "Fast 8–12 hrs (water OK)" })).status, 200);
+  assert.equal((await put({ field: "name", text: "x" })).status, 400, "แก้ได้เฉพาะช่องที่แปล");
+  const j3 = await (await route.POST(new Request("https://app.test/x", { method: "POST" }), { params: Promise.resolve({ id: b.id }) })).json();
+  assert.equal(j3.en.instructions, "Fast 8–12 hrs (water OK)");
+  assert.equal(calls.chat, 1);
+});
+
+test("แปลใบนัดไม่สำเร็จ: AI ล้มหรือตัวเลขไม่ตรงต้นฉบับ → failed ใช้ต้นฉบับไทย ไม่เก็บ cache", async () => {
+  state.tables.slip_translations = [];
+  const a = addAppointment({ purpose_text: "ติดตามอาการ", instructions: "กินยา 2 เม็ด ก่อน 09:00", note: null, link_code: "TRF234" });
+  calls.failNext = new Error("openai down");
+  const r1 = await store.translateSlip(a.id);
+  assert.deepEqual(r1, { en: {}, failed: ["purpose", "instructions"] });
+  aiReplies.next = { items: { 1: "Follow-up", 2: "Take 3 tablets before 9 am" } };
+  const r2 = await store.translateSlip(a.id);
+  assert.deepEqual(r2, { en: { purpose: "Follow-up" }, failed: ["instructions"] }, "เลข 2 และ 09:00 หาย ถือว่าแปลไม่สำเร็จ");
+  assert.deepEqual(state.tables.slip_translations.map((t) => t.text_en), ["Follow-up"]);
+});
+
+test("หน้าพิมพ์ใบนัด: เปิดเป็น TH เสมอ เรียกแปลเฉพาะตอนกด EN กลับ TH ไม่เรียก API", () => {
+  const src = readFileSync("src/app/(staff)/appointments/[id]/print/print-client.tsx", "utf8");
+  assert.match(src, /useState<SlipLang>\("th"\)/);
+  assert.doesNotMatch(src, /defaultLang|\/slip-lang|slip_lang/);
+  // fetch แปลมีที่เดียวใน translate() และเรียกจาก pickLang("en") เท่านั้น
+  assert.equal((src.match(/\/translate`, \{ method: "POST" \}/g) ?? []).length, 1);
+  assert.match(src, /if \(next === "en" && en === null && !translating\) void translate\(\);/);
+  assert.equal((src.match(/void translate\(\)/g) ?? []).length, 2, "กด EN ครั้งแรก + ปุ่มลองใหม่");
+  assert.doesNotMatch(src, /useEffect\([^)]*translate/);
 });

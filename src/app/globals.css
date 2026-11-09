@@ -792,4 +792,11 @@ body > .appt-slip { display: none; }
 .linked-accounts li.off { opacity: .6; }
 .linked-accounts-name { flex: 1; min-width: 120px; }
 .linked-accounts select { width: auto; padding: 2px 6px; }
-.preset-en { width: 140px; }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.appt-translate-state { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; font-size: 14px; }
+.appt-translate-state.warn { padding: 8px 10px; border-radius: 8px; background: #fff4e5; color: #8a4b00; }
+.appt-slip-preview.busy .appt-slip { opacity: .55; }
+/* แก้คำแปลใน preview เท่านั้น (สำเนาที่พิมพ์ไม่มีเส้น) */
+.appt-slip-preview .appt-slip-edit { outline: none; border-bottom: 1px dashed #888; cursor: text; }
+.appt-slip-preview .appt-slip-edit:focus { background: #fffbe6 !important; border-bottom-color: #000; }

@@ -1,22 +1,23 @@
 import { englishDate, thaiFullDate, thaiMediumDate, thaiClock, type Appointment } from "./appointment-rules";
 
 /**
- * ใบนัด thermal 80mm: เลือกภาษาตอนพิมพ์ (ไทยหรืออังกฤษ ไม่ปนกันในใบเดียว)
- * ชื่อคนไข้ ชื่อหมอ หมายเหตุ และเหตุผลที่พิมพ์เอง พิมพ์ตามที่กรอก ไม่แปล
+ * ใบนัด thermal 80mm: ไทยหรืออังกฤษ ไม่ปนกันในใบเดียว
+ * ใบอังกฤษ: ส่วนตายตัวเขียนไว้ในโค้ด ข้อความที่เจ้าหน้าที่พิมพ์ (เหตุผล การปฏิบัติตัว หมายเหตุ ชื่อชุดนัด)
+ * มาจากการแปลตอนกด EN (en) ไม่มีคำแปลใช้ต้นฉบับไทย ชื่อคนไข้และชื่อหมอพิมพ์ตามที่กรอก ไม่แปล
  * ใช้ได้ทั้ง server และหน้าเว็บ (ไม่มี I/O)
  */
+export type SlipField = "purpose" | "instructions" | "note" | "title";
+export type SlipTexts = Partial<Record<SlipField, string>>;
 export type SlipLang = "th" | "en";
 
 export interface SlipClinic { name: string; nameEn: string; address: string; addressEn: string; phone: string }
 
 export interface SlipData {
-  appointment: Appointment & { instructions_en?: string | null };
+  appointment: Appointment;
   /** นัดในชุด (ไม่รวมที่ยกเลิก) เรียงตามเข็ม */
   series: Appointment[];
+  /** ชื่อชุดนัดที่ตั้งเอง (ไม่มีใช้ "ใบนัดวัคซีน") */
   seriesTitle?: string | null;
-  seriesTitleEn?: string | null;
-  /** ชื่ออังกฤษของ preset เหตุผลนัด (ถ้าเลือก preset) */
-  purposeEn?: string | null;
   clinic: SlipClinic;
   /** มีบัญชี LINE ที่ผูกและยังติดตามอยู่อย่างน้อย 1 บัญชี */
   linkedLine: boolean;
@@ -24,7 +25,8 @@ export interface SlipData {
   issuedAt: string;
 }
 
-export interface SlipRow { label: string; value: string }
+/** field = ข้อความที่แปลได้ (แก้คำแปลใน preview ได้) */
+export interface SlipRow { label: string; value: string; field?: SlipField }
 export interface SlipSeriesRow { label: string; when: string; done: boolean; current: boolean }
 
 export interface SlipView {
@@ -33,6 +35,8 @@ export interface SlipView {
   clinicAddress: string;
   clinicPhone: string;
   title: string;
+  /** หัวใบเป็นชื่อชุดนัดที่ตั้งเอง (แปลได้) */
+  titleEditable: boolean;
   name: SlipRow;
   hn: SlipRow | null;
   date: string;
@@ -88,17 +92,28 @@ const issuedTime = (iso: string, lang: SlipLang) => {
   return `${Number(date.slice(8, 10))} ${short} ${Number(date.slice(0, 4)) + 543} ${hm.replace(":", ".")} น.`;
 };
 
-export function slipView(d: SlipData, lang: SlipLang): SlipView {
+/** ข้อความที่แปลได้ของนัดนี้ (ต้นฉบับไทย) ส่งไปแปลเฉพาะชุดนี้ */
+export function slipSourceTexts(d: Pick<SlipData, "appointment" | "series" | "seriesTitle">): SlipTexts {
+  const a = d.appointment;
+  const out: SlipTexts = {};
+  if (a.purpose_text?.trim()) out.purpose = a.purpose_text.trim();
+  if (a.instructions?.trim()) out.instructions = a.instructions.trim();
+  if (a.note?.trim()) out.note = a.note.trim();
+  if (d.series.length > 1 && d.seriesTitle?.trim()) out.title = d.seriesTitle.trim();
+  return out;
+}
+
+export function slipView(d: SlipData, lang: SlipLang, en: SlipTexts = {}): SlipView {
   const a = d.appointment;
   const th = lang === "th";
   const series = d.series.length > 1 ? d.series : null;
-  const instructions = th ? a.instructions?.trim() : (a.instructions_en?.trim() || a.instructions?.trim());
-  const purpose = th ? a.purpose_text : (d.purposeEn?.trim() || a.purpose_text);
+  const src = slipSourceTexts(d);
+  const text = (f: SlipField) => (th ? src[f] : en[f]?.trim() || src[f]);
   const rows: SlipRow[] = [
     ...(a.provider ? [{ label: th ? "ผู้นัด" : "Doctor", value: a.provider }] : []),
-    ...(purpose ? [{ label: th ? "เหตุผล" : "Purpose", value: purpose }] : []),
-    ...(instructions ? [{ label: th ? "การปฏิบัติตัว" : "Instructions", value: instructions }] : []),
-    ...(a.note ? [{ label: th ? "หมายเหตุ" : "Note", value: a.note }] : []),
+    ...(src.purpose ? [{ label: th ? "เหตุผล" : "Purpose", value: text("purpose")!, field: "purpose" as const }] : []),
+    ...(src.instructions ? [{ label: th ? "การปฏิบัติตัว" : "Instructions", value: text("instructions")!, field: "instructions" as const }] : []),
+    ...(src.note ? [{ label: th ? "หมายเหตุ" : "Note", value: text("note")!, field: "note" as const }] : []),
   ];
 
   let seriesRows: SlipSeriesRow[] | null = null;
@@ -125,8 +140,9 @@ export function slipView(d: SlipData, lang: SlipLang): SlipView {
     clinicAddress: th ? d.clinic.address : d.clinic.addressEn,
     clinicPhone: d.clinic.phone ? `${th ? "โทร" : "Tel"} ${d.clinic.phone}` : "",
     title: series
-      ? (th ? d.seriesTitle?.trim() || "ใบนัดวัคซีน" : d.seriesTitleEn?.trim() || "Vaccination Appointment")
+      ? (src.title ? text("title")! : th ? "ใบนัดวัคซีน" : "Vaccination Appointment")
       : th ? "ใบนัด" : "Appointment",
+    titleEditable: !!(series && src.title),
     name: { label: th ? "ชื่อ" : "Name", value: a.patient_name },
     hn: a.hn ? { label: "HN", value: fullHn(a.hn) } : null,
     date: th ? thaiFullDate(a.appoint_date) : englishDate(a.appoint_date),
@@ -151,10 +167,4 @@ export function slipView(d: SlipData, lang: SlipLang): SlipView {
       ? ["หากไม่สะดวกมาตามนัด กรุณาแจ้งล่วงหน้า", `ออกโดย ${d.issuedBy} · ${issuedTime(d.issuedAt, "th")}`]
       : ["Please let us know in advance if you can't make it.", `Issued by ${d.issuedBy} · ${issuedTime(d.issuedAt, "en")}`],
   };
-}
-
-/** ภาษาเริ่มต้นของใบนัด: ค่าที่เลือกล่าสุดของคนไข้ก่อน ไม่มีใช้ภาษาแชทที่ผูก ไม่งั้นไทย */
-export function defaultSlipLang(saved: string | null | undefined, chatLanguages: (string | null | undefined)[]): SlipLang {
-  if (saved === "en" || saved === "th") return saved;
-  return chatLanguages.some((l) => (l ?? "").toLowerCase().startsWith("en")) ? "en" : "th";
 }
