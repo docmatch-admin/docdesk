@@ -21,24 +21,36 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ ok: boolean; ms: number
   }
 }
 
-/** แอดมินตรวจว่า AI ทำงานกับโมเดลปัจจุบัน และเทียบเวลาแปลกับโมเดลเดิม */
-export async function GET() {
+/**
+ * แอดมินตรวจว่า AI ทำงานกับโมเดลปัจจุบัน และเทียบเวลาแปลกับโมเดลเดิม
+ * ?model=gpt-5-mini ลองโมเดลอื่นก่อนเปลี่ยน OPENAI_CHAT_MODEL (ไม่บันทึกค่า)
+ */
+export async function GET(req: Request) {
   const { error } = await requireAdmin();
   if (error) return error;
+  const asked = new URL(req.url).searchParams.get("model")?.trim() ?? "";
+  if (asked && !/^[a-z0-9][a-z0-9.-]{1,40}$/i.test(asked)) return NextResponse.json({ error: "ชื่อโมเดลไม่ถูกต้อง" }, { status: 400 });
+  const model = asked || CHAT_MODEL;
+  const translateUser = SAMPLE_EN;
   const translateSystem = `Detect the language of the message (ISO 639-1) and translate it into natural Thai. Return JSON: {"language": "<code>", "th": "<Thai>"}`;
   const [toTh, toEn, draft, baseline] = await Promise.all([
-    timed(() => toThai(SAMPLE_EN)),
-    timed(() => fromThai(SAMPLE_TH, "en")),
+    asked
+      ? timed(() => callModel<{ th?: string }>({ task: "translate", temperature: 0, system: translateSystem, user: translateUser, model }))
+      : timed(() => toThai(SAMPLE_EN)),
+    asked
+      ? timed(() => callModel<{ text?: string }>({ task: "translate", temperature: 0, system: `Translate the Thai text into English. Return JSON: {"text": "<English>"}`, user: SAMPLE_TH, model }).then((r) => r.text))
+      : timed(() => fromThai(SAMPLE_TH, "en")),
     timed(() => callModel<{ text?: string }>({
-      task: "draft", temperature: 0.4,
+      task: "draft", temperature: 0.4, model,
       system: `You are a Thai clinic admin. Reply to the customer in Thai, short and polite. Return JSON: {"text": "<reply>"}`,
       user: "ลูกค้า: ขอนัดเจาะเลือดพรุ่งนี้เช้าได้ไหมคะ ต้องงดอาหารไหม",
     })),
     timed(() => callModel<{ th?: string }>({ task: "translate", temperature: 0, system: translateSystem, user: SAMPLE_EN, model: BASELINE_MODEL })),
   ]);
   return NextResponse.json({
-    model: CHAT_MODEL,
-    reasoning: isReasoningModel(CHAT_MODEL),
+    model,
+    configured_model: CHAT_MODEL,
+    reasoning: isReasoningModel(model),
     translate_en_to_th: toTh,
     translate_th_to_en: toEn,
     draft,
