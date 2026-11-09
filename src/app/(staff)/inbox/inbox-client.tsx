@@ -12,7 +12,7 @@ import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
 import { ArchiveMergeBar } from "./archive-merge-bar";
 import { AssigneeControl } from "./assignee-control";
-import { contactLabel, contactName } from "@/lib/patient-name";
+import { contactLabel, contactName, staffMayRename } from "@/lib/patient-name";
 import { AppointmentsBlock } from "./appointments-block";
 import { BookingsBlock, type BookingCardRow } from "./booking-card";
 import { Icon } from "../icons";
@@ -723,10 +723,13 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 ) : (
                   <div className="head-line">
                     <span className={`name ${blurred ? "sensitive-text" : ""}`}>{contactName(selected.contacts)}</span>
-                    {!blurred && (
+                    {!blurred && (staffMayRename(selected.contacts) ? (
                       <button className="icon-btn ghost tiny" type="button" title="แก้ชื่อลูกค้า" aria-label="แก้ชื่อลูกค้า"
                         onClick={() => setEditingName(selected.contacts?.display_name ?? "")}><Icon name="pencil" size={14} /></button>
-                    )}
+                    ) : (
+                      <span className="icon-btn ghost tiny static" role="img" aria-label="ชื่อจาก HIS (ล็อก)"
+                        title="ชื่อจาก HIS แก้ไม่ได้ ต้องยกเลิกการผูก HN ก่อน"><Icon name="lock" size={14} /></span>
+                    ))}
                     <span className="head-sub">
                       {!blurred && contactLabel(selected.contacts).secondary && <span className="name-platform">{contactLabel(selected.contacts).secondary} · </span>}
                       {selected.channels?.name}

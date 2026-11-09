@@ -451,16 +451,16 @@ const contact = (id) => state.tables.contacts.find((c) => c.id === id);
 const ctx = (id) => ({ params: Promise.resolve({ id }) });
 const jsonReq = (method, body, url = "https://app.test/x") => new Request(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
 
-test("ลำดับความสำคัญของชื่อ his > staff > ai > platform", () => {
-  assert.equal(names.canOverwriteName("platform", "ai"), true);
-  assert.equal(names.canOverwriteName("staff", "ai"), false);
+test("ลำดับความสำคัญของชื่อ his > staff > platform", () => {
+  assert.equal(names.canOverwriteName("platform", "staff"), true);
+  assert.equal(names.canOverwriteName("staff", "platform"), false);
   assert.equal(names.canOverwriteName("his", "staff"), false);
   assert.equal(names.canOverwriteName("staff", "his"), true);
-  assert.equal(names.aiMayWriteName({ name_source: "his" }), false);
-  assert.equal(names.aiMayWriteName({ name_source: "staff", name_locked: true }), false);
-  assert.equal(names.aiMayWriteName({ name_source: "platform" }), true);
-  assert.equal(names.platformMayWriteDisplayName({ name_source: "ai" }), false);
+  assert.equal(names.platformMayWriteDisplayName({ name_source: "staff", name_locked: true }), false);
   assert.equal(names.platformMayWriteDisplayName({ name_source: "his" }), true, "ชื่อ HIS อยู่คนละคอลัมน์");
+  assert.equal(names.staffMayRename({ hn: "1" }), false, "ผูก HN แล้วชื่อ HIS ล็อก");
+  assert.equal(names.staffMayRename({ hn: null }), true);
+  assert.equal("aiMayWriteName" in names, false);
 });
 
 test("ชื่อที่แสดง: {ชื่อ นามสกุล} · HN และชื่อแพลตฟอร์มเป็นบรรทัดรอง", () => {
@@ -506,13 +506,26 @@ test("ชื่อจากแพลตฟอร์มไม่ทับชื�
   assert.equal(contact("c-ig").name_source, "his");
 });
 
-test("เจ้าหน้าที่แก้ชื่อในแชทที่ผูก HN: ชื่อ HIS ยังเป็นชื่อหลัก", async () => {
+test("ปุ่มแก้ชื่อ: เจ้าหน้าที่ตั้งชื่อได้ (staff) แต่แชทที่ผูก HN แล้วแก้ไม่ได้", async () => {
   state.currentUser = { id: "agent", email: "a@test" };
+  const ok = await contactRoute.PATCH(jsonReq("PATCH", { displayName: "คุณสมชาย" }), ctx("conv-line"));
+  assert.equal(ok.status, 200);
+  assert.equal(contact("c-line").name_source, "staff");
+  assert.equal(contact("c-line").display_name, "คุณสมชาย");
+
   Object.assign(contact("c-line"), { hn: "5", patient_full_name: "ชื่อ HIS", name_source: "his" });
   const res = await contactRoute.PATCH(jsonReq("PATCH", { displayName: "ชื่อเล่น" }), ctx("conv-line"));
-  assert.equal(res.status, 200);
-  assert.equal(contact("c-line").name_source, "his");
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /ยกเลิกการผูก/);
+  assert.equal(contact("c-line").display_name, "คุณสมชาย");
   assert.equal(names.contactName(contact("c-line")), "ชื่อ HIS · HN 5");
+});
+
+test("migration 038: ชื่อที่ AI ตั้งคืนเป็นชื่อแพลตฟอร์ม หรือชื่อ HIS ถ้าผูกแล้ว และไม่มี ai ใน name_source", () => {
+  const sql = readFileSync("supabase/migrations/038_remove_ai_names.sql", "utf8");
+  assert.match(sql, /display_name = coalesce\(\s*ct\.platform_name/);
+  assert.match(sql, /when ct\.hn is not null and ct\.patient_full_name is not null then 'his' else 'platform'/);
+  assert.match(sql, /check \(name_source in \('his', 'staff', 'platform'\)\)/);
 });
 
 test("แอดมินยืนยันการจับคู่ HN และยกเลิกการผูก: กลับไปใช้ชื่อเดิมและเก็บ log ว่าใครทำ", async () => {

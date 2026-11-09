@@ -1,11 +1,15 @@
 /**
- * ชื่อลูกค้าใน DocDesk: ลำดับความสำคัญ his > staff > ai > platform
+ * ชื่อลูกค้าใน DocDesk มี 3 แหล่งเท่านั้น ลำดับความสำคัญ his > staff > platform
+ *   his      = ชื่อจาก iService เมื่อผูก HN (ล็อก แก้ได้หลังยกเลิกการผูกเท่านั้น)
+ *   staff    = เจ้าหน้าที่แก้ชื่อเองที่หัวแชท
+ *   platform = ชื่อบัญชี LINE/Facebook/Instagram
+ * AI ไม่ตั้งหรือแก้ชื่อลูกค้า (เรียกชื่อในคำตอบได้ตามบริบทแชทเท่านั้น)
  * ใช้ได้ทั้ง server และหน้าเว็บ
  */
-export type NameSource = "his" | "staff" | "ai" | "platform";
+export type NameSource = "his" | "staff" | "platform";
 
-const RANK: Record<NameSource, number> = { platform: 0, ai: 1, staff: 2, his: 3 };
-const sourceOf = (s: unknown): NameSource => (s === "his" || s === "staff" || s === "ai" ? s : "platform");
+const RANK: Record<NameSource, number> = { platform: 0, staff: 1, his: 2 };
+const sourceOf = (s: unknown): NameSource => (s === "his" || s === "staff" ? s : "platform");
 
 /** ชื่อจากแหล่ง incoming เขียนทับชื่อปัจจุบันได้ไหม */
 export const canOverwriteName = (current: unknown, incoming: NameSource) => RANK[incoming] >= RANK[sourceOf(current)];
@@ -20,14 +24,14 @@ export interface ContactNameFields {
 }
 
 /**
- * ชื่อแพลตฟอร์มเขียน display_name ได้เมื่อยังไม่มีชื่อที่สำคัญกว่าใน display_name
- * ผูก HN แล้วยังอัปเดต display_name ได้ เพราะชื่อ HIS อยู่คนละคอลัมน์ และ display_name ใช้กลับมาเมื่อยกเลิกการผูก
+ * ชื่อแพลตฟอร์มเขียน display_name ได้เมื่อเจ้าหน้าที่ไม่ได้ตั้งชื่อเอง
+ * ผูก HN แล้วยังอัปเดตได้ เพราะชื่อ HIS อยู่คนละคอลัมน์ และ display_name ใช้กลับมาเมื่อยกเลิกการผูก
  */
 export const platformMayWriteDisplayName = (c: ContactNameFields | null | undefined) =>
-  !c || (!c.name_locked && c.name_source !== "staff" && c.name_source !== "ai");
+  !c || (!c.name_locked && c.name_source !== "staff");
 
-/** AI ตั้งชื่อเองได้เฉพาะเมื่อชื่อยังมาจากแพลตฟอร์ม ห้ามทับชื่อจาก HIS หรือที่เจ้าหน้าที่ตั้ง */
-export const aiMayWriteName = (c: ContactNameFields | null | undefined) => !!c && !c.name_locked && canOverwriteName(c.name_source, "ai");
+/** เจ้าหน้าที่แก้ชื่อได้เมื่อยังไม่ผูก HN ผูกแล้วชื่อ HIS ล็อกไว้ ต้องยกเลิกการผูกก่อน */
+export const staffMayRename = (c: ContactNameFields | null | undefined) => !c?.hn;
 
 /** หลังยกเลิกการผูก HN */
 export const sourceAfterUnlink = (c: ContactNameFields): NameSource => (c.name_locked ? "staff" : "platform");

@@ -1,9 +1,10 @@
 // ทดสอบการปิดแชทเมื่อลูกค้าตอบรับหรือบอกลา และการจับชื่อลูกค้าจากแชท: npm test
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { beforeEach, test } from "node:test";
 import { fake } from "./fakes/hooks.mjs";
 
-const { replies, reset } = await import(fake("ai"));
+const { calls, replies, reset } = await import(fake("ai"));
 const { nextTime, resetDb, state } = await import(fake("admin"));
 const { storeIncoming } = await import("../src/lib/pipeline.ts");
 const { generateSuggestions } = await import("../src/lib/suggest.ts");
@@ -124,48 +125,27 @@ test("แชทที่ปิดแล้ว: โอเคหลังคำต
   assert.equal(conv().status, "open");
 });
 
-// ---- จับชื่อลูกค้า ----
-const llm = (customer_name) => ({ needs_human: false, suggested_tags: [], customer_name, options: [{ text: "สวัสดีค่ะ", source: "knowledge", ref_ids: [], confidence: 0.8 }] });
+// ---- AI ไม่ตั้งหรือแก้ชื่อลูกค้า ----
+const llm = (extra = {}) => ({ needs_human: false, suggested_tags: [], options: [{ text: "สวัสดีค่ะ", source: "knowledge", ref_ids: [], confidence: 0.8 }], ...extra });
 const contact = () => state.tables.contacts[0];
 
-test("ลูกค้า Facebook บอกชื่อเอง: ตั้งชื่อให้ ไม่ล็อก", async () => {
+test("ลูกค้าบอกชื่อในแชท: AI ไม่เปลี่ยนชื่อ contact และ prompt ไม่ขอชื่อกลับมา", async () => {
   await storeIncoming({ channelType: "facebook", externalId: "PSID1", text: "สวัสดีค่ะ ชื่อมิ้นท์ค่ะ อยากนัดตรวจ", displayName: "ลูกค้า Facebook" });
-  replies.next = llm("มิ้นท์");
+  // แม้ LLM จะส่งชื่อกลับมา ระบบก็ไม่ใช้
+  replies.next = llm({ customer_name: "มิ้นท์" });
   await generateSuggestions(conv().id, { force: true });
-  assert.equal(contact().display_name, "มิ้นท์");
-  assert.ok(!contact().name_locked);
+  assert.equal(contact().display_name, "ลูกค้า Facebook");
+  assert.notEqual(contact().name_source, "ai");
+  assert.doesNotMatch(calls.lastPrompt ?? "", /customer_name/);
+
+  await say("ผมชื่อต้นครับ");
+  replies.next = llm({ customer_name: "ต้น" });
+  await generateSuggestions(conv().id, { force: true });
+  assert.equal(state.tables.contacts.find((c) => c.external_id === SESSION)?.display_name ?? null, null);
 });
 
-test("ลูกค้าเว็บที่ไม่มีชื่อ: ตั้งชื่อให้", async () => {
-  await say("ผมชื่อต้นครับ จะสอบถามราคาวัคซีน");
-  replies.next = llm("ต้น");
-  await generateSuggestions(conv().id, { force: true });
-  assert.equal(contact().display_name, "ต้น");
-});
-
-test("ไม่ตั้งชื่อ: ชื่อไม่อยู่ในข้อความลูกค้า, มีชื่อจริงจาก LINE แล้ว, เจ้าหน้าที่ล็อกชื่อไว้, AI ส่งค่าแปลก", async () => {
-  await storeIncoming({ channelType: "facebook", externalId: "PSID1", text: "อยากนัดตรวจค่ะ", displayName: "ลูกค้า Facebook" });
-  replies.next = llm("สมหญิง");
-  await generateSuggestions(conv().id, { force: true });
-  assert.equal(contact().display_name, "ลูกค้า Facebook", "AI เดาชื่อที่ลูกค้าไม่ได้พิมพ์");
-
-  for (const bad of ["", "0812345678", 42, "ก".repeat(41)]) {
-    replies.next = llm(bad);
-    await generateSuggestions(conv().id, { force: true });
-    assert.equal(contact().display_name, "ลูกค้า Facebook", String(bad));
-  }
-
-  contact().name_locked = true;
-  contact().display_name = "คุณมิ้นท์ (เจ้าหน้าที่ตั้ง)";
-  await say("ชื่อมิ้นท์ค่ะ", "facebook", "PSID1");
-  replies.next = llm("มิ้นท์");
-  await generateSuggestions(conv().id, { force: true });
-  assert.equal(contact().display_name, "คุณมิ้นท์ (เจ้าหน้าที่ตั้ง)");
-});
-
-test("ลูกค้า LINE มีชื่อบัญชีอยู่แล้ว: ไม่เขียนทับ", async () => {
-  await storeIncoming({ channelType: "line", externalId: "U1", text: "ชื่อนกค่ะ", displayName: "Nok Line" });
-  replies.next = llm("นก");
-  await generateSuggestions(conv().id, { force: true });
-  assert.equal(contact().display_name, "Nok Line");
+test("ไม่มีโค้ดที่ให้ AI เขียนชื่อลูกค้า", () => {
+  const src = readFileSync("src/lib/suggest.ts", "utf8");
+  assert.doesNotMatch(src, /customer_name|saveDetectedName|pickDetectedName/);
+  assert.doesNotMatch(src, /from\("contacts"\)\.update/);
 });

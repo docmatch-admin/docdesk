@@ -21,7 +21,7 @@ export async function createArchivedChat(displayName: string, lineOaChatId: stri
   const channelId = await lineChannelId();
   if (!channelId) return null;
   const { data: contact, error: contactError } = await db.from("contacts").insert({
-    channel_id: channelId, external_id: `archived:${randomUUID()}`, display_name: displayName, line_oa_chat_id: lineOaChatId,
+    channel_id: channelId, external_id: `archived:${randomUUID()}`, display_name: displayName, platform_name: displayName, line_oa_chat_id: lineOaChatId,
   }).select("id").single();
   if (contactError || !contact) throw contactError ?? new Error("สร้างรายชื่อไม่สำเร็จ");
   const { data: conv, error } = await db.from("conversations").insert({

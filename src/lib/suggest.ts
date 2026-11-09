@@ -8,10 +8,8 @@ import { LAB_RULES } from "./lab-pricing";
 import { loadLabContext } from "./lab-store";
 import { bangkokDate } from "./llm-usage";
 import { DEFAULT_CLINIC_PROFILE, getSetting, isWithinBusinessHours, resolveAiMode } from "./mode";
-import { META_FALLBACK_NAME } from "./channels/meta";
 import { applyNumberGuard, buildNumberSources } from "./number-guard";
 import { applyPriceConflictGuard, buildPriceEntries, findPriceConflicts, noPriceAnswer, type WebsitePriceRow } from "./price-catalog";
-import { aiMayWriteName } from "./patient-name";
 import { scrubPII } from "./pii";
 import { applySensitiveGuard, SENSITIVE_PROMPT_RULES, SENSITIVE_TAG } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive } from "./sensitive-store";
@@ -259,8 +257,7 @@ ${convChannel ? `- ลูกค้าคุยกับคลินิกผ่�
 ${labContext ? `${LAB_RULES}\n` : ""}- intent: "booking" เมื่อลูกค้าต้องการจองหรือเปลี่ยนเวลานัดตอนนี้ หรือกำลังตอบวันเวลาที่คลินิกถาม "symptom" เมื่อเล่าอาการป่วยหรือถามเรื่องอาการ ถ้าแค่ถามข้อมูล เช่น ต้องนัดไหม เปิดกี่โมง ให้เป็น "other"
 - ลูกค้าขอยกเลิกนัด: intent "other" และ needs_human = true
 - sensitive: true เมื่อเป็นเรื่องโรคติดต่อทางเพศ การตรวจหรือรักษาเกี่ยวกับเพศสัมพันธ์ หรือความเสี่ยงทางเพศ
-${alreadySensitive ? `${SENSITIVE_PROMPT_RULES}\n` : ""}- customer_name: ชื่อที่ลูกค้าบอกว่าเป็นชื่อของตัวเองในแชท เช่น "ชื่อมิ้นท์ค่ะ" ให้ตอบ "มิ้นท์" ใช้คำตามที่ลูกค้าพิมพ์ ไม่เติมคำนำหน้า ถ้าไม่ได้บอก หรือเป็นชื่อคนอื่น เช่น ลูก แม่ ผู้ป่วย ให้เป็น null ห้ามเดา
-- booking: ดึงจากประวัติแชททั้งหมด ไม่ต้องขอชื่อหรือเบอร์ ห้ามเดาค่าที่ลูกค้าไม่ได้บอก ให้เป็น null
+${alreadySensitive ? `${SENSITIVE_PROMPT_RULES}\n` : ""}- booking: ดึงจากประวัติแชททั้งหมด ไม่ต้องขอชื่อหรือเบอร์ ห้ามเดาค่าที่ลูกค้าไม่ได้บอก ให้เป็น null
   - service: ชื่อบริการที่ลูกค้าต้องการ ถ้าตรงกับรายการบริการให้ใช้ชื่อในรายการ ถ้าไม่มีในรายการให้ใช้คำของลูกค้า ห้ามเปลี่ยนเป็นบริการอื่น
   - date: YYYY-MM-DD ปี ค.ศ. จากปฏิทินที่ให้ / time: HH:MM แบบ 24 ชั่วโมง เช่น บ่าย 3 = 15:00
   - name: ชื่อที่ลูกค้าบอกเองในแชท ถ้าไม่ได้บอกให้เป็น null
@@ -272,7 +269,7 @@ ${[...STYLE_FEW_SHOT, ...clinicStyle.map((e) => e.answer)].map((s) => `- "${s}"`
 
 ตอบเป็น JSON:
 {"needs_human": boolean, "reason": "เหตุผลสั้นๆ ถ้า needs_human", "suggested_tags": ["..."],
- "sensitive": false, "customer_name": null, "intent": "booking|symptom|other", "red_flag": false, "booking": {"service": "...", "date": "YYYY-MM-DD", "time": "HH:MM", "name": null, "is_change": false},
+ "sensitive": false, "intent": "booking|symptom|other", "red_flag": false, "booking": {"service": "...", "date": "YYYY-MM-DD", "time": "HH:MM", "name": null, "is_change": false},
  "options": [{"text": "...", "source": "knowledge|example|history", "ref_ids": ["..."], "confidence": 0.0, "kind": "ask|advice|other", "note": "ถ้ามี"}]}`;
 
   const user = `## ฐานข้อมูลคลินิก
@@ -307,10 +304,8 @@ ${safeQuestion}`;
     ? Promise.resolve(db.from("reply_examples").select("id").in("id", examples.map((e) => e.id)).in("source", ["line_import", "manual_paste"]))
     : Promise.resolve({ data: [] as { id: string }[] });
   importedP.catch(() => {});
-  const out = await chatJSON<{ customer_name?: unknown; needs_human?: boolean; reason?: string; suggested_tags?: unknown; sensitive?: boolean; intent?: string; red_flag?: boolean; booking?: BookingRequest; options?: Partial<SuggestionOption>[] }>(system, user, 0.4);
+  const out = await chatJSON<{ needs_human?: boolean; reason?: string; suggested_tags?: unknown; sensitive?: boolean; intent?: string; red_flag?: boolean; booking?: BookingRequest; options?: Partial<SuggestionOption>[] }>(system, user, 0.4);
   const suggested_tags = sanitizeSuggestedTags(out.suggested_tags, tagNames);
-  const detectedName = pickDetectedName(out.customer_name, customerText);
-  if (detectedName) await saveDetectedName(conversationId, detectedName).catch((e) => console.error("save detected name failed", e?.code ?? e?.name));
 
   const validSources: SuggestionSource[] = ["knowledge", "example", "history"];
   const knownIds = new Set([...knowledge.map((k) => k.id), ...examples.map((e) => e.id)]);
@@ -416,27 +411,4 @@ async function applyTopicTags(conversationId: string, suggested: string[]) {
   } catch (e) {
     console.error("auto tag failed", e);
   }
-}
-
-/** ชื่อชั่วคราวที่ระบบตั้งให้ ยังไม่ใช่ชื่อจริงของลูกค้า */
-const PLACEHOLDER_NAMES = new Set<string>(["", "ลูกค้า", ...Object.values(META_FALLBACK_NAME)]);
-
-/** ชื่อที่ AI จับได้ ต้องเป็นคำที่ลูกค้าพิมพ์เองจริง กัน AI เดาหรือหยิบชื่อเจ้าหน้าที่ */
-export function pickDetectedName(raw: unknown, customerText: string): string | null {
-  if (typeof raw !== "string") return null;
-  const name = raw.replace(/\s+/g, " ").trim();
-  const len = [...name].length;
-  if (len < 2 || len > 40 || /[\d@[\]<>]/.test(name)) return null;
-  return customerText.replace(/\s+/g, " ").includes(name) ? name : null;
-}
-
-/** ใช้เฉพาะลูกค้าที่ยังไม่มีชื่อจริงและเจ้าหน้าที่ไม่ได้ล็อกชื่อ ไม่ล็อก เจ้าหน้าที่แก้ต่อได้ */
-async function saveDetectedName(conversationId: string, name: string) {
-  const db = supabaseAdmin();
-  const { data: conv } = await db.from("conversations").select("contact_id").eq("id", conversationId).maybeSingle();
-  if (!conv) return;
-  const { data: c } = await db.from("contacts").select("display_name, name_locked, name_source").eq("id", conv.contact_id as string).maybeSingle();
-  // ห้ามทับชื่อจาก HIS หรือที่เจ้าหน้าที่ตั้ง
-  if (!aiMayWriteName(c) || !PLACEHOLDER_NAMES.has(((c?.display_name as string | null) ?? "").trim())) return;
-  await db.from("contacts").update({ display_name: name, name_source: "ai" }).eq("id", conv.contact_id as string);
 }

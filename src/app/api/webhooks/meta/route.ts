@@ -37,10 +37,10 @@ export async function POST(req: Request) {
   for (const m of incoming) {
     // ดึงโปรไฟล์เฉพาะลูกค้าใหม่ (ประหยัดการเรียก API)
     const { data: known } = await supabaseAdmin().from("contacts")
-      .select("id, display_name, channels!inner(type)")
+      .select("id, platform_name, channels!inner(type)")
       .eq("external_id", m.senderId).eq("channels.type", m.kind).maybeSingle();
-    // ชื่อชั่วคราวลองดึงใหม่ เผื่อได้สิทธิ์อ่านโปรไฟล์ภายหลัง
-    const profile = known?.display_name && known.display_name !== META_FALLBACK_NAME[m.kind] ? {} : await getMetaProfile(m.kind, m.senderId);
+    // ยังไม่มีชื่อแพลตฟอร์มจริง (ชื่อชั่วคราว หรือรายชื่อเก่าก่อนมี platform_name) ลองดึงใหม่
+    const profile = known?.platform_name && known.platform_name !== META_FALLBACK_NAME[m.kind] ? {} : await getMetaProfile(m.kind, m.senderId);
 
     // รหัสจากใบนัด: ระบบนัดตอบเอง AI ไม่ตอบทับ
     const code = m.isText ? parseLinkCode(m.text) : null;

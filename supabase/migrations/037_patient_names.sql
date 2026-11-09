@@ -1,6 +1,6 @@
 -- ชื่อคนไข้หลังผูก HN: ชื่อจาก iService (HIS) แสดงเป็น "{ชื่อ นามสกุล} · HN {hn}" ทุกที่
--- ลำดับความสำคัญ his > staff > ai > platform
---   display_name     = ชื่อที่ไม่ใช่ HIS (เจ้าหน้าที่ตั้ง / AI จับได้ / ชื่อจากแพลตฟอร์ม) ใช้กลับมาเมื่อยกเลิกการผูก
+-- ลำดับความสำคัญ his > staff > platform (AI ไม่ตั้งชื่อ ดู 038)
+--   display_name     = ชื่อที่ไม่ใช่ HIS (เจ้าหน้าที่ตั้ง / ชื่อจากแพลตฟอร์ม) ใช้กลับมาเมื่อยกเลิกการผูก
 --   platform_name    = ชื่อ LINE/Facebook/Instagram ล่าสุด แสดงเป็นบรรทัดเล็กและค้นหาได้
 --   patient_full_name, hn = จาก HIS เมื่อผูกแล้ว
 alter table contacts
@@ -10,9 +10,13 @@ alter table contacts
   add column if not exists name_source text not null default 'platform';
 
 alter table contacts drop constraint if exists contacts_name_source_check;
-alter table contacts add constraint contacts_name_source_check check (name_source in ('his', 'staff', 'ai', 'platform'));
+alter table contacts add constraint contacts_name_source_check check (name_source in ('his', 'staff', 'platform'));
 
-update contacts set platform_name = display_name where platform_name is null and not name_locked;
+-- ชื่อ LINE มาจากโปรไฟล์ LINE เสมอ ส่วน Facebook/Instagram/เว็บ เดิม AI อาจตั้งชื่อทับไว้ จึงไม่ถือว่าเป็นชื่อแพลตฟอร์ม
+-- (webhook ของ Meta ดึงโปรไฟล์ใหม่เมื่อ platform_name ว่าง)
+update contacts ct set platform_name = ct.display_name
+  from channels ch
+  where ch.id = ct.channel_id and ch.type = 'line' and ct.platform_name is null and not ct.name_locked;
 update contacts set name_source = 'staff' where name_locked and name_source = 'platform';
 create index if not exists contacts_hn_idx on contacts (hn) where hn is not null;
 
