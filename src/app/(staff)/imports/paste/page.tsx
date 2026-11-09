@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
-import { getStaffContext } from "@/lib/auth";
-import { PasteClient } from "./paste-client";
 
-export default async function PasteImportPage() {
-  const me = await getStaffContext();
-  if (me?.role !== "admin") redirect("/inbox");
-  return <PasteClient />;
+/** ย้ายไปเป็นแท็บ "นำเข้าคำตอบ" ในหน้าฐานข้อมูล & คำตอบ */
+export default function LegacyImportPage() {
+  redirect("/knowledge?tab=import");
 }

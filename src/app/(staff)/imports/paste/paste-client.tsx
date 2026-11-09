@@ -12,7 +12,7 @@ const SENDERS: { value: PasteSender; label: string }[] = [
 ];
 
 /** ข้อความที่วางอยู่ในหน้านี้เท่านั้น ส่งออกไปเฉพาะคู่ที่เลือกตอนกดบันทึก */
-export function PasteClient() {
+export function PasteClient({ embedded = false }: { embedded?: boolean } = {}) {
   const [raw, setRaw] = useState("");
   const [lines, setLines] = useState<PasteLine[]>([]);
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
@@ -68,8 +68,8 @@ export function PasteClient() {
   }
 
   return (
-    <div className="page narrow">
-      <h1>นำเข้าคำตอบแบบวางข้อความ</h1>
+    <div className={embedded ? "import-section" : "page narrow"}>
+      {embedded ? <h2>นำเข้าคำตอบแบบวางข้อความ</h2> : <h1>นำเข้าคำตอบแบบวางข้อความ</h1>}
       <p className="muted small">เปิดห้องแชทใน chat.line.biz กด Ctrl+A, Ctrl+C แล้ววางทีละห้อง ระบบเก็บเฉพาะคู่ที่คุณเลือก ไม่เก็บข้อความที่วาง ไม่จับคู่กับลูกค้า และไม่สร้างประวัติแชท</p>
 
       <section className="card form">

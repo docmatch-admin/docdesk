@@ -28,7 +28,7 @@ interface Preview {
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const dateTh = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit", timeZone: "Asia/Bangkok" }) : "–");
 
-export function ImportsClient() {
+export function ImportsClient({ embedded = false }: { embedded?: boolean } = {}) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [logs, setLogs] = useState<MergeLog[]>([]);
@@ -115,8 +115,8 @@ export function ImportsClient() {
   const matchedRooms = preview ? preview.rooms.filter((r) => preview.matched.has(r.room) && !preview.ambiguous.has(r.room)).length : 0;
 
   return (
-    <div className="page narrow">
-      <h1>นำเข้าประวัติ LINE</h1>
+    <div className={embedded ? "import-section" : "page narrow"}>
+      {embedded ? <h2>นำเข้าประวัติ LINE</h2> : <h1>นำเข้าประวัติ LINE</h1>}
       <p className="muted small">ข้อความที่นำเข้าเป็นประวัติเท่านั้น ไม่เข้ารอตอบ ไม่มีเสียงเตือน ไม่คิดคะแนน และ AI ไม่ใช้ตัวเลขจากคำตอบที่นำเข้าเป็นแหล่งยืนยัน</p>
 
       <section className="card form">

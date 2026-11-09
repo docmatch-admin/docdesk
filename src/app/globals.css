@@ -768,3 +768,10 @@ body > .appt-slip { display: none; }
 .appt-slots .appt-time { width: auto; min-height: 48px; font-size: 15px; }
 .appt-slot-notice { font-size: 13px; color: #8a4b00; background: #fff4e0; border-radius: 8px; padding: 6px 10px; align-self: flex-start; }
 @media (max-width: 640px) { .appt-slot-btn { flex: 1 1 calc(50% - 8px); justify-content: center; } }
+
+/* หน้าฐานข้อมูล & คำตอบ: แท็บระดับหน้า */
+.page-tabs a { padding: 6px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 500; }
+.page-tabs a.on { background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+.import-tab { display: flex; flex-direction: column; gap: 24px; max-width: 760px; }
+.import-section { display: flex; flex-direction: column; gap: 16px; }
+.import-section h2 { font-size: 18px; margin: 0; }

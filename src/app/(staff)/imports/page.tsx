@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
-import { getStaffContext } from "@/lib/auth";
-import { ImportsClient } from "./imports-client";
 
-export default async function ImportsPage() {
-  const me = await getStaffContext();
-  if (me?.role !== "admin") redirect("/inbox");
-  return <ImportsClient />;
+/** ย้ายไปเป็นแท็บ "นำเข้าคำตอบ" ในหน้าฐานข้อมูล & คำตอบ */
+export default function LegacyImportPage() {
+  redirect("/knowledge?tab=import");
 }

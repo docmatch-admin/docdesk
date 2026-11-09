@@ -14,7 +14,7 @@ const dateTh = (iso: string) => new Date(iso).toLocaleDateString("th-TH", { day:
 const timeTh = (iso: string) => new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
 const EMPTY = { id: "", category: "", title: "", content: "" };
 
-export function KnowledgeClient() {
+export function KnowledgeClient({ embedded = false }: { embedded?: boolean } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [tab, setTab] = useState<"kb" | "ex" | "media" | "lab">("kb");
   const [items, setItems] = useState<Item[]>([]);
@@ -85,9 +85,9 @@ export function KnowledgeClient() {
   }
 
   return (
-    <div className="page">
-      <h1>ฐานข้อมูล &amp; คำตอบที่เรียนรู้</h1>
-      <p className="muted">AI ใช้ฐานข้อมูลคลินิกเป็นแหล่งหลัก (ข้อมูลล่าสุดเสมอ) และใช้คำตอบเดิมของเจ้าหน้าที่เป็นแบบอย่างสำนวน</p>
+    <div className={embedded ? "" : "page"}>
+      {!embedded && <h1>ฐานข้อมูล &amp; คำตอบที่เรียนรู้</h1>}
+      {!embedded && <p className="muted">AI ใช้ฐานข้อมูลคลินิกเป็นแหล่งหลัก (ข้อมูลล่าสุดเสมอ) และใช้คำตอบเดิมของเจ้าหน้าที่เป็นแบบอย่างสำนวน</p>}
 
       <div className="tabs wide">
         <button className={tab === "kb" ? "on" : ""} onClick={() => setTab("kb")}>📚 ฐานข้อมูลคลินิก ({items.length})</button>

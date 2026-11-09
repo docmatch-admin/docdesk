@@ -43,16 +43,15 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       <nav className="nav">
         <div className="brand"><span className="nav-label">Doc<span>Desk</span></span><span className="brand-short" aria-hidden="true">D</span></div>
         {chatStaff && <Link href="/inbox" title="แชท"><span className="nav-icon" aria-hidden="true"><Icon name="chat" size={20} /></span><span className="nav-label">แชท</span></Link>}
-        {isAdmin && <Link href="/knowledge" title="ฐานข้อมูล & คำตอบ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ฐานข้อมูล &amp; คำตอบ</span></Link>}
         <Link href="/appointments" title="นัดหมาย">
           <span className="nav-icon" aria-hidden="true"><Icon name="calendar" size={20} /></span><span className="nav-label">นัดหมาย</span>
           <AppointmentBadge initial={calls} />
         </Link>
         {chatStaff && <Link href="/reports" title="รายงาน"><span className="nav-icon" aria-hidden="true"><Icon name="chart" size={20} /></span><span className="nav-label">รายงาน</span></Link>}
-        {isAdmin && <Link href="/imports/paste" title="นำเข้าคำตอบ"><span className="nav-icon" aria-hidden="true"><Icon name="download" size={20} /></span><span className="nav-label">นำเข้าคำตอบ</span></Link>}
         {isAdmin && <Link href="/staff" title="เจ้าหน้าที่"><span className="nav-icon" aria-hidden="true"><Icon name="users" size={20} /></span><span className="nav-label">เจ้าหน้าที่</span></Link>}
         {isAdmin && <Link href="/sensitive-log" title="ประวัติแชทลับ"><span className="nav-icon" aria-hidden="true"><Icon name="lock" size={20} /></span><span className="nav-label">ประวัติแชทลับ</span></Link>}
         {isAdmin && <Link href="/settings" title="ตั้งค่า AI"><span className="nav-icon" aria-hidden="true"><Icon name="settings" size={20} /></span><span className="nav-label">ตั้งค่า AI</span></Link>}
+        {isAdmin && <Link href="/knowledge" title="ฐานข้อมูล & คำตอบ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ฐานข้อมูล &amp; คำตอบ</span></Link>}
         <div className="nav-foot">
           {/* ตอนย่อเมนูซ่อนส่วนนี้ เหลือแค่ปุ่มขยาย */}
           <div className="nav-extra">
