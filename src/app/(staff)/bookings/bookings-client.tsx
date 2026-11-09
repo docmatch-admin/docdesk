@@ -30,7 +30,7 @@ export function BookingsClient() {
 
   const load = useCallback(async () => {
     const { data } = await sb.from("bookings")
-      .select('id, conversation_id, service, "date", "time", name, phone, status, conversations(contacts(display_name, platform_name, hn, patient_full_name))')
+      .select('id, conversation_id, service, "date", "time", name, phone, status, conversations(contacts(display_name, platform_name, hn, patient_full_name, patient_relation))')
       .order("date").order("time").limit(1000);
     setRows((data ?? []) as unknown as Row[]);
   }, [sb]);

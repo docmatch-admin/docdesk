@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { denySensitiveChat, requireAdmin } from "@/lib/auth";
 import { lookupHisPatient } from "@/lib/his";
-import { linkConversationToHn, unlinkConversation } from "@/lib/patient-link-store";
+import { linkConversationToHn, setPatientRelation, unlinkConversation } from "@/lib/patient-link-store";
 
 export const runtime = "nodejs";
 
@@ -43,6 +43,17 @@ export async function POST(req: Request, { params }: Ctx) {
   const result = await linkConversationToHn(id, his.hn, { via: "staff", staffId: user.id, his });
   if (!result) return NextResponse.json({ error: "ไม่พบแชท" }, { status: 404 });
   return NextResponse.json(result);
+}
+
+/** แอดมินแก้ป้ายบัญชี { relation: "patient" | "relative" } */
+export async function PATCH(req: Request, { params }: Ctx) {
+  const { id } = await params;
+  const { error } = await guard(id);
+  if (error) return error;
+  const b = (await req.json().catch(() => ({}))) as { relation?: unknown };
+  if (b.relation !== "patient" && b.relation !== "relative") return NextResponse.json({ error: "ป้ายไม่ถูกต้อง" }, { status: 400 });
+  if (!(await setPatientRelation(id, b.relation))) return NextResponse.json({ error: "ไม่พบแชท" }, { status: 404 });
+  return NextResponse.json({ ok: true });
 }
 
 /** แอดมินยกเลิกการผูก: กลับไปใช้ชื่อเดิม บันทึกว่าใครทำ */

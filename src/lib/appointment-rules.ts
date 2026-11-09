@@ -27,6 +27,8 @@ export interface Appointment {
   purpose_text: string | null;
   /** การปฏิบัติตัว ส่งในข้อความนัดเสมอ */
   instructions: string | null;
+  /** การปฏิบัติตัวภาษาอังกฤษ (ใบนัด English) ว่าง = ใช้ภาษาไทย */
+  instructions_en?: string | null;
   provider: string | null;
   note: string | null;
   status: AppointmentStatus;
@@ -88,6 +90,9 @@ export interface AppointmentSettings {
   template_en: string;
   clinic_phone: string;
   clinic_address: string;
+  /** ใบนัด English */
+  clinic_name_en: string;
+  clinic_address_en: string;
   line_oa_id: string;
 }
 
@@ -100,6 +105,8 @@ export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
   template_en: "Dear {name},\nYour next appointment at {clinic}\n{date}\n{time}\nQuestions? Call {phone}",
   clinic_phone: "02-000-4586",
   clinic_address: "",
+  clinic_name_en: "HappiWell Medical Clinic",
+  clinic_address_en: "",
   line_oa_id: "@p49clinic",
 };
 
@@ -114,6 +121,8 @@ export function normalizeAppointmentSettings(value: unknown): AppointmentSetting
     template_en: text(v.template_en, DEFAULT_APPOINTMENT_SETTINGS.template_en),
     clinic_phone: text(v.clinic_phone, DEFAULT_APPOINTMENT_SETTINGS.clinic_phone, 50),
     clinic_address: typeof v.clinic_address === "string" ? v.clinic_address.slice(0, 300) : "",
+    clinic_name_en: text(v.clinic_name_en, DEFAULT_APPOINTMENT_SETTINGS.clinic_name_en, 120),
+    clinic_address_en: typeof v.clinic_address_en === "string" ? v.clinic_address_en.slice(0, 300) : "",
     line_oa_id: text(v.line_oa_id, DEFAULT_APPOINTMENT_SETTINGS.line_oa_id, 50).trim(),
   };
 }

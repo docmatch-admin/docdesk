@@ -184,7 +184,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
         )}
       </section>
       {openId && (
-        <AppointmentDrawer id={openId} canOpenChat={canOpenChat} onClose={() => setOpenId(null)}
+        <AppointmentDrawer id={openId} canOpenChat={canOpenChat} isAdmin={isAdmin} onClose={() => setOpenId(null)}
           onChanged={(m) => { if (m) flash(m); load(); }} />
       )}
       {toast && <div className="toast" role="status">{toast}</div>}

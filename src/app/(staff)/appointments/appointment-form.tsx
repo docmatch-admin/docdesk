@@ -20,26 +20,28 @@ export interface AppointmentDraft {
   purpose_id: string;
   purpose_text: string;
   instructions: string;
+  /** ใบนัด English (ว่าง = ใช้ภาษาไทย) */
+  instructions_en: string;
   provider: string;
   note: string;
 }
 
 export const EMPTY_DRAFT: AppointmentDraft = {
   hn: "", patient_name: "", phone: "", appoint_date: "", time_mode: "slot", slot_id: DEFAULT_SLOT_ID, time_start: "",
-  purpose_id: "", purpose_text: "", instructions: "", provider: "", note: "",
+  purpose_id: "", purpose_text: "", instructions: "", instructions_en: "", provider: "", note: "",
 };
 
 export const draftOf = (a: Appointment): AppointmentDraft => ({
   hn: a.hn ?? "", patient_name: a.patient_name, phone: a.phone ?? "", appoint_date: a.appoint_date,
   time_mode: a.time_mode, slot_id: a.slot_id ?? DEFAULT_SLOT_ID, time_start: a.time_start.slice(0, 5),
-  purpose_id: a.purpose_id ?? "", purpose_text: a.purpose_text ?? "", instructions: a.instructions ?? "",
+  purpose_id: a.purpose_id ?? "", purpose_text: a.purpose_text ?? "", instructions: a.instructions ?? "", instructions_en: a.instructions_en ?? "",
   provider: a.provider ?? "", note: a.note ?? "",
 });
 
 export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string }
 export interface SaveResult { appointment: Appointment; delivery: DeliveryResult | null; moved?: boolean; shifted?: number }
 
-export interface PurposePreset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null }
+export interface PurposePreset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; name_en?: string | null; reminder_extra_text_en?: string | null }
 export interface SeriesTemplate {
   id: string; name: string; purpose_id: string | null;
   items: { label: string; offset_value: number; offset_unit: DateUnit; from: SeriesFrom }[];
@@ -326,16 +328,18 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
     const previous = presets.find((x) => x.id === form.purpose_id);
     // การปฏิบัติตัวที่ยังเป็นค่าของ preset เดิม (หรือว่าง) เปลี่ยนตาม preset ใหม่ ถ้าแก้เองแล้วไม่ทับ
     const instructionsUntouched = !form.instructions.trim() || form.instructions === (previous?.reminder_extra_text ?? "");
+    const enUntouched = !form.instructions_en.trim() || form.instructions_en === (previous?.reminder_extra_text_en ?? "");
+    const fill = (x: PurposePreset | undefined) => ({
+      ...(instructionsUntouched ? { instructions: x?.reminder_extra_text ?? "" } : {}),
+      ...(enUntouched ? { instructions_en: x?.reminder_extra_text_en ?? "" } : {}),
+    });
     if (!p || p === otherPreset) {
       setOtherOpen(true);
-      set({
-        purpose_id: otherPreset?.id ?? "", purpose_text: isOther ? form.purpose_text : "",
-        ...(instructionsUntouched ? { instructions: otherPreset?.reminder_extra_text ?? "" } : {}),
-      });
+      set({ purpose_id: otherPreset?.id ?? "", purpose_text: isOther ? form.purpose_text : "", ...fill(otherPreset) });
       return;
     }
     setOtherOpen(false);
-    set({ purpose_id: p.id, purpose_text: p.name, ...(instructionsUntouched ? { instructions: p.reminder_extra_text ?? "" } : {}) });
+    set({ purpose_id: p.id, purpose_text: p.name, ...fill(p) });
     // preset ที่มีจำนวนวัน: ใส่ช่องวัน (หรือเดือนถ้าหาร 30 ลงตัว)
     if (p.default_days) setOffset(offsetFromDays(p.default_days));
   }
@@ -533,6 +537,9 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
       <div className="appt-grid">
         <label className="span4">การปฏิบัติตัว (ส่งในข้อความนัดและพิมพ์บนใบนัด)
           <textarea rows={2} value={form.instructions} onChange={(e) => set({ instructions: e.target.value })} placeholder="เช่น งดน้ำงดอาหาร 8–12 ชม." />
+        </label>
+        <label className="span4">การปฏิบัติตัว (ภาษาอังกฤษ สำหรับใบนัด English — ว่างไว้จะใช้ภาษาไทย)
+          <textarea rows={1} lang="en" value={form.instructions_en} onChange={(e) => set({ instructions_en: e.target.value })} placeholder="e.g. Fast 8–12 hrs (plain water OK)" />
         </label>
         <label className="span2">ผู้นัด
           <input list="appt-providers" value={form.provider} onChange={(e) => set({ provider: e.target.value })} autoComplete="off" />

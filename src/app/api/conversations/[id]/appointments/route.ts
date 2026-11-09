@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { denySensitiveChat, requireStaff } from "@/lib/auth";
-import { APPOINTMENT_COLUMNS } from "@/lib/appointment-store";
+import { APPOINTMENT_COLUMNS, linkedAccounts } from "@/lib/appointment-store";
 import { bangkokToday, type Appointment } from "@/lib/appointment-rules";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -31,5 +31,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const appointments = ([...(byChat ?? []), ...(byHn ?? [])] as unknown as Appointment[])
     .filter((a) => !a.series_done && !seen.has(a.id) && seen.add(a.id))
     .sort((a, b) => a.appoint_date.localeCompare(b.appoint_date) || a.time_start.localeCompare(b.time_start));
-  return NextResponse.json({ link: link ?? null, appointments }, { headers: { "Cache-Control": "no-store" } });
+  // บัญชีที่ผูก HN นี้ (คนไข้ + ญาติ) ใช้ดู/แก้ป้าย/ยกเลิกการผูกรายบัญชี
+  const accounts = link?.hn ? await linkedAccounts({ id: "00000000-0000-0000-0000-000000000000", hn: link.hn as string, conversation_id: null }) : [];
+  return NextResponse.json({ link: link ?? null, appointments, accounts }, { headers: { "Cache-Control": "no-store" } });
 }

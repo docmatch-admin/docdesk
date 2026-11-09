@@ -7,6 +7,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import { AppointmentDrawer } from "../appointments/appointment-drawer";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
 import { Icon } from "../icons";
+import { LinkedAccounts, type LinkedAccountRow } from "../appointments/linked-accounts";
 
 interface Link_ { hn: string; patient_name: string | null; phone: string | null }
 
@@ -25,6 +26,7 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
   const sb = useMemo(() => supabaseBrowser(), []);
   const [rows, setRows] = useState<Appointment[]>([]);
   const [link, setLink] = useState<Link_ | null>(null);
+  const [accounts, setAccounts] = useState<LinkedAccountRow[]>([]);
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   // แอดมินยืนยันการจับคู่ HN: ค้นชื่อจาก iService ก่อน แล้วกดยืนยัน
@@ -40,10 +42,11 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
     const j = await res.json();
     setRows(j.appointments as Appointment[]);
     setLink(j.link as Link_ | null);
+    setAccounts((j.accounts ?? []) as LinkedAccountRow[]);
   }, [conversationId]);
 
   useEffect(() => {
-    setRows([]); setLink(null); setCreating(false); setOpenId(null);
+    setRows([]); setLink(null); setAccounts([]); setCreating(false); setOpenId(null);
     setLinking(false); setHnInput(""); setPreview(null); setLinkErr(""); setConfirmUnlink(false);
     load();
     const ch = sb.channel(`appt-${conversationId}`)
@@ -119,6 +122,19 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
           {linkErr && <div className="error small" role="alert">{linkErr}</div>}
         </div>
       )}
+      {link && accounts.length > 0 && (
+        <LinkedAccounts accounts={accounts.map((a) => ({ ...a, primary: a.conversation_id === conversationId }))} isAdmin={isAdmin}
+          setRelation={async (acc, relation) => {
+            const r = await fetch(`/api/conversations/${acc.conversation_id}/patient-link`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relation }) });
+            onMessage(r.ok ? "แก้ป้ายบัญชีแล้ว" : (await r.json().catch(() => ({}))).error ?? "แก้ป้ายไม่สำเร็จ");
+            load(); onChanged();
+          }}
+          detach={async (acc) => {
+            const r = await fetch(`/api/conversations/${acc.conversation_id}/patient-link`, { method: "DELETE" });
+            onMessage(r.ok ? "ยกเลิกการผูกบัญชีแล้ว" : (await r.json().catch(() => ({}))).error ?? "ยกเลิกไม่สำเร็จ");
+            load(); onChanged();
+          }} />
+      )}
       {creating && (
         <AppointmentForm compact initial={initial} conversationId={conversationId} onCancel={() => setCreating(false)} onSaved={saved} />
       )}
@@ -137,7 +153,7 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
         ))}
       </div>
       {openId && (
-        <AppointmentDrawer id={openId} canOpenChat={false} onClose={() => setOpenId(null)}
+        <AppointmentDrawer id={openId} canOpenChat={false} isAdmin={isAdmin} onClose={() => setOpenId(null)}
           onChanged={(m) => { if (m) onMessage(m); load(); onChanged(); }} />
       )}
     </section>

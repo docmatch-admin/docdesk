@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import qrcode from "qrcode-generator";
-import { thaiFullDate, thaiMediumDate, timePhrase, timeShort, type Appointment } from "@/lib/appointment-rules";
+import { slipView, type SlipData, type SlipLang } from "@/lib/appointment-slip";
 
-interface Slip { appointment: Appointment; clinic: string; phone: string; address: string; qrUrl: string; series?: Appointment[]; linkedLine?: boolean }
+type Slip = SlipData & { qrUrl: string; defaultLang: SlipLang };
 
 /**
  * ใบนัดเครื่องพิมพ์ความร้อน 80mm อย่างเดียว: กระดาษยาวตามเนื้อหา ไม่มีขอบ ขาวดำล้วน
@@ -18,20 +18,23 @@ const PRINT_CSS = `@page { size: 80mm auto; margin: 0; }
   body > *:not(.appt-slip) { display: none !important; }
 }`;
 
-/** ใบนัด: ชื่อคลินิก วันเวลา ผู้นัด เหตุผลนัด และ QR ให้คนไข้สแกนเพื่อรับข้อความเตือนนัดทาง LINE */
+/** ใบนัด: พิมพ์ QR + รหัสทุกใบ เลือกภาษา ไทย/English ตอนพิมพ์ (ไม่ปนกันในใบเดียว) */
 export function PrintClient({ id, message, sent, autoPrint }: { id: string; message: string; sent: boolean; autoPrint: boolean }) {
   const [slip, setSlip] = useState<Slip | null>(null);
+  const [lang, setLang] = useState<SlipLang>("th");
   const [err, setErr] = useState("");
   const printed = useRef(false);
 
   useEffect(() => {
     fetch(`/api/appointments/${id}`).then(async (r) => {
       if (!r.ok) return setErr((await r.json().catch(() => ({}))).error ?? "โหลดนัดไม่สำเร็จ");
-      setSlip(await r.json());
+      const j = (await r.json()) as Slip;
+      setSlip(j);
+      setLang(j.defaultLang === "en" ? "en" : "th");
     }).catch(() => setErr("โหลดนัดไม่สำเร็จ"));
   }, [id]);
 
-  // เพิ่งบันทึกนัดหรือกดพิมพ์ซ้ำ: เปิดหน้าพิมพ์ทันที รอให้ QR และฟอนต์พร้อมก่อน
+  // เพิ่งบันทึกนัดหรือกดพิมพ์ซ้ำ: เปิดหน้าพิมพ์ทันที (ภาษาเริ่มต้น) รอให้ QR และฟอนต์พร้อมก่อน
   useEffect(() => {
     if (!slip || !autoPrint || printed.current) return;
     printed.current = true;
@@ -50,52 +53,59 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
     return qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
   }, [slip]);
 
+  const view = useMemo(() => (slip ? slipView(slip, lang) : null), [slip, lang]);
+
+  // จำภาษาที่เลือกล่าสุดต่อคนไข้
+  function pickLang(next: SlipLang) {
+    setLang(next);
+    fetch(`/api/appointments/${id}/slip-lang`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lang: next }) }).catch(() => {});
+  }
+
   if (err) return <div className="page"><p className="error">{err}</p><Link href="/appointments">กลับหน้านัดหมาย</Link></div>;
-  if (!slip) return <div className="page muted">กำลังโหลด…</div>;
-  const a = slip.appointment;
+  if (!slip || !view) return <div className="page muted">กำลังโหลด…</div>;
 
   const sheet = (
-    <div className="appt-slip">
-      <div className="appt-slip-clinic">{slip.clinic}</div>
-      <div className="appt-slip-title">ใบนัด</div>
-      <div className="appt-slip-row"><span>ชื่อ-นามสกุล</span><b>{a.patient_name}</b></div>
-      {a.hn && <div className="appt-slip-row"><span>HN</span><b>{a.hn}</b></div>}
-      {slip.series && slip.series.length > 1 ? (
-        <table className="appt-slip-series">
-          <tbody>
-            {slip.series.map((x) => (
-              <tr key={x.id} className={x.series_done ? "done" : ""}>
-                <th>{x.series_done ? "✓ " : ""}{x.series_label}</th>
-                {x.series_done
-                  ? <td>ฉีดแล้ว {thaiMediumDate(x.appoint_date)}</td>
-                  : <td><b>{thaiMediumDate(x.appoint_date)}</b><br />{timeShort(x)} น.{x.time_mode === "slot" ? " (ตามคิว)" : ""}</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
+    <div className="appt-slip" lang={view.lang}>
+      <div className="appt-slip-head">
+        <div className="appt-slip-clinic">{view.clinicName}</div>
+        {view.clinicAddress && <div className="appt-slip-address">{view.clinicAddress}</div>}
+        {view.clinicPhone && <div className="appt-slip-phone">{view.clinicPhone}</div>}
+      </div>
+      <hr className="appt-slip-hr" />
+      <div className="appt-slip-title">{view.title}</div>
+      <hr className="appt-slip-hr" />
+      <div className="appt-slip-row"><span>{view.name.label}</span><b>{view.name.value}</b></div>
+      {view.hn && <div className="appt-slip-row"><span>{view.hn.label}</span><b>{view.hn.value}</b></div>}
+      <div className="appt-slip-date">{view.date}</div>
+      <div className="appt-slip-time">{view.time}</div>
+      {view.queueNote && <div className="appt-slip-queue">{view.queueNote}</div>}
+      {view.series && (
         <>
-          <div className="appt-slip-date">{thaiFullDate(a.appoint_date)}</div>
-          <div className="appt-slip-time">{timePhrase(a)}</div>
+          <hr className="appt-slip-hr" />
+          <table className="appt-slip-series">
+            <tbody>
+              {view.series.map((x, i) => (
+                <tr key={i} className={x.current ? "current" : x.done ? "done" : ""}>
+                  <th>{x.label}</th>
+                  <td>{x.when}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {view.seriesNote && <div className="appt-slip-series-note">{view.seriesNote}</div>}
         </>
       )}
-      {a.provider && <div className="appt-slip-row"><span>ผู้นัด</span><b>{a.provider}</b></div>}
-      {a.purpose_text && <div className="appt-slip-row"><span>เหตุผลนัด</span><b>{a.purpose_text}</b></div>}
-      {a.instructions && <div className="appt-slip-instructions"><span>การปฏิบัติตัว</span><b>{a.instructions}</b></div>}
-      {a.note && <div className="appt-slip-row"><span>หมายเหตุ</span><b>{a.note}</b></div>}
-      {slip.linkedLine ? (
-        <div className="appt-slip-linked">✓ รับข้อความเตือนนัดทาง LINE แล้ว</div>
-      ) : (
-        <>
-          <div className="appt-slip-qr" dangerouslySetInnerHTML={{ __html: svg }} />
-          <div className="appt-slip-scan">สแกนแล้วกดส่ง เพื่อรับข้อความเตือนนัดทาง LINE</div>
-          <div className="appt-slip-code">#{a.link_code}</div>
-        </>
-      )}
+      {view.rows.length > 0 && <hr className="appt-slip-hr" />}
+      {view.rows.map((r) => <div key={r.label} className="appt-slip-row"><span>{r.label}</span><b>{r.value}</b></div>)}
+      <hr className="appt-slip-hr" />
+      {view.qr.above.map((t) => <div key={t} className="appt-slip-qr-text">{t}</div>)}
+      <div className={`appt-slip-qr mm${view.qr.sizeMm}`} dangerouslySetInnerHTML={{ __html: svg }} />
+      <div className="appt-slip-code">{view.code}</div>
+      {view.qr.below.map((t) => <div key={t} className={`appt-slip-qr-text ${slip.linkedLine ? "small" : ""}`}>{t}</div>)}
+      <hr className="appt-slip-hr" />
       <div className="appt-slip-foot">
-        โทร {slip.phone}
-        {slip.address && <><br />{slip.address}</>}
-        <br />หากมาไม่ได้ กรุณาแจ้งล่วงหน้า
+        <div>{view.footer[0]}</div>
+        <div className="issued">{view.footer[1]}</div>
       </div>
     </div>
   );
@@ -105,7 +115,13 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
       <style>{PRINT_CSS}</style>
       <div className="row between">
         <h1>ใบนัด</h1>
-        <button className="btn primary" onClick={() => window.print()}>พิมพ์ (80mm)</button>
+        <div className="row">
+          <div className="segmented appt-slip-lang" role="tablist" aria-label="ภาษาใบนัด">
+            <button type="button" role="tab" aria-selected={lang === "th"} className={lang === "th" ? "on" : ""} onClick={() => pickLang("th")}>ไทย</button>
+            <button type="button" role="tab" aria-selected={lang === "en"} className={lang === "en" ? "on" : ""} onClick={() => pickLang("en")}>English</button>
+          </div>
+          <button className="btn primary" onClick={() => window.print()}>พิมพ์ (80mm)</button>
+        </div>
       </div>
       {message && <div className={`appt-link-state ${sent ? "ok" : ""}`}>{message}</div>}
       <div className="appt-slip-preview">{sheet}</div>

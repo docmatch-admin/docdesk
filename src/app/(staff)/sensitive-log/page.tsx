@@ -20,7 +20,7 @@ export default async function SensitiveLogPage() {
   if (me?.role !== "admin") redirect("/inbox");
   const sb = await supabaseServer();
   const { data } = await sb.from("sensitive_access_log")
-    .select("id, action, created_at, staff(display_name), conversations(id, contacts(display_name, platform_name, hn, patient_full_name))")
+    .select("id, action, created_at, staff(display_name), conversations(id, contacts(display_name, platform_name, hn, patient_full_name, patient_relation))")
     .order("created_at", { ascending: false }).limit(500);
   const rows = (data ?? []) as unknown as Row[];
 

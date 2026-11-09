@@ -9,10 +9,10 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /** รายละเอียดนัด ข้อมูลใบนัด และประวัติ */
 export async function GET(_req: Request, { params }: Ctx) {
-  const { error } = await requireAppointmentStaff();
+  const { user, error } = await requireAppointmentStaff();
   if (error) return error;
   const { id } = await params;
-  const slip = await appointmentSlip(id);
+  const slip = await appointmentSlip(id, user.id);
   if (!slip) return NextResponse.json({ error: "ไม่พบนัด" }, { status: 404 });
   return NextResponse.json({ ...slip, events: await appointmentEvents(id) }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -73,6 +73,8 @@ export function AppointmentSettings() {
         <label>เบอร์คลินิก<input value={s.clinic_phone} onChange={(e) => set({ clinic_phone: e.target.value })} /></label>
         <label className="span2">LINE OA ID (สำหรับ QR บนใบนัด)<input value={s.line_oa_id} onChange={(e) => set({ line_oa_id: e.target.value })} placeholder="@p49clinic" /></label>
         <label className="span4">ที่อยู่คลินิก (แสดงในข้อความ LINE และใบนัด)<input value={s.clinic_address} onChange={(e) => set({ clinic_address: e.target.value })} /></label>
+        <label className="span2">ชื่อคลินิกภาษาอังกฤษ (ใบนัด English)<input value={s.clinic_name_en} onChange={(e) => set({ clinic_name_en: e.target.value })} /></label>
+        <label className="span4">ที่อยู่ภาษาอังกฤษ (address_en ใบนัด English)<input value={s.clinic_address_en} onChange={(e) => set({ clinic_address_en: e.target.value })} placeholder="e.g. 49 Sukhumvit Rd, Bangkok" /></label>
       </div>
       <label className="raw small" style={{ marginLeft: 0 }}>
         <input type="checkbox" checked={s.send_purpose_in_message} onChange={(e) => set({ send_purpose_in_message: e.target.checked })} />

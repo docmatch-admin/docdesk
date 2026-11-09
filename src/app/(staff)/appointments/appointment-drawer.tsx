@@ -8,9 +8,10 @@ import {
 } from "@/lib/appointment-rules";
 import { Icon } from "../icons";
 import { AppointmentForm, deliveryText, draftOf } from "./appointment-form";
+import { LinkedAccounts, type LinkedAccountRow } from "./linked-accounts";
 
 interface EventRow { id: string; kind: string; actor: "staff" | "customer" | "system"; staff_name: string | null; channel: string | null; detail: Record<string, unknown>; created_at: string }
-interface Detail { appointment: Appointment; events: EventRow[]; series: Appointment[] }
+interface Detail { appointment: Appointment; events: EventRow[]; series: Appointment[]; accounts: LinkedAccountRow[] }
 
 const EVENT_LABEL: Record<string, string> = {
   created: "ลงนัด", edited: "แก้ไขรายละเอียด", rescheduled: "เปลี่ยนวัน/เวลา", cancelled: "ยกเลิกนัด", restored: "กู้คืนนัด",
@@ -35,6 +36,9 @@ function eventText(e: EventRow): string {
     typeof d.from === "string" && typeof d.to === "string" ? `${d.from} → ${d.to}` : null,
     typeof d.reason === "string" ? REASON_LABEL[d.reason] ?? d.reason : null,
     e.channel ? e.channel.toUpperCase() : null,
+    // HN เดียวหลายบัญชี: บอกว่าบัญชีไหนกด/สแกน
+    typeof d.account === "string" && d.account ? `บัญชี ${d.account}${d.relation === "relative" ? " (ญาติ)" : ""}` : null,
+    d.added === true ? "เพิ่มบัญชีรับแจ้งเตือน" : null,
   ].filter(Boolean);
   return extra.length ? `${base} · ${extra.join(" · ")}` : base;
 }
@@ -43,9 +47,10 @@ function eventText(e: EventRow): string {
  * รายละเอียดนัดแบบ drawer ใช้ทั้งหน้านัดหมายและกล่องขวาของแชท
  * แก้ไข/ยกเลิกได้เฉพาะนัดที่ยังเปิดอยู่ มาแล้ว/ไม่มา/ยกเลิก ดูอย่างเดียว (ยกเลิกวันนี้กู้คืนได้)
  */
-export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
+export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, onClose, onChanged }: {
   id: string;
   canOpenChat: boolean;
+  isAdmin?: boolean;
   onClose: () => void;
   onChanged: (message?: string) => void;
 }) {
@@ -62,7 +67,7 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
     const r = await fetch(`/api/appointments/${id}`);
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return setErr(j.error ?? "โหลดนัดไม่สำเร็จ");
-    setData({ appointment: j.appointment, events: j.events, series: j.series ?? [] });
+    setData({ appointment: j.appointment, events: j.events, series: j.series ?? [], accounts: j.accounts ?? [] });
   }, [id]);
 
   useEffect(() => { setMode("view"); setAskPrint(""); setData(null); load(); }, [load]);
@@ -189,6 +194,22 @@ export function AppointmentDrawer({ id, canOpenChat, onClose, onChanged }: {
                 </div>
                 {!editable && a.status !== "cancelled" && <p className="muted small">นัดนี้{STATUS_LABEL[a.status]}แล้ว ดูได้อย่างเดียว</p>}
               </>
+            )}
+
+            {mode === "view" && (data?.accounts.length ?? 0) > 0 && (
+              <section className="drawer-accounts">
+                <LinkedAccounts accounts={data!.accounts} isAdmin={isAdmin}
+                  setRelation={async (acc, relation) => {
+                    const r = await fetch(`/api/appointments/${id}/accounts`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversation_id: acc.conversation_id, relation }) });
+                    if (!r.ok) setErr((await r.json().catch(() => ({}))).error ?? "แก้ป้ายไม่สำเร็จ");
+                    await load(); onChanged();
+                  }}
+                  detach={async (acc) => {
+                    const r = await fetch(`/api/appointments/${id}/accounts?conversation_id=${acc.conversation_id}`, { method: "DELETE" });
+                    if (!r.ok) setErr((await r.json().catch(() => ({}))).error ?? "ยกเลิกการผูกไม่สำเร็จ");
+                    await load(); onChanged("ยกเลิกการผูกบัญชีแล้ว");
+                  }} />
+              </section>
             )}
 
             {series.length > 1 && (

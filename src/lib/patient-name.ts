@@ -21,6 +21,8 @@ export interface ContactNameFields {
   hn?: string | null;
   name_source?: string | null;
   name_locked?: boolean | null;
+  /** HN เดียวหลายบัญชี: relative = บัญชีญาติผู้ดูแล */
+  patient_relation?: string | null;
 }
 
 /**
@@ -37,7 +39,7 @@ export const staffMayRename = (c: ContactNameFields | null | undefined) => !c?.h
 export const sourceAfterUnlink = (c: ContactNameFields): NameSource => (c.name_locked ? "staff" : "platform");
 
 /**
- * primary = "{ชื่อ นามสกุล} · HN {hn}" เมื่อผูก HN แล้ว ไม่งั้นชื่อเดิม
+ * primary = "{ชื่อ นามสกุล} · HN {hn}" เมื่อผูก HN แล้ว (บัญชีญาติต่อท้าย " (ญาติ)") ไม่งั้นชื่อเดิม
  * secondary = ชื่อจากแพลตฟอร์ม (แสดงเล็กสีจาง) เมื่อต่างจาก primary
  */
 export function contactLabel(c: ContactNameFields | null | undefined, fallback = "ลูกค้า"): { primary: string; secondary: string | null } {
@@ -48,7 +50,8 @@ export function contactLabel(c: ContactNameFields | null | undefined, fallback =
   }
   const name = c.patient_full_name?.trim() || base;
   const platform = c.platform_name?.trim() || c.display_name?.trim() || null;
-  return { primary: `${name} · HN ${c.hn}`, secondary: platform && platform !== name ? platform : null };
+  const relative = c.patient_relation === "relative" ? " (ญาติ)" : "";
+  return { primary: `${name} · HN ${c.hn}${relative}`, secondary: platform && platform !== name ? platform : null };
 }
 
 export const contactName = (c: ContactNameFields | null | undefined, fallback = "ลูกค้า") => contactLabel(c, fallback).primary;

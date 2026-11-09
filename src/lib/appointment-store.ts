@@ -10,7 +10,8 @@ import { lineSendMessages } from "./channels/line";
 import { metaSendMessage } from "./channels/meta";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
 import { SENSITIVE_TAG } from "./sensitive-rules";
-import { linkConversationToHn, upsertPatient } from "./patient-link-store";
+import { defaultSlipLang, type SlipData, type SlipLang } from "./appointment-slip";
+import { unlinkConversation, linkConversationToHn, linkedConversationsOf, normalizeHn, upsertPatient, type PatientRelation } from "./patient-link-store";
 import { contactName, type ContactNameFields } from "./patient-name";
 import { supabaseAdmin } from "./supabase/admin";
 import type { ChannelType } from "./types";
@@ -21,7 +22,7 @@ import type { ChannelType } from "./types";
  */
 export const APPOINTMENT_SENDER_NAME = "ระบบนัด";
 
-export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, series_done, created_by, created_at, updated_at";
+export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, instructions_en, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, series_done, created_by, created_at, updated_at";
 
 export const loadAppointmentSettings = async (): Promise<AppointmentSettings> =>
   normalizeAppointmentSettings(await getSetting<unknown>("appointment_settings", {}));
@@ -88,12 +89,67 @@ async function conversationInfo(conversationId: string): Promise<ConversationInf
   };
 }
 
-/** แชทล่าสุดที่ผูกกับ HN นี้ */
+/** แชทหลักของ HN นี้: บัญชีคนไข้ก่อนบัญชีญาติ ถ้าเท่ากันเอาที่ผูกล่าสุด */
 export async function findLinkedConversation(hn: string | null | undefined): Promise<string | null> {
-  if (!hn?.trim()) return null;
-  const { data } = await supabaseAdmin().from("patient_links").select("conversation_id, linked_at")
-    .eq("hn", hn.trim()).order("linked_at", { ascending: false }).limit(1).maybeSingle();
-  return (data?.conversation_id as string | undefined) ?? null;
+  const links = await linkedConversationsOf(hn);
+  if (!links.length) return null;
+  const rel = await relationsOf(links.map((l) => l.conversation_id));
+  const ranked = [...links].sort((a, b) => Number(rel.get(a.conversation_id) === "relative") - Number(rel.get(b.conversation_id) === "relative") || b.linked_at.localeCompare(a.linked_at));
+  return ranked[0].conversation_id;
+}
+
+/** ป้ายคนไข้/ญาติ ของแต่ละแชท (จาก contacts) */
+async function relationsOf(conversationIds: string[]): Promise<Map<string, PatientRelation | null>> {
+  const out = new Map<string, PatientRelation | null>();
+  if (!conversationIds.length) return out;
+  const { data } = await supabaseAdmin().from("conversations").select("id, contacts(patient_relation)").in("id", conversationIds);
+  for (const r of (data ?? []) as { id: string; contacts: unknown }[]) {
+    const c = (Array.isArray(r.contacts) ? r.contacts[0] : r.contacts) as { patient_relation?: string | null } | null;
+    out.set(r.id, c?.patient_relation === "relative" ? "relative" : c?.patient_relation === "patient" ? "patient" : null);
+  }
+  return out;
+}
+
+/**
+ * แชทที่รับข้อความของนัดนี้: แชทหลักของนัด + ทุกบัญชีที่ผูก HN (คนไข้และญาติ)
+ * + บัญชีที่สแกน QR เพิ่ม (นัดที่ไม่มี HN เก็บใน appointment_recipients)
+ */
+export async function recipientIds(appt: Pick<Appointment, "id" | "hn" | "conversation_id">): Promise<string[]> {
+  const ids: string[] = [];
+  if (appt.conversation_id) ids.push(appt.conversation_id);
+  for (const l of await linkedConversationsOf(appt.hn)) ids.push(l.conversation_id);
+  const { data } = await supabaseAdmin().from("appointment_recipients").select("conversation_id, added_at").eq("appointment_id", appt.id);
+  for (const r of (data ?? []) as { conversation_id: string }[]) ids.push(r.conversation_id);
+  return [...new Set(ids)];
+}
+
+export interface LinkedAccount {
+  conversation_id: string;
+  channel: ChannelType | null;
+  name: string | null;
+  relation: PatientRelation;
+  following: boolean;
+  primary: boolean;
+  /** hn = ผูกผ่าน HN (patient_links), code = สแกนรหัสของนัดที่ไม่มี HN */
+  via: "hn" | "code";
+}
+
+/** บัญชีที่รับข้อความของนัดนี้ สำหรับ drawer */
+export async function linkedAccounts(appt: Pick<Appointment, "id" | "hn" | "conversation_id">): Promise<LinkedAccount[]> {
+  const ids = await recipientIds(appt);
+  const viaHn = new Set((await linkedConversationsOf(appt.hn)).map((l) => l.conversation_id));
+  const rel = await relationsOf(ids);
+  const out: LinkedAccount[] = [];
+  for (const id of ids) {
+    const info = await conversationInfo(id);
+    out.push({
+      conversation_id: id, channel: info?.channelType ?? null, name: info?.displayName ?? null,
+      relation: rel.get(id) ?? (id === appt.conversation_id ? "patient" : "relative"),
+      following: !!info && !info.unfollowed && !info.archived,
+      primary: id === appt.conversation_id, via: viaHn.has(id) ? "hn" : "code",
+    });
+  }
+  return out;
 }
 
 /** สร้างรายชื่อและแชทถ้ายังไม่มี ไม่เปลี่ยนสถานะแชท ใช้กับข้อความของระบบนัดเท่านั้น */
@@ -141,7 +197,7 @@ async function alreadyHandled(externalId: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 // ส่งข้อความนัด
 // ---------------------------------------------------------------------------
-export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string }
+export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string; /** ส่งถึงกี่บัญชี (มากกว่า 1) */ accounts?: number }
 
 function messageInput(appt: MessageInput["appointment"], kind: MessageKind, info: ConversationInfo, settings: AppointmentSettings, clinic: string): MessageInput {
   return {
@@ -172,42 +228,62 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
   series?: MessageInput["series"]; seriesPosition?: MessageInput["seriesPosition"];
   /** นัดอื่นในชุดที่ได้ข้อความเดียวกัน (การ์ดชุดนัด) */
   alsoMark?: string[];
+  /** ส่งเฉพาะแชทนี้ (ตอบคนที่เพิ่งสแกน QR) ไม่งั้นส่งทุกบัญชีที่ผูก */
+  only?: string;
 } = {}): Promise<DeliveryResult> {
   const db = supabaseAdmin();
   const actor = opts.actor ?? "system";
-  if (!appt.conversation_id) {
+  const targets = opts.only ? [opts.only] : await recipientIds(appt);
+  if (!targets.length) {
     await logAppointmentEvent(appt.id, "send_skipped", actor, { staffId: opts.staffId, detail: { kind, reason: "no_chat" } });
     return { sent: false, error: DELIVERY_FAILURE_TEXT.no_chat };
   }
-  const info = await conversationInfo(appt.conversation_id);
-  const delivery = chooseDelivery({ channelType: info?.channelType ?? null, lastInboundAt: info?.lastInboundAt ?? null, archived: info?.archived, unfollowed: info?.unfollowed, now: opts.now });
-  if (!info || !delivery.ok) {
-    const error = DELIVERY_FAILURE_TEXT[delivery.ok ? "no_chat" : delivery.reason];
-    await db.from("appointments").update({ last_send_error: error, updated_at: nowIso() }).eq("id", appt.id);
-    await logAppointmentEvent(appt.id, "send_failed", actor, { staffId: opts.staffId, channel: info?.channelType ?? null, detail: { kind, reason: delivery.ok ? "no_chat" : delivery.reason } });
-    return { sent: false, via: info?.channelType, error };
-  }
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
-  const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous, series: opts.series, seriesPosition: opts.seriesPosition };
-  try {
-    const mid = await pushAppointment(info, delivery.via, input, opts.replyToken);
-    await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.lang, externalId: mid });
-  } catch (e) {
-    const error = `ส่งไม่สำเร็จ-ต้องโทร: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`;
-    console.error("appointment send failed", delivery.via, kind);
+  const sent: { id: string; via: ChannelType }[] = [];
+  const failed: { id: string; via?: ChannelType; reason?: string; error: string }[] = [];
+  for (const target of targets) {
+    const info = await conversationInfo(target);
+    const delivery = chooseDelivery({ channelType: info?.channelType ?? null, lastInboundAt: info?.lastInboundAt ?? null, archived: info?.archived, unfollowed: info?.unfollowed, now: opts.now });
+    if (!info || !delivery.ok) {
+      const reason = delivery.ok ? "no_chat" : delivery.reason;
+      failed.push({ id: target, via: info?.channelType, reason, error: DELIVERY_FAILURE_TEXT[reason] });
+      continue;
+    }
+    const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous, series: opts.series, seriesPosition: opts.seriesPosition };
+    try {
+      // replyToken ใช้ได้กับแชทที่ส่ง event มาเท่านั้น
+      const mid = await pushAppointment(info, delivery.via, input, opts.only === target ? opts.replyToken : undefined);
+      await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.lang, externalId: mid });
+      sent.push({ id: target, via: delivery.via });
+    } catch (e) {
+      console.error("appointment send failed", delivery.via, kind);
+      failed.push({ id: target, via: delivery.via, error: `ส่งไม่สำเร็จ-ต้องโทร: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}` });
+    }
+  }
+  const multi = targets.length > 1;
+  for (const f of failed) {
+    await logAppointmentEvent(appt.id, "send_failed", actor, {
+      staffId: opts.staffId, channel: f.via ?? null,
+      detail: { kind, ...(f.reason ? { reason: f.reason } : { error: f.error }), ...(multi ? { conversation_id: f.id } : {}) },
+    });
+  }
+  if (!sent.length) {
+    // ไม่มีบัญชีไหนได้รับ: แจ้งเหตุผลของแชทหลัก ทีมต้องโทร
+    const error = failed[0]?.error ?? DELIVERY_FAILURE_TEXT.no_chat;
     await db.from("appointments").update({ last_send_error: error, updated_at: nowIso() }).eq("id", appt.id);
-    await logAppointmentEvent(appt.id, "send_failed", actor, { staffId: opts.staffId, channel: delivery.via, detail: { kind, error } });
-    return { sent: false, via: delivery.via, error };
+    return { sent: false, via: failed[0]?.via, error };
   }
   const at = nowIso();
   const sentField = kind === "reminder" ? { reminder_sent_at: at } : kind === "cancelled" ? {} : { confirm_sent_at: at };
   await db.from("appointments").update({ ...sentField, last_send_error: null, updated_at: at }).eq("id", appt.id);
-  await logAppointmentEvent(appt.id, "sent", actor, { staffId: opts.staffId, channel: delivery.via, detail: { kind, ...(opts.series ? { series: opts.series.length } : {}) } });
+  for (const s of sent) {
+    await logAppointmentEvent(appt.id, "sent", actor, { staffId: opts.staffId, channel: s.via, detail: { kind, ...(opts.series ? { series: opts.series.length } : {}), ...(multi ? { conversation_id: s.id } : {}) } });
+  }
   if (opts.alsoMark?.length) {
     await db.from("appointments").update({ ...sentField, last_send_error: null, updated_at: at }).in("id", opts.alsoMark);
-    for (const id of opts.alsoMark) await logAppointmentEvent(id, "sent", actor, { staffId: opts.staffId, channel: delivery.via, detail: { kind, via_series: appt.id } });
+    for (const id of opts.alsoMark) await logAppointmentEvent(id, "sent", actor, { staffId: opts.staffId, channel: sent[0].via, detail: { kind, via_series: appt.id } });
   }
-  return { sent: true, via: delivery.via };
+  return { sent: true, via: sent[0].via, ...(sent.length > 1 ? { accounts: sent.length } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +328,7 @@ export interface AppointmentInput {
   hn?: unknown; patient_name?: unknown; phone?: unknown; appoint_date?: unknown;
   /** slot: ส่ง slot_id ระบบหาเวลาเริ่ม-สิ้นสุดจาก clinic_hours เอง / exact: ส่ง time_start */
   time_mode?: unknown; slot_id?: unknown; time_start?: unknown;
-  purpose_id?: unknown; purpose_text?: unknown; instructions?: unknown;
+  purpose_id?: unknown; purpose_text?: unknown; instructions?: unknown; instructions_en?: unknown;
   provider?: unknown; note?: unknown; conversation_id?: unknown; booking_id?: unknown;
   /** ชื่อมาจาก iService และไม่ได้แก้ */
   name_from_his?: unknown;
@@ -275,7 +351,7 @@ export class AppointmentError extends Error {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-interface PurposeRow { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; sort_order: number; active: boolean }
+interface PurposeRow { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; name_en?: string | null; reminder_extra_text_en?: string | null; sort_order: number; active: boolean }
 
 /** เวลาเปิดคลินิกและวันหยุดพิเศษ ตั้งค่าที่หน้าตั้งค่า → นัดหมาย */
 export async function loadClinicSchedule(from?: string, to?: string): Promise<ClinicSchedule> {
@@ -336,6 +412,7 @@ async function resolveFields(b: AppointmentInput, today: string) {
     purpose_id,
     purpose_text,
     instructions: clip(b.instructions, 1000) || null,
+    instructions_en: clip(b.instructions_en, 1000) || null,
     provider: clip(b.provider, 120) || null,
     note: clip(b.note, 1000) || null,
   };
@@ -462,7 +539,7 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
   const fields = await resolveFields({
     hn: current.hn, patient_name: current.patient_name, phone: current.phone, appoint_date: current.appoint_date,
     time_mode: current.time_mode, slot_id: current.slot_id, time_start: current.time_start.slice(0, 5),
-    purpose_id: current.purpose_id, purpose_text: current.purpose_text, instructions: current.instructions,
+    purpose_id: current.purpose_id, purpose_text: current.purpose_text, instructions: current.instructions, instructions_en: current.instructions_en,
     provider: current.provider, note: current.note,
     ...Object.fromEntries(Object.entries(b).filter(([k, v]) => v !== undefined && !["shift_following", "series_items", "series_title", "series_label"].includes(k))),
   }, bangkokToday(now));
@@ -635,8 +712,10 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
     return "ignored";
   }
   const appt = await loadAppointment(parsed.appointmentId);
-  // ปุ่มส่งถึงแชทนี้เท่านั้น ถ้าไม่ตรงคือข้อมูลปลอมหรือนัดถูกย้ายไปแชทอื่น
-  if (!appt || appt.conversation_id !== conversationId) return "ignored";
+  // กดได้จากทุกบัญชีที่รับข้อความของนัดนี้ (คนไข้/ญาติ) บัญชีอื่นคือข้อมูลปลอมหรือถูกยกเลิกการผูกแล้ว
+  if (!appt || !(await recipientIds(appt)).includes(conversationId)) return "ignored";
+  const relation = (await relationsOf([conversationId])).get(conversationId) ?? (appt.conversation_id === conversationId ? "patient" : "relative");
+  const who = { conversation_id: conversationId, account: info.displayName, relation };
   if (!OPEN_STATUSES.includes(appt.status) || isPast(appt, now)) {
     await replyText(info, REPLY_TEXT[lang].closed, ref.replyToken);
     return "ignored";
@@ -644,13 +723,13 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
 
   if (parsed.action === "confirm") {
     await db.from("appointments").update({ status: "confirmed", updated_at: nowIso() }).eq("id", appt.id);
-    await logAppointmentEvent(appt.id, "confirmed", "customer", { channel: info.channelType });
+    await logAppointmentEvent(appt.id, "confirmed", "customer", { channel: info.channelType, detail: who });
     await replyText(info, REPLY_TEXT[lang].confirmed, ref.replyToken);
     return "confirmed";
   }
 
   await db.from("appointments").update({ status: "reschedule_requested", called_at: null, called_by: null, updated_at: nowIso() }).eq("id", appt.id);
-  await logAppointmentEvent(appt.id, "reschedule_requested", "customer", { channel: info.channelType });
+  await logAppointmentEvent(appt.id, "reschedule_requested", "customer", { channel: info.channelType, detail: who });
   await replyText(info, REPLY_TEXT[lang].reschedule, ref.replyToken);
   await db.from("chat_tasks").insert({
     conversation_id: conversationId,
@@ -663,7 +742,10 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
   return "reschedule";
 }
 
-/** "ยืนยันนัด #XXXXXX": ผูกนัดกับแชท ผูกแชทกับ HN แล้วส่งข้อความนัดพร้อมปุ่มทันที */
+/**
+ * "ยืนยันนัด #XXXXXX": ผูกนัดกับแชท ผูกแชทกับ HN แล้วส่งข้อความนัดพร้อมปุ่มให้บัญชีที่สแกนทันที
+ * นัดมีแชทหลักอยู่แล้ว (ญาติหรือเบอร์ใหม่สแกน) = เพิ่มบัญชีที่รับแจ้งเตือน ไม่แทนบัญชีเดิม
+ */
 export async function handleLinkCode(ref: InboundRef, text: string, code: string, now = Date.now()): Promise<"linked" | "not_found" | "closed" | "duplicate"> {
   if (await alreadyHandled(ref.eventId)) return "duplicate";
   const db = supabaseAdmin();
@@ -683,8 +765,15 @@ export async function handleLinkCode(ref: InboundRef, text: string, code: string
     await replyText(info, REPLY_TEXT[lang].closed, ref.replyToken);
     return "closed";
   }
-  await db.from("appointments").update({ conversation_id: conversationId, last_send_error: null, updated_at: nowIso() }).eq("id", appt.id);
-  await logAppointmentEvent(appt.id, "linked", "customer", { channel: info.channelType, detail: { code } });
+  const added = !!appt.conversation_id && appt.conversation_id !== conversationId;
+  if (!appt.conversation_id) {
+    await db.from("appointments").update({ conversation_id: conversationId, last_send_error: null, updated_at: nowIso() }).eq("id", appt.id);
+  } else if (added && !appt.hn) {
+    // ไม่มี HN: จำบัญชีเพิ่มไว้ที่นัด (และทุกนัดในชุด) มี HN ใช้ patient_links ด้านล่าง
+    const ids = appt.series_id ? (await loadSeries(appt.series_id)).map((x) => x.id) : [appt.id];
+    await db.from("appointment_recipients").upsert(ids.map((id) => ({ appointment_id: id, conversation_id: conversationId })), { onConflict: "appointment_id,conversation_id", ignoreDuplicates: true });
+  }
+  await logAppointmentEvent(appt.id, "linked", "customer", { channel: info.channelType, detail: { code, conversation_id: conversationId, account: info.displayName, ...(added ? { added: true } : {}) } });
   if (appt.hn) {
     // นัดอื่นของคนไข้คนเดียวกันที่ยังไม่มีแชท ได้ข้อความเตือนด้วย
     const { data: others } = await db.from("appointments").select("id, status, conversation_id").eq("hn", appt.hn).is("conversation_id", null);
@@ -694,8 +783,8 @@ export async function handleLinkCode(ref: InboundRef, text: string, code: string
   if (appt.series_id) {
     await db.from("appointments").update({ conversation_id: conversationId, updated_at: nowIso() }).eq("series_id", appt.series_id).is("conversation_id", null);
   }
-  await deliverAppointment({ ...appt, conversation_id: conversationId }, "linked", {
-    actor: "customer", replyToken: ref.replyToken, now, series: appt.series_id ? seriesView(await loadSeries(appt.series_id)) : undefined,
+  await deliverAppointment({ ...appt, conversation_id: appt.conversation_id ?? conversationId }, "linked", {
+    actor: "customer", replyToken: ref.replyToken, now, only: conversationId, series: appt.series_id ? seriesView(await loadSeries(appt.series_id)) : undefined,
   });
   // ผูกชื่อหลังตอบ replyToken หมดอายุเร็ว ส่วนการค้น iService ใช้เวลาได้
   if (appt.hn) {
@@ -773,7 +862,7 @@ const searchTerm = (q: string) => q.replace(/[,()%*\:"']/g, " ").trim().slice(0,
 export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"; q?: string; from?: string | null; to?: string | null; purpose?: string | null; status?: string | null }, now = Date.now()): Promise<AppointmentListRow[]> {
   const today = bangkokToday(now);
   let query = supabaseAdmin().from("appointments")
-    .select(`${APPOINTMENT_COLUMNS}, conversations(channels(type), contacts(display_name, platform_name, hn, patient_full_name))`);
+    .select(`${APPOINTMENT_COLUMNS}, conversations(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation))`);
   if (opts.tab === "today") query = query.eq("appoint_date", today);
   else if (opts.tab === "tomorrow") query = query.eq("appoint_date", addDays(today, 1));
   else {
@@ -840,22 +929,77 @@ export async function appointmentFormData(hn: string | null, now = Date.now()) {
   };
 }
 
-export async function appointmentSlip(id: string) {
+/**
+ * ข้อมูลใบนัด: พิมพ์ QR + รหัสทุกใบ (ผูกแล้วก็พิมพ์ ให้ญาติหรือเบอร์ใหม่สแกนเพิ่มได้)
+ * issuer = เจ้าหน้าที่ที่เปิดหน้าพิมพ์
+ */
+export async function appointmentSlip(id: string, issuerId?: string | null) {
   const appt = await loadAppointment(id);
   if (!appt) return null;
-  const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
+  const db = supabaseAdmin();
+  const [settings, clinic, accounts] = await Promise.all([loadAppointmentSettings(), clinicName(), linkedAccounts(appt)]);
   const series = appt.series_id ? (await loadSeries(appt.series_id)).filter((a) => a.status !== "cancelled") : [];
-  const info = appt.conversation_id ? await conversationInfo(appt.conversation_id) : null;
-  return {
-    /** ผูกแชท LINE แล้วและยังติดตาม OA: คนไข้ได้ข้อความเตือนอยู่แล้ว ไม่ต้องพิมพ์ QR */
-    linkedLine: info?.channelType === "line" && !info.unfollowed && !info.archived,
+  const hn = normalizeHn(appt.hn);
+  const [{ data: seriesRow }, { data: purpose }, { data: patient }, { data: issuer }] = await Promise.all([
+    appt.series_id ? db.from("appointment_series").select("title, title_en").eq("id", appt.series_id).maybeSingle() : Promise.resolve({ data: null }),
+    appt.purpose_id ? db.from("appointment_purposes").select("name, name_en").eq("id", appt.purpose_id).maybeSingle() : Promise.resolve({ data: null }),
+    hn ? db.from("patients").select("slip_lang").eq("hn", hn).maybeSingle() : Promise.resolve({ data: null }),
+    issuerId ? db.from("staff").select("display_name").eq("id", issuerId).maybeSingle() : Promise.resolve({ data: null }),
+  ]);
+  const primary = appt.conversation_id ? await conversationInfo(appt.conversation_id) : null;
+  const p = purpose as { name: string; name_en: string | null } | null;
+  const s = seriesRow as { title: string | null; title_en: string | null } | null;
+  const data: SlipData = {
     appointment: appt,
     series,
-    clinic,
-    phone: settings.clinic_phone,
-    address: settings.clinic_address,
+    // ชุดนัด: หัวใบใช้ชื่อชุดที่ตั้งเอง (ถ้าเป็นแค่ชื่อเหตุผลนัดใช้ "ใบนัดวัคซีน")
+    seriesTitle: s?.title && s.title !== appt.purpose_text ? s.title : null,
+    seriesTitleEn: s?.title_en ?? null,
+    // ชื่ออังกฤษของ preset ใช้เมื่อเหตุผลยังเป็นชื่อ preset (พิมพ์เองพิมพ์ตามที่กรอก)
+    purposeEn: p && p.name === appt.purpose_text ? p.name_en : null,
+    clinic: { name: clinic, nameEn: settings.clinic_name_en, address: settings.clinic_address, addressEn: settings.clinic_address_en, phone: settings.clinic_phone },
+    linkedLine: accounts.some((a) => a.channel === "line" && a.following),
+    issuedBy: ((issuer as { display_name?: string } | null)?.display_name ?? "").trim() || "เจ้าหน้าที่",
+    issuedAt: nowIso(),
+  };
+  return {
+    ...data,
+    accounts,
+    defaultLang: defaultSlipLang((patient as { slip_lang?: string | null } | null)?.slip_lang, [primary?.language]),
     qrUrl: lineOaMessageUrl(settings.line_oa_id, appt.link_code),
   };
+}
+
+/** บันทึกภาษาใบนัดที่เลือกล่าสุดของคนไข้ (เฉพาะนัดที่มี HN) */
+export async function saveSlipLang(id: string, lang: SlipLang): Promise<boolean> {
+  const appt = await loadAppointment(id);
+  const hn = normalizeHn(appt?.hn);
+  if (!appt || !hn) return false;
+  await upsertPatient({ hn, full_name: appt.patient_name, slip_lang: lang });
+  return true;
+}
+
+/**
+ * แอดมินยกเลิกการรับข้อความของบัญชีหนึ่งจาก drawer นัด
+ * ผูกผ่าน HN = ยกเลิกการผูก HN ของแชทนั้น (ทุกนัดของ HN) ผ่านรหัส = เอาออกจากนัดนี้และชุดเดียวกัน
+ * ถ้าเป็นแชทหลักของนัด ย้ายแชทหลักไปบัญชีที่เหลือ
+ */
+export async function detachAccount(id: string, conversationId: string, staffId: string): Promise<boolean> {
+  const db = supabaseAdmin();
+  const appt = await loadAppointment(id);
+  if (!appt) return false;
+  const viaHn = (await linkedConversationsOf(appt.hn)).some((l) => l.conversation_id === conversationId);
+  if (viaHn) await unlinkConversation(conversationId, staffId);
+  const ids = appt.series_id ? (await loadSeries(appt.series_id)).map((x) => x.id) : [appt.id];
+  await db.from("appointment_recipients").delete().eq("conversation_id", conversationId).in("appointment_id", ids);
+  const fresh = await loadAppointment(id);
+  if (fresh?.conversation_id === conversationId) {
+    const next = (await recipientIds({ ...fresh, conversation_id: null })).find((x) => x !== conversationId) ?? null;
+    await db.from("appointments").update({ conversation_id: next, updated_at: nowIso() }).in("id", ids).eq("conversation_id", conversationId);
+    if (next) await db.from("appointment_recipients").delete().eq("conversation_id", next).in("appointment_id", ids);
+  }
+  await logAppointmentEvent(appt.id, "unlinked", "staff", { staffId, detail: { conversation_id: conversationId } });
+  return true;
 }
 
 export async function appointmentEvents(id: string) {
@@ -870,7 +1014,7 @@ export async function appointmentEvents(id: string) {
 }
 
 export async function loadPurposes(): Promise<PurposeRow[]> {
-  const { data } = await supabaseAdmin().from("appointment_purposes").select("id, name, default_days, reminder_extra_text, sort_order, active");
+  const { data } = await supabaseAdmin().from("appointment_purposes").select("id, name, default_days, reminder_extra_text, name_en, reminder_extra_text_en, sort_order, active");
   return ((data ?? []) as PurposeRow[]).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
 }
 

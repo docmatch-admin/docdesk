@@ -124,7 +124,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   // ---------- โหลดรายการแชท ----------
   const loadConvs = useCallback(async () => {
-    const columns = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source), channels(type, name, ai_mode)";
+    const columns = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source, patient_relation), channels(type, name, ai_mode)";
     // กรองที่ฐานข้อมูล ไม่อย่างนั้นจะเห็นแค่ใน 200 แชทล่าสุด
     const seq = ++loadSeq.current;
     const term = searchRef.current.trim();
