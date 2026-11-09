@@ -2,7 +2,7 @@
 // เรียกด้วย session ของเจ้าหน้าที่ (supabase.functions.invoke) ตรวจสิทธิ์ด้วย is_appointment_staff()
 // deploy: supabase functions deploy iservice --no-verify-jwt (ตรวจสิทธิ์เอง: session เจ้าหน้าที่ผ่าน is_appointment_staff() หรือ service role ของ server)
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { bangkokToday, searchPatients, visitsOn } from "../_shared/iservice.ts";
+import { bangkokToday, diagnose, searchPatients, visitsOn } from "../_shared/iservice.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,6 +32,11 @@ Deno.serve(async (req) => {
 
   const b = await req.json().catch(() => ({})) as { action?: string; q?: string; hn?: string };
   try {
+    // ตรวจการเชื่อมต่อ: เรียกได้เฉพาะ server ของ DocDesk (ผ่าน /api/appointments/iservice-check ของแอดมิน)
+    if (b.action === "diagnose") {
+      if (!isServer) return json({ error: "forbidden" }, 403);
+      return json(await diagnose(bangkokToday()));
+    }
     if (b.action === "visits") {
       const visits = await visitsOn(bangkokToday());
       // ล่าสุดก่อน
@@ -52,7 +57,7 @@ Deno.serve(async (req) => {
     return json({ error: "unknown action" }, 400);
   } catch (e) {
     // ไม่ส่งรายละเอียดซึ่งอาจมี URL หรือ token ออกไป
-    console.error("iservice failed", e instanceof Error ? e.message : e);
+    console.error("iservice failed", b.action, e instanceof Error ? e.message : e);
     return json({ error: "เชื่อมต่อ iService ไม่สำเร็จ" }, 502);
   }
 });

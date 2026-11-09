@@ -49,19 +49,74 @@ export async function iserviceGet(path: string, params: Record<string, string>):
   throw new Error(`iService ${path}: login ไม่สำเร็จ`);
 }
 
-/** array แรกที่เจอในคำตอบ: [] | {data: []} | {data: {data|items|rows: []}} */
+const hasHn = (o: Record<string, unknown>) => Object.keys(o).some((k) => k.toLowerCase() === "hn");
+
+/**
+ * รายการคนไข้ในคำตอบ: ทุก object ที่มี field hn ไม่ว่าจะซ้อนลึกแค่ไหน
+ * รองรับ [] | {data: []} | {data: {days: [{times: [{appointments: []}]}]}}
+ */
 export function rowsOf(json: unknown): Record<string, unknown>[] {
-  const seen = [json];
-  while (seen.length) {
-    const v = seen.shift();
-    if (Array.isArray(v)) return v.filter((x) => x && typeof x === "object") as Record<string, unknown>[];
-    if (v && typeof v === "object") {
-      for (const key of ["data", "items", "rows", "result", "list", "patients", "visits"]) {
-        if (key in (v as Record<string, unknown>)) seen.push((v as Record<string, unknown>)[key]);
-      }
-    }
+  const out: Record<string, unknown>[] = [];
+  const walk = (v: unknown, depth: number) => {
+    if (depth > 8 || v == null || typeof v !== "object") return;
+    if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return; }
+    const o = v as Record<string, unknown>;
+    if (hasHn(o)) { out.push(o); return; }
+    for (const x of Object.values(o)) walk(x, depth + 1);
+  };
+  walk(json, 0);
+  return out;
+}
+
+/** โครงสร้างคำตอบ (ชื่อ key และขนาด array เท่านั้น ไม่มีค่าข้อมูลคนไข้) */
+function shapeOf(v: unknown, depth = 0): unknown {
+  if (Array.isArray(v)) return depth > 3 ? `array(${v.length})` : { array: v.length, first: v.length ? shapeOf(v[0], depth + 1) : null };
+  if (v && typeof v === "object") {
+    if (depth > 3) return "object";
+    return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, x && typeof x === "object" ? shapeOf(x, depth + 1) : typeof x]));
   }
-  return [];
+  return typeof v;
+}
+
+/** ตรวจการเชื่อม iService ทีละขั้น ไม่คืนค่าลับหรือข้อมูลคนไข้ */
+export async function diagnose(date: string) {
+  const secrets = Object.fromEntries(["ISERVICE_USERNAME", "ISERVICE_PASSWORD", "ISERVICE_CIS_CODE"].map((n) => [n, !!Deno.env.get(n)]));
+  const out: Record<string, unknown> = { date, secrets };
+  if (Object.values(secrets).some((v) => !v)) return out;
+  try {
+    const res = await fetch(`${BASE}/api/v1/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: env("ISERVICE_USERNAME"), password: env("ISERVICE_PASSWORD"), ip: "0.0.0.0" }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const text = await res.text();
+    let j: Record<string, unknown> = {};
+    try { j = JSON.parse(text); } catch { /* ไม่ใช่ JSON */ }
+    const data = (j.data ?? {}) as Record<string, unknown>;
+    const tokenAt = j.local_token ? "local_token" : data.local_token ? "data.local_token" : j.token ? "token" : data.token ? "data.token" : null;
+    out.login = { status: res.status, json: !!Object.keys(j).length, shape: shapeOf(j), tokenAt, message: typeof j.message === "string" ? j.message.slice(0, 200) : undefined };
+    if (!tokenAt) return out;
+    const token = (j.local_token ?? data.local_token ?? j.token ?? data.token) as string;
+    const qs = new URLSearchParams({ cis_code: cisCode(), date_start: date, date_end: date }).toString();
+    const r2 = await fetch(`${BASE}/api/ovst/v1/ovst_list?${qs}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: AbortSignal.timeout(20_000) });
+    const t2 = await r2.text();
+    let j2: unknown = null;
+    try { j2 = JSON.parse(t2); } catch { /* ไม่ใช่ JSON */ }
+    const rows = rowsOf(j2);
+    out.ovst_list = {
+      status: r2.status, json: j2 !== null, shape: shapeOf(j2), rows: rows.length,
+      rowKeys: rows[0] ? Object.keys(rows[0]) : [],
+      parsed: rows.slice(0, 50).map(toVisit).filter((v) => v.hn).length,
+      sampleHasName: rows[0] ? !!toVisit(rows[0]).name : null,
+      sampleHasDoctor: rows[0] ? !!toVisit(rows[0]).doctor : null,
+      sampleHasTime: rows[0] ? !!toVisit(rows[0]).time : null,
+      message: j2 && typeof j2 === "object" && typeof (j2 as Record<string, unknown>).message === "string" ? ((j2 as Record<string, unknown>).message as string).slice(0, 200) : undefined,
+    };
+  } catch (e) {
+    out.error = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+  }
+  return out;
 }
 
 const pick = (r: Record<string, unknown>, keys: string[]): string => {
