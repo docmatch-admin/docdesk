@@ -72,7 +72,7 @@ export async function POST(req: Request) {
     } else if (ev.message.type === "text") {
       after(() => processIncoming(stored.conversationId, stored.messageId, ev.replyToken).catch((e) => {
         console.error("processIncoming", e);
-        return logSystemError("webhook:line", e);
+        return logSystemError("ai:auto-reply", e);
       }));
     }
   }

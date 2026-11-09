@@ -1,4 +1,5 @@
 import { embed } from "./ai";
+import { logSystemError } from "./health";
 import { maskForLearning, saveConfirmedBooking } from "./booking-store";
 import { sendFileToChannel, sendImageToChannel, sendToChannel } from "./channels";
 import { AUTO_CLOSE_EXEMPT_TAGS, CLEARED_ON_REOPEN_TAG, CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "./case-flow";
@@ -99,7 +100,7 @@ export async function storeIncoming(input: IncomingInput) {
   const imageOnly = (!!input.isImage || !!input.file) && !input.text.trim();
   const { language, th } = input.skipAi || imageOnly
     ? { language: contact.language as string, th: null }
-    : await toThai(input.text);
+    : await toThaiOrKeep(input.text, contact.language as string);
 
   const { data: msg, error: mErr } = await db.from("messages").insert({
     conversation_id: conv.id,
@@ -156,6 +157,20 @@ export async function storeIncoming(input: IncomingInput) {
   }
 
   return { conversationId: conv.id as string, messageId: msg.id as string, duplicate: false };
+}
+
+/**
+ * แปลข้อความลูกค้า ถ้า AI ล้ม (เช่น OpenAI ไม่รับพารามิเตอร์ของโมเดลใหม่) เก็บข้อความต้นฉบับไว้ก่อน
+ * ไม่ throw เพราะจะทำให้ webhook ล้มและข้อความลูกค้าไม่เข้า inbox
+ */
+async function toThaiOrKeep(text: string, fallbackLanguage: string): Promise<{ language: string; th: string | null }> {
+  try {
+    return await toThai(text);
+  } catch (e) {
+    console.error("translate failed", e instanceof Error ? e.message : e);
+    await logSystemError("ai:translate", e).catch(() => {});
+    return { language: fallbackLanguage || "th", th: null };
+  }
 }
 
 /** แชทลับ: ติดจากคำสำคัญ ต้องให้คนตอบเสมอ และแจ้งเฉพาะคนมีสิทธิ์เมื่อเริ่มชุดข้อความใหม่ พลาดต้องไม่ทำให้ข้อความลูกค้าหาย */

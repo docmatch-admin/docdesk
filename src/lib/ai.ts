@@ -1,7 +1,10 @@
 import { after } from "next/server";
 import OpenAI from "openai";
+import { chatParams, unsupportedParam, type AiTask } from "./ai-params";
 import { recordLlmUsage } from "./llm-usage";
 import { supabaseAdmin } from "./supabase/admin";
+
+export type { AiTask } from "./ai-params";
 
 let client: OpenAI | null = null;
 export function openai() {
@@ -19,6 +22,7 @@ function logUsage(kind: "chat" | "embedding", model: string, input: number, outp
   }
 }
 
+/** ชื่อโมเดลอ่านจาก env ที่เดียว ทุกงานใช้ค่านี้ */
 export const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini";
 export const EMBED_MODEL = process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
 
@@ -36,18 +40,58 @@ export async function embedMany(texts: string[]): Promise<number[][]> {
   return [...res.data].sort((a, b) => a.index - b.index).map((d) => d.embedding);
 }
 
-/** เรียก LLM ให้ตอบเป็น JSON */
-export async function chatJSON<T>(system: string, user: string, temperature = 0.3): Promise<T> {
-  const res = await openai().chat.completions.create({
-    model: CHAT_MODEL,
-    temperature,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-  });
-  logUsage("chat", CHAT_MODEL, res.usage?.prompt_tokens ?? 0, res.usage?.completion_tokens ?? 0);
-  const raw = res.choices[0]?.message?.content ?? "{}";
-  return JSON.parse(raw) as T;
+export interface CallModelInput {
+  task: AiTask;
+  system: string;
+  user: string;
+  /** ใช้เฉพาะโมเดลที่ไม่ใช่ reasoning */
+  temperature?: number;
+  /** ใช้ทดสอบเทียบโมเดล ปกติใช้ CHAT_MODEL */
+  model?: string;
+}
+
+/**
+ * เรียก LLM ทุกงานผ่านที่นี่ ให้ตอบเป็น JSON
+ * โมเดล reasoning ไม่ส่ง temperature และใช้ reasoning_effort ตามงาน
+ * ถ้า OpenAI ไม่รับพารามิเตอร์ใด log ชื่อพารามิเตอร์กับโมเดลให้ชัด แล้วลองใหม่หนึ่งครั้งโดยตัดพารามิเตอร์นั้น
+ */
+export async function callModel<T>(input: CallModelInput): Promise<T> {
+  const model = input.model ?? CHAT_MODEL;
+  let params = chatParams({ model, task: input.task, temperature: input.temperature });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await openai().chat.completions.create({
+        ...params,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: input.system },
+          { role: "user", content: input.user },
+        ],
+      } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+      logUsage("chat", model, res.usage?.prompt_tokens ?? 0, res.usage?.completion_tokens ?? 0);
+      const raw = res.choices[0]?.message?.content ?? "{}";
+      return JSON.parse(raw || "{}") as T;
+    } catch (e) {
+      const bad = unsupportedParam(e);
+      if (!bad) throw e;
+      console.error(`OpenAI 400 unsupported parameter "${bad.param}" for model ${model} (task ${input.task}): ${bad.message}`);
+      if (attempt > 0) throw e;
+      // ลองใหม่: effort "minimal" ไม่รองรับ → "low", พารามิเตอร์อื่นตัดทิ้ง
+      if (bad.param === "reasoning_effort" && params.reasoning_effort !== "low") {
+        params = chatParams({ model, task: input.task, effort: "low" });
+      } else if (bad.param in params) {
+        const rest = { ...params };
+        delete rest[bad.param];
+        params = rest;
+      } else {
+        throw e;
+      }
+    }
+  }
+  throw new Error("unreachable");
+}
+
+/** ใช้กับโค้ดเดิม เทียบเท่า callModel งานร่างคำตอบ */
+export async function chatJSON<T>(system: string, user: string, temperature = 0.3, task: AiTask = "draft"): Promise<T> {
+  return callModel<T>({ task, system, user, temperature });
 }

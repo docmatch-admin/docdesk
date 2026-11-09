@@ -1,4 +1,4 @@
-import { chatJSON, embed } from "./ai";
+import { callModel, embed } from "./ai";
 import {
   bookingCalendar, bookingOption, decideBooking, findUnavailableRequest, hasBookingSignal, localToday, maskBookingPii,
   resolveBookingDate, resolveBookingTime, type BookingRequest,
@@ -304,7 +304,7 @@ ${safeQuestion}`;
     ? Promise.resolve(db.from("reply_examples").select("id").in("id", examples.map((e) => e.id)).in("source", ["line_import", "manual_paste"]))
     : Promise.resolve({ data: [] as { id: string }[] });
   importedP.catch(() => {});
-  const out = await chatJSON<{ needs_human?: boolean; reason?: string; suggested_tags?: unknown; sensitive?: boolean; intent?: string; red_flag?: boolean; booking?: BookingRequest; options?: Partial<SuggestionOption>[] }>(system, user, 0.4);
+  const out = await callModel<{ needs_human?: boolean; reason?: string; suggested_tags?: unknown; sensitive?: boolean; intent?: string; red_flag?: boolean; booking?: BookingRequest; options?: Partial<SuggestionOption>[] }>({ task: "draft", system, user, temperature: 0.4 });
   const suggested_tags = sanitizeSuggestedTags(out.suggested_tags, tagNames);
 
   const validSources: SuggestionSource[] = ["knowledge", "example", "history"];

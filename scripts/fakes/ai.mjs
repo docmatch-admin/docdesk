@@ -4,7 +4,9 @@ export const replies = { next: { needs_human: false, options: [{ text: "ร่�
 export function reset() { calls.chat = 0; calls.embed = 0; delete calls.lastPrompt; }
 export async function embed() { calls.embed++; return [0.1, 0.2]; }
 export async function embedMany(texts) { calls.embed += texts.length; return texts.map(() => [0.1, 0.2]); }
+export async function callModel({ system, user }) { return chatJSON(system, user); }
 export async function chatJSON(system, user) {
+  if (calls.failNext) { const e = calls.failNext; calls.failNext = null; throw e; }
   calls.chat++;
   calls.lastPrompt = `${system}\n${user}`;
   return structuredClone(replies.next);

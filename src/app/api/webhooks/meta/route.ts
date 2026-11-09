@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     } else if (!stored.duplicate && m.isText) {
       after(() => processIncoming(stored.conversationId, stored.messageId).catch((e) => {
         console.error("processIncoming", e);
-        return logSystemError("webhook:meta", e);
+        return logSystemError("ai:auto-reply", e);
       }));
     }
   }
