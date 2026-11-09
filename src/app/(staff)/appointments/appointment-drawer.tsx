@@ -20,7 +20,11 @@ const EVENT_LABEL: Record<string, string> = {
   hn_match_accepted: "ยืนยันจับคู่ HN", unlinked: "ยกเลิกการผูกแชท",
 };
 const KIND_LABEL: Record<string, string> = { new: "นัดใหม่", changed: "เปลี่ยนนัด", reminder: "เตือนก่อนวันนัด", cancelled: "แจ้งยกเลิก", linked: "ผูกแชท" };
-const ACTOR_LABEL = { staff: "เจ้าหน้าที่", customer: "คนไข้", system: "ระบบ" };
+/** รหัสเหตุผลการส่งไม่ได้ในประวัติ */
+const REASON_LABEL: Record<string, string> = {
+  no_chat: "ยังไม่มีแชท", outside_24h: "เกิน 24 ชม. (Facebook/Instagram)", web: "แชทหน้าเว็บ", archived: "แชทนำเข้า", unsupported: "ช่องทางไม่รองรับ",
+};
+const ACTOR_LABEL ={ staff: "เจ้าหน้าที่", customer: "คนไข้", system: "ระบบ" };
 const timeTh = (iso: string) => new Date(iso).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
 
 function eventText(e: EventRow): string {
@@ -29,7 +33,7 @@ function eventText(e: EventRow): string {
   const extra = [
     typeof d.kind === "string" ? KIND_LABEL[d.kind] ?? d.kind : null,
     typeof d.from === "string" && typeof d.to === "string" ? `${d.from} → ${d.to}` : null,
-    typeof d.reason === "string" ? d.reason : null,
+    typeof d.reason === "string" ? REASON_LABEL[d.reason] ?? d.reason : null,
     e.channel ? e.channel.toUpperCase() : null,
   ].filter(Boolean);
   return extra.length ? `${base} · ${extra.join(" · ")}` : base;
