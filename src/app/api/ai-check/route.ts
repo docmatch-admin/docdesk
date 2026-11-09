@@ -38,7 +38,7 @@ export async function GET(req: Request) {
       ? timed(() => callModel<{ th?: string }>({ task: "translate", temperature: 0, system: translateSystem, user: translateUser, model }))
       : timed(() => toThai(SAMPLE_EN)),
     asked
-      ? timed(() => callModel<{ text?: string }>({ task: "translate", temperature: 0, system: `Translate the Thai text into English. Return JSON: {"text": "<English>"}`, user: SAMPLE_TH, model }).then((r) => r.text))
+      ? timed(() => callModel<{ text?: string }>({ task: "translate", temperature: 0, system: `Translate the Thai text into English. Return JSON: {"text": "<English>"}`, user: SAMPLE_TH, model }).then((r) => r.text ?? ""))
       : timed(() => fromThai(SAMPLE_TH, "en")),
     timed(() => callModel<{ text?: string }>({
       task: "draft", temperature: 0.4, model,
