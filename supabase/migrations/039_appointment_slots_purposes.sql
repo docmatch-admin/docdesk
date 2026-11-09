@@ -43,9 +43,9 @@ create table if not exists clinic_hours (
 );
 
 insert into clinic_hours (weekday, slot_id, label, start_time, end_time, sort_order)
-select d, 'morning', 'ช่วงเช้า', '08:00', '12:00', 10 from generate_series(0, 6) d
+select d, 'morning', 'ช่วงเช้า', time '08:00', time '12:00', 10 from generate_series(0, 6) d
 union all
-select d, 'afternoon', 'ช่วงบ่าย', '13:00', '18:00', 20 from generate_series(1, 5) d
+select d, 'afternoon', 'ช่วงบ่าย', time '13:00', time '18:00', 20 from generate_series(1, 5) d
 on conflict do nothing;
 
 -- วันหยุดพิเศษ
