@@ -5,5 +5,6 @@ import { BookingsClient } from "./bookings-client";
 export default async function BookingsPage() {
   const me = await getStaffContext();
   if (!me) redirect("/login");
+  if (me.role === "pharmacy") redirect("/appointments");
   return <BookingsClient />;
 }

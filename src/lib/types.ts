@@ -75,7 +75,13 @@ export interface Conversation {
   archived?: boolean;
   /** งานของทีมที่ยังไม่ติ๊ก */
   open_tasks?: number;
-  contacts?: { display_name: string | null; avatar_url: string | null; language: string };
+  contacts?: {
+    display_name: string | null; avatar_url: string | null; language: string;
+    /** ชื่อจาก LINE/Facebook/Instagram */
+    platform_name?: string | null;
+    /** ผูก HN แล้ว: ชื่อจาก HIS */
+    hn?: string | null; patient_full_name?: string | null; name_source?: string | null;
+  };
   channels?: { type: ChannelType; name: string; ai_mode: AiMode | null };
 }
 

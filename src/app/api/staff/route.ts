@@ -39,7 +39,7 @@ export async function POST(req: Request) {
   if (!isValidUsername(username)) {
     return NextResponse.json({ error: "ชื่อผู้ใช้ต้องเป็น a-z 0-9 . _ ยาว 3–20 ตัว และห้ามมีจุดต้นท้ายหรือจุดติดกัน" }, { status: 400 });
   }
-  const role = b.role === "admin" ? "admin" : "agent";
+  const role = b.role === "admin" || b.role === "pharmacy" ? b.role : "agent";
   const db = supabaseAdmin();
   const password = generateTempPassword();
   const { data, error: createError } = await db.auth.admin.createUser({
@@ -90,7 +90,9 @@ export async function PATCH(req: Request) {
   if (b.hr_employee_id !== undefined) fields.hr_employee_id = b.hr_employee_id || null;
   if (typeof b.can_view_sensitive === "boolean") fields.can_view_sensitive = b.can_view_sensitive;
   // ลดจาก admin ต้องไม่เหลือสิทธิ์แชทลับติดมา
-  if (patch.role === "agent" && target.role === "admin" && b.can_view_sensitive === undefined) fields.can_view_sensitive = false;
+  if (patch.role !== undefined && patch.role !== "admin" && target.role === "admin" && b.can_view_sensitive === undefined) fields.can_view_sensitive = false;
+  // ห้องยาไม่เห็นแชท จึงไม่มีสิทธิ์แชทลับ
+  if (patch.role === "pharmacy") fields.can_view_sensitive = false;
   if (Object.keys(fields).length) {
     const { error: updateError } = await db.from("staff").update(fields).eq("id", b.id);
     if (updateError) {

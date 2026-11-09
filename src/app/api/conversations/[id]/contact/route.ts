@@ -19,7 +19,11 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const db = supabaseAdmin();
   const { data: conv } = await db.from("conversations").select("contact_id").eq("id", id).maybeSingle();
   if (!conv) return NextResponse.json({ error: "ไม่พบแชทนี้" }, { status: 404 });
-  const { error: upErr } = await db.from("contacts").update({ display_name: name, name_locked: true }).eq("id", conv.contact_id as string);
+  const { data: current } = await db.from("contacts").select("name_source").eq("id", conv.contact_id as string).maybeSingle();
+  // ผูก HN แล้วชื่อที่แสดงยังเป็นชื่อจาก HIS (his > staff) ชื่อนี้ใช้เมื่อยกเลิกการผูก
+  const { error: upErr } = await db.from("contacts").update({
+    display_name: name, name_locked: true, ...(current?.name_source === "his" ? {} : { name_source: "staff" }),
+  }).eq("id", conv.contact_id as string);
   if (upErr) {
     console.error("rename contact failed", upErr.code);
     return NextResponse.json({ error: "แก้ชื่อไม่สำเร็จ" }, { status: 500 });

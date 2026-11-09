@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getStaffContext } from "@/lib/auth";
+import { contactName, type ContactNameFields } from "@/lib/patient-name";
 import { supabaseServer } from "@/lib/supabase/server";
 
 const ACTION: Record<string, string> = { open: "เปิดแชท", reveal: "กดแสดงข้อความ", export: "ส่งออก", untag: "เอาออกจากแชทลับ" };
@@ -10,7 +11,7 @@ interface Row {
   action: string;
   created_at: string;
   staff: { display_name: string } | null;
-  conversations: { id: string; contacts: { display_name: string | null } | null } | null;
+  conversations: { id: string; contacts: ContactNameFields | null } | null;
 }
 
 /** ประวัติการเข้าถึงแชทลับ เฉพาะ admin */
@@ -19,7 +20,7 @@ export default async function SensitiveLogPage() {
   if (me?.role !== "admin") redirect("/inbox");
   const sb = await supabaseServer();
   const { data } = await sb.from("sensitive_access_log")
-    .select("id, action, created_at, staff(display_name), conversations(id, contacts(display_name))")
+    .select("id, action, created_at, staff(display_name), conversations(id, contacts(display_name, platform_name, hn, patient_full_name))")
     .order("created_at", { ascending: false }).limit(500);
   const rows = (data ?? []) as unknown as Row[];
 
@@ -39,7 +40,7 @@ export default async function SensitiveLogPage() {
                     <td>{timeTh(r.created_at)}</td>
                     <td>{r.staff?.display_name ?? "–"}</td>
                     <td>{ACTION[r.action] ?? r.action}</td>
-                    <td>{r.conversations ? <a href={`/inbox?c=${r.conversations.id}`}>{r.conversations.contacts?.display_name || "ลูกค้า"}</a> : "–"}</td>
+                    <td>{r.conversations ? <a href={`/inbox?c=${r.conversations.id}`}>{contactName(r.conversations.contacts)}</a> : "–"}</td>
                   </tr>
                 ))}
               </tbody>

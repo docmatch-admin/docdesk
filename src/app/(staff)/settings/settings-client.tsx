@@ -7,6 +7,7 @@ import { DEFAULT_SCORE_RULES, normalizeScoreRules, type ScoreRules } from "@/lib
 import { DEFAULT_SENSITIVE_KEYWORDS, DEFAULT_SENSITIVE_RETENTION_DAYS, normalizeSensitiveKeywords } from "@/lib/sensitive-rules";
 import { bangkokDate, summarizeUsage, USD_TO_THB, type LlmUsageRow } from "@/lib/llm-usage";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { AppointmentSettings } from "./appointment-settings";
 import { HealthPanel } from "./health-panel";
 import { PriceAlerts } from "./price-alerts";
 import { TagSettings } from "./tag-settings";
@@ -173,6 +174,8 @@ export function SettingsClient() {
           </label>
         ))}
       </section>
+
+      <AppointmentSettings />
 
       <section className="card">
         <h3>เกณฑ์คะแนนเจ้าหน้าที่</h3>

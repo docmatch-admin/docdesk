@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { localToday, thaiDate, thaiTime, thaiWeekday } from "@/lib/booking-rules";
+import { contactName, type ContactNameFields } from "@/lib/patient-name";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 interface Row {
@@ -14,7 +15,7 @@ interface Row {
   name: string | null;
   phone: string | null;
   status: "ai_confirmed" | "recorded" | "cancelled";
-  conversations: { contacts: { display_name: string | null } | null } | null;
+  conversations: { contacts: ContactNameFields | null } | null;
 }
 
 const SECTIONS: { status: Row["status"]; title: string }[] = [
@@ -29,7 +30,7 @@ export function BookingsClient() {
 
   const load = useCallback(async () => {
     const { data } = await sb.from("bookings")
-      .select('id, conversation_id, service, "date", "time", name, phone, status, conversations(contacts(display_name))')
+      .select('id, conversation_id, service, "date", "time", name, phone, status, conversations(contacts(display_name, platform_name, hn, patient_full_name))')
       .order("date").order("time").limit(1000);
     setRows((data ?? []) as unknown as Row[]);
   }, [sb]);
@@ -69,7 +70,7 @@ export function BookingsClient() {
                           </td>
                           <td>{thaiTime(r.time)} น.</td>
                           <td>{r.service}</td>
-                          <td>{r.name || r.conversations?.contacts?.display_name || "–"}</td>
+                          <td>{r.conversations?.contacts?.hn ? contactName(r.conversations.contacts) : r.name || contactName(r.conversations?.contacts, "–")}</td>
                           <td>{r.phone || "–"}</td>
                           <td><Link href={`/inbox?c=${r.conversation_id}`}>เปิดแชท</Link></td>
                         </tr>

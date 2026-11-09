@@ -12,6 +12,8 @@ import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
 import { ArchiveMergeBar } from "./archive-merge-bar";
 import { AssigneeControl } from "./assignee-control";
+import { contactLabel, contactName } from "@/lib/patient-name";
+import { AppointmentsBlock } from "./appointments-block";
 import { BookingsBlock, type BookingCardRow } from "./booking-card";
 import { Icon } from "../icons";
 import { LabPanel } from "./lab-panel";
@@ -122,7 +124,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   // ---------- โหลดรายการแชท ----------
   const loadConvs = useCallback(async () => {
-    const columns = "*, contacts(display_name, avatar_url, language), channels(type, name, ai_mode)";
+    const columns = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source), channels(type, name, ai_mode)";
     // กรองที่ฐานข้อมูล ไม่อย่างนั้นจะเห็นแค่ใน 200 แชทล่าสุด
     const seq = ++loadSeq.current;
     const term = searchRef.current.trim();
@@ -229,7 +231,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   useEffect(() => {
     loadTags();
     sb.from("staff").select("id, display_name, active, role, can_view_sensitive").order("display_name")
-      .then(({ data }) => setStaffList((data ?? []) as StaffOption[]));
+      // ห้องยาไม่เห็นแชท จึงรับเคสหรืองานไม่ได้
+      .then(({ data }) => setStaffList(((data ?? []) as StaffOption[]).filter((s) => s.role !== "pharmacy")));
     sb.from("quick_media").select("id, title, preview_path").order("created_at", { ascending: false }).then(async ({ data }) => {
       const rows = (data ?? []) as QuickMedia[];
       if (!rows.length) return;
@@ -660,9 +663,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             {c.sensitive ? <div className="avatar">🔒</div> : <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />}
             <div className="conv-body">
               <div className="conv-top">
-                <span className={`name ${c.sensitive ? "sensitive-text" : ""}`}>{c.contacts?.display_name || "ลูกค้า"}</span>
+                <span className={`name ${c.sensitive ? "sensitive-text" : ""}`}>{contactName(c.contacts)}</span>
                 <span className="muted small">{timeTh(c.last_message_at)}</span>
               </div>
+              {!c.sensitive && contactLabel(c.contacts).secondary && <div className="name-platform">{contactLabel(c.contacts).secondary}</div>}
               <div className="conv-preview">{c.sensitive ? "🔒 ข้อความลับ" : c.last_message_preview}</div>
               <div className="chips">
                 <span className={`chip ch-${c.channels?.type}`}>{c.channels ? CHANNEL_LABEL[c.channels.type] : ""}</span>
@@ -718,12 +722,13 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                   </form>
                 ) : (
                   <div className="head-line">
-                    <span className={`name ${blurred ? "sensitive-text" : ""}`}>{selected.contacts?.display_name || "ลูกค้า"}</span>
+                    <span className={`name ${blurred ? "sensitive-text" : ""}`}>{contactName(selected.contacts)}</span>
                     {!blurred && (
                       <button className="icon-btn ghost tiny" type="button" title="แก้ชื่อลูกค้า" aria-label="แก้ชื่อลูกค้า"
                         onClick={() => setEditingName(selected.contacts?.display_name ?? "")}><Icon name="pencil" size={14} /></button>
                     )}
                     <span className="head-sub">
+                      {!blurred && contactLabel(selected.contacts).secondary && <span className="name-platform">{contactLabel(selected.contacts).secondary} · </span>}
                       {selected.channels?.name}
                       {customerLang !== "th" && <> · ภาษา{LANGUAGE_NAME[customerLang] ?? customerLang} (ระบบแปลให้)</>}
                     </span>
@@ -974,8 +979,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           </section>
           {!selected.archived && (
             <>
-              <BookingsBlock conversationId={selected.id} bookings={bookings} blurred={blurred} onError={flash} onReschedule={draftReschedule}
-                onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
+              <BookingsBlock conversationId={selected.id} contactName={selected.contacts?.display_name ?? null} bookings={bookings} blurred={blurred}
+                onError={flash} onReschedule={draftReschedule} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
+              <AppointmentsBlock conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
+                onMessage={flash} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
               <TeamPanel conversationId={selected.id} sensitive={!!selected.sensitive}
                 staff={staffList} onChanged={loadConvs} onError={flash} />
             </>

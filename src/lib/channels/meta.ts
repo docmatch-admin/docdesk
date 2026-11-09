@@ -187,6 +187,20 @@ export async function metaSendFile(
   return metaSendAttachment(kind, recipientId, "file", fileUrl, caption, opts);
 }
 
+/**
+ * ส่ง message object ที่สร้างไว้แล้ว (template / quick reply) แบบ RESPONSE เท่านั้น
+ * ผู้เรียกต้องตรวจกรอบ 24 ชม. ก่อน ข้อความระบบห้ามใช้ message tag
+ */
+export async function metaSendMessage(recipientId: string, message: Record<string, unknown>): Promise<string | null> {
+  const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ recipient: { id: recipientId }, message, messaging_type: "RESPONSE" }),
+  });
+  if (!res.ok) throw new Error(`Meta send failed ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return sentMid(res);
+}
+
 /** แจ้ง Facebook/Instagram ว่าเพจอ่านแล้ว */
 export async function metaMarkSeen(_kind: "facebook" | "instagram", recipientId: string) {
   const res = await fetch(`${GRAPH()}/me/messages?access_token=${pageToken()}`, {
@@ -221,9 +235,11 @@ interface MetaWebhookBody {
       recipient?: { id: string };
       timestamp?: number;
       read?: { watermark?: number };
+      postback?: { mid?: string; title?: string; payload?: string };
       message?: {
         mid: string;
         text?: string;
+        quick_reply?: { payload?: string };
         is_echo?: boolean;
         app_id?: number | string;
         metadata?: string;
@@ -248,6 +264,8 @@ export function parseMetaWebhook(body: MetaWebhookBody): MetaIncoming[] {
       const senderId = ev.sender?.id;
       // ข้าม echo (ข้อความที่เพจส่งเอง) และข้อความที่ผู้ส่งคือเพจ/บัญชีเราเอง
       if (!m || m.is_echo || !senderId || senderId === entry.id) continue;
+      // ปุ่มของระบบนัด จัดการใน parseMetaPostbacks ไม่ให้เข้า AI
+      if (isAppointmentPayload(m.quick_reply?.payload)) continue;
       if (m.text) {
         out.push({ kind, senderId, messageId: m.mid, text: m.text, isText: true });
       } else if (m.attachments?.some((a) => a.type === "image" && a.payload?.url)) {
@@ -319,6 +337,39 @@ export function classifyMetaEcho(echo: Pick<MetaEcho, "appId" | "metadata">, aut
   if (echo.appId === DOCDESK_META_APP_ID()) return "own";
   if (echo.metadata || (echo.appId && autoReplyAppIds.includes(echo.appId))) return "auto";
   return "staff";
+}
+
+const isAppointmentPayload = (p: unknown) => typeof p === "string" && p.startsWith("appt:");
+
+export interface MetaPostback {
+  kind: "facebook" | "instagram";
+  senderId: string;
+  /** ใช้กันซ้ำ Meta ส่ง webhook เดิมซ้ำได้ */
+  eventId: string;
+  payload: string;
+  title: string;
+}
+
+/** ปุ่ม postback ของ Facebook และ quick reply ของ Instagram ที่เป็นของระบบนัด */
+export function parseMetaPostbacks(body: MetaWebhookBody): MetaPostback[] {
+  const kind = body.object === "page" ? "facebook" : body.object === "instagram" ? "instagram" : null;
+  if (!kind) return [];
+  const out: MetaPostback[] = [];
+  for (const entry of body.entry ?? []) {
+    for (const ev of entry.messaging ?? []) {
+      const senderId = ev.sender?.id;
+      if (!senderId || senderId === entry.id) continue;
+      if (ev.postback && isAppointmentPayload(ev.postback.payload)) {
+        out.push({
+          kind, senderId, payload: ev.postback.payload as string, title: ev.postback.title ?? "",
+          eventId: ev.postback.mid ?? `pb:${senderId}:${ev.timestamp ?? ""}:${ev.postback.payload}`,
+        });
+      } else if (ev.message && !ev.message.is_echo && isAppointmentPayload(ev.message.quick_reply?.payload)) {
+        out.push({ kind, senderId, payload: ev.message.quick_reply!.payload as string, title: ev.message.text ?? "", eventId: ev.message.mid });
+      }
+    }
+  }
+  return out;
 }
 
 export interface MetaRead {

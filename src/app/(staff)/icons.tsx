@@ -18,6 +18,7 @@ const PATHS = {
   reopen: "M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4",
   split: "M6 4v6a4 4 0 0 0 4 4h8M14 10l4 4-4 4M6 20v-2",
   message: "M4 5h16v11H9l-5 4zM8 9h8M8 12h5",
+  printer: "M7 9V4h10v5M7 17H5v-8h14v8h-2M7 14h10v6H7z",
 } as const;
 
 export type IconName = keyof typeof PATHS;

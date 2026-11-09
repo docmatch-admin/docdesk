@@ -495,3 +495,75 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .archived-notice { padding: 16px; text-align: center; color: var(--muted); border-top: 1px solid var(--line); background: var(--bg); }
 .chat-head { flex-wrap: wrap; }
 .chat-head-main { min-width: 200px; flex: 1 1 200px; }
+
+/* ---------- ระบบนัดครั้งต่อไป ---------- */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.btn.danger { color: #b3263a; border-color: #f3b8c0; }
+.nav-count { margin-left: auto; }
+.appt-page { display: flex; flex-direction: column; gap: 12px; }
+.appt-filters { margin-left: auto; }
+.appt-filters input[type="date"] { width: auto; }
+.appt-new { display: flex; flex-direction: column; gap: 10px; }
+.appt-pick-list { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.appt-pick-list:empty { display: none; }
+.appt-pick { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: #fff; padding: 10px 12px; cursor: pointer; min-height: 48px; }
+.appt-pick:hover, .appt-pick:focus-visible { background: var(--blue-soft); }
+.appt-pick-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.appt-pick-name { font-weight: 500; }
+.appt-form { display: flex; flex-direction: column; gap: 12px; }
+.appt-form.compact { gap: 8px; margin-top: 8px; font-size: 13px; }
+.appt-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; }
+.appt-grid .span2 { grid-column: span 2; }
+.appt-grid .span4 { grid-column: 1 / -1; }
+.appt-field { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.appt-field legend { font-weight: 500; padding: 0; margin-bottom: 6px; }
+.appt-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.appt-chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 8px 14px; min-height: 40px; cursor: pointer; font-weight: 500; font-variant-numeric: tabular-nums; }
+.appt-chip:hover { border-color: var(--blue); }
+.appt-chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.appt-date, .appt-time { width: auto; min-height: 40px; }
+.appt-picked { font-weight: 600; color: var(--blue); }
+.appt-picked.warn { color: #a14e00; }
+.appt-link-state { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: #fff4e0; color: #8a4b00; }
+.appt-link-state.ok { background: var(--mint-soft); color: #0f7a5f; }
+.appt-table td { vertical-align: top; }
+.appt-table tr.appt-closed { opacity: .55; }
+.appt-actions { white-space: nowrap; }
+.appt-actions .btn { margin: 0 2px 2px 0; }
+.appt-state { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg); white-space: nowrap; }
+.appt-state.sent { background: var(--blue-soft); color: var(--blue); }
+.appt-state.confirmed { background: var(--mint-soft); color: #0f7a5f; }
+.appt-state.reschedule { background: #fff1e0; color: #a14e00; }
+.appt-state.call { background: var(--red-soft); color: #b3263a; font-weight: 600; }
+.appt-side-card { padding: 8px 10px; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; background: #fff; font-size: 13px; }
+@media (max-width: 720px) {
+  .appt-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .appt-filters { margin-left: 0; width: 100%; }
+  .appt-pick { grid-template-columns: 56px 1fr; }
+  .appt-pick > :last-child { grid-column: 2; }
+}
+
+/* ใบนัด thermal 80mm: กว้างพิมพ์ได้จริงราว 72mm ขาวดำล้วน ฟอนต์ไทยตัวหนาอ่านชัดบนกระดาษความร้อน */
+.appt-slip-preview { display: flex; justify-content: center; padding: 16px; background: #e9ecf3; border-radius: var(--radius); overflow-x: auto; }
+.appt-slip-preview .appt-slip { background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.15); }
+.appt-slip { width: 80mm; padding: 4mm 4mm 6mm; color: #000; background: #fff; font-family: "IBM Plex Sans Thai", "Sarabun", "Tahoma", sans-serif; font-size: 11pt; line-height: 1.35; font-weight: 500; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.appt-slip * { color: #000 !important; }
+.appt-slip-clinic { text-align: center; font-weight: 700; font-size: 12pt; }
+.appt-slip-title { text-align: center; font-weight: 700; font-size: 16pt; margin: 1mm 0 2mm; padding-bottom: 2mm; border-bottom: 1px dashed #000; }
+.appt-slip-row { display: grid; grid-template-columns: 22mm 1fr; gap: 2mm; margin: 0.8mm 0; }
+.appt-slip-row span { font-weight: 500; }
+.appt-slip-row b { font-weight: 700; word-break: break-word; }
+.appt-slip-date { text-align: center; font-weight: 700; font-size: 15pt; line-height: 1.25; margin: 2.5mm 0 0.5mm; padding-top: 2mm; border-top: 1px dashed #000; }
+.appt-slip-time { text-align: center; font-weight: 700; font-size: 14pt; margin-bottom: 2mm; }
+.appt-slip-qr { width: 44mm; height: 44mm; margin: 3mm auto 1.5mm; }
+.appt-slip-qr svg { display: block; width: 100%; height: 100%; }
+.appt-slip-scan { text-align: center; font-weight: 700; font-size: 10.5pt; }
+.appt-slip-code { text-align: center; font-family: ui-monospace, "Courier New", monospace; font-weight: 700; font-size: 20pt; letter-spacing: 1.5px; margin: 1mm 0 2mm; }
+.appt-slip-foot { text-align: center; font-size: 9.5pt; border-top: 1px dashed #000; padding-top: 2mm; }
+body > .appt-slip { display: none; }
+@media print {
+  body > .appt-slip { display: block; margin: 0; box-shadow: none; }
+}
+.appt-settings { display: flex; flex-direction: column; gap: 10px; }
+.name-platform { font-size: 12px; color: var(--muted); opacity: .8; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appt-link-box { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; font-size: 13px; }

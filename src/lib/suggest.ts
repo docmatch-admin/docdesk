@@ -11,6 +11,7 @@ import { DEFAULT_CLINIC_PROFILE, getSetting, isWithinBusinessHours, resolveAiMod
 import { META_FALLBACK_NAME } from "./channels/meta";
 import { applyNumberGuard, buildNumberSources } from "./number-guard";
 import { applyPriceConflictGuard, buildPriceEntries, findPriceConflicts, noPriceAnswer, type WebsitePriceRow } from "./price-catalog";
+import { aiMayWriteName } from "./patient-name";
 import { scrubPII } from "./pii";
 import { applySensitiveGuard, SENSITIVE_PROMPT_RULES, SENSITIVE_TAG } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive } from "./sensitive-store";
@@ -434,7 +435,8 @@ async function saveDetectedName(conversationId: string, name: string) {
   const db = supabaseAdmin();
   const { data: conv } = await db.from("conversations").select("contact_id").eq("id", conversationId).maybeSingle();
   if (!conv) return;
-  const { data: c } = await db.from("contacts").select("display_name, name_locked").eq("id", conv.contact_id as string).maybeSingle();
-  if (!c || c.name_locked || !PLACEHOLDER_NAMES.has(((c.display_name as string | null) ?? "").trim())) return;
-  await db.from("contacts").update({ display_name: name }).eq("id", conv.contact_id as string);
+  const { data: c } = await db.from("contacts").select("display_name, name_locked, name_source").eq("id", conv.contact_id as string).maybeSingle();
+  // ห้ามทับชื่อจาก HIS หรือที่เจ้าหน้าที่ตั้ง
+  if (!aiMayWriteName(c) || !PLACEHOLDER_NAMES.has(((c?.display_name as string | null) ?? "").trim())) return;
+  await db.from("contacts").update({ display_name: name, name_source: "ai" }).eq("id", conv.contact_id as string);
 }

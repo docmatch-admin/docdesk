@@ -6,6 +6,7 @@ import { lineMarkAsRead } from "./channels/line";
 import { classifyMetaEcho, metaMarkSeen, metaMessagingType, type MetaEcho } from "./channels/meta";
 import { claimReplyToken } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
+import { platformMayWriteDisplayName } from "./patient-name";
 import { scrubPII } from "./pii";
 import { matchSensitive, SENSITIVE_ACK_TEXT } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive, notifySensitiveChat } from "./sensitive-store";
@@ -54,10 +55,11 @@ export async function storeIncoming(input: IncomingInput) {
 
   const contactPatch: Record<string, unknown> = { channel_id: channel.id, external_id: input.externalId };
   if (input.displayName) {
-    // ชื่อที่เจ้าหน้าที่ตั้งเองไม่ถูกเขียนทับด้วยชื่อจากแพลตฟอร์ม
-    const { data: existing } = await db.from("contacts").select("name_locked")
+    // ชื่อจากแพลตฟอร์มเก็บไว้เสมอ (แสดงเป็นบรรทัดเล็ก ค้นหาได้) แต่ไม่ทับชื่อที่เจ้าหน้าที่หรือ AI ตั้ง
+    contactPatch.platform_name = input.displayName;
+    const { data: existing } = await db.from("contacts").select("name_locked, name_source")
       .eq("channel_id", channel.id).eq("external_id", input.externalId).maybeSingle();
-    if (!existing?.name_locked) contactPatch.display_name = input.displayName;
+    if (platformMayWriteDisplayName(existing)) contactPatch.display_name = input.displayName;
   }
   if (input.avatarUrl) contactPatch.avatar_url = input.avatarUrl;
   const { data: contact, error: ctErr } = await db
@@ -649,7 +651,7 @@ export async function storeMetaEcho(echo: MetaEcho, displayName?: string): Promi
   let { data: contact } = await db.from("contacts").select("id, language")
     .eq("channel_id", channel.id).eq("external_id", echo.customerId).maybeSingle();
   if (!contact) {
-    const { data, error } = await db.from("contacts").insert({ channel_id: channel.id, external_id: echo.customerId, display_name: displayName ?? null })
+    const { data, error } = await db.from("contacts").insert({ channel_id: channel.id, external_id: echo.customerId, display_name: displayName ?? null, platform_name: displayName ?? null })
       .select("id, language").single();
     if (error || !data) throw error ?? new Error("contact insert failed");
     contact = data;

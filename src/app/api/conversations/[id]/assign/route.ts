@@ -24,7 +24,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (to) {
     const { data: target } = await db.from("staff").select("active, role, can_view_sensitive").eq("id", to).maybeSingle();
-    if (!target?.active) return NextResponse.json({ error: "ไม่พบเจ้าหน้าที่คนนี้" }, { status: 400 });
+    if (!target?.active || target.role === "pharmacy") return NextResponse.json({ error: "ไม่พบเจ้าหน้าที่คนนี้" }, { status: 400 });
     if (conv.sensitive && target.role !== "admin" && !target.can_view_sensitive) {
       return NextResponse.json({ error: "คนนี้ไม่มีสิทธิ์ดูแชทลับ" }, { status: 400 });
     }

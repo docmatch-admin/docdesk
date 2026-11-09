@@ -1,5 +1,7 @@
 import { after, NextResponse } from "next/server";
-import { getMetaProfile, META_FALLBACK_NAME, parseMetaEchoes, parseMetaReads, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
+import { getMetaProfile, META_FALLBACK_NAME, parseMetaEchoes, parseMetaPostbacks, parseMetaReads, parseMetaWebhook, verifyMetaSignature } from "@/lib/channels/meta";
+import { parseLinkCode } from "@/lib/appointment-rules";
+import { handleAppointmentPostback, handleLinkCode } from "@/lib/appointment-store";
 import { logSystemError } from "@/lib/health";
 import { downloadLimited } from "@/lib/media";
 import { fileNameFromUrl, MAX_FILE_BYTES } from "@/lib/files";
@@ -40,6 +42,18 @@ export async function POST(req: Request) {
     // ชื่อชั่วคราวลองดึงใหม่ เผื่อได้สิทธิ์อ่านโปรไฟล์ภายหลัง
     const profile = known?.display_name && known.display_name !== META_FALLBACK_NAME[m.kind] ? {} : await getMetaProfile(m.kind, m.senderId);
 
+    // รหัสจากใบนัด: ระบบนัดตอบเอง AI ไม่ตอบทับ
+    const code = m.isText ? parseLinkCode(m.text) : null;
+    if (code) {
+      try {
+        await handleLinkCode({ channelType: m.kind, externalId: m.senderId, eventId: m.messageId, displayName: profile.name, avatarUrl: profile.avatar }, m.text, code);
+      } catch (e) {
+        console.error("appointment link failed", e);
+        await logSystemError("webhook:meta:appointment", e);
+      }
+      continue;
+    }
+
     const stored = await storeIncoming({
       channelType: m.kind,
       externalId: m.senderId,
@@ -69,6 +83,19 @@ export async function POST(req: Request) {
   } catch (e) {
     await logSystemError("webhook:meta", e);
     throw e;
+  }
+
+  // ปุ่มของระบบนัด (postback ของ Facebook, quick reply ของ Instagram)
+  for (const pb of parseMetaPostbacks(body)) {
+    try {
+      const { data: known } = await supabaseAdmin().from("contacts")
+        .select("id, channels!inner(type)").eq("external_id", pb.senderId).eq("channels.type", pb.kind).maybeSingle();
+      const profile = known ? {} : await getMetaProfile(pb.kind, pb.senderId);
+      await handleAppointmentPostback({ channelType: pb.kind, externalId: pb.senderId, eventId: pb.eventId, displayName: profile.name, avatarUrl: profile.avatar }, pb.payload, pb.title);
+    } catch (e) {
+      console.error("appointment postback failed", e);
+      await logSystemError("webhook:meta:appointment", e);
+    }
   }
 
   // ข้อความที่เพจส่งออก (message_echoes) พลาดรายการเดียวต้องไม่ทำให้รายการอื่นหาย

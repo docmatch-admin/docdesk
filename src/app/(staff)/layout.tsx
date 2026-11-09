@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { appointmentCallCounts } from "@/lib/appointment-store";
 import { getStaffContext } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase/server";
+import { AppointmentBadge } from "./appointment-badge";
 import { HealthBanner } from "./health-banner";
 import { Icon } from "./icons";
 import { NAV_BOOT_SCRIPT, NavToggle } from "./nav-toggle";
@@ -28,6 +30,9 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   }
   if (me.mustChangePassword) redirect("/change-password");
   const isAdmin = me.role === "admin";
+  // ห้องยาเห็นเฉพาะเมนูนัดหมาย
+  const chatStaff = me.role !== "pharmacy";
+  const calls = await appointmentCallCounts().catch(() => ({ total: 0, mustCall: 0, reschedule: 0 }));
 
   return (
     <div className="staff-root">
@@ -37,10 +42,13 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       <div className="shell">
       <nav className="nav">
         <div className="brand"><span className="nav-label">Doc<span>Desk</span></span><span className="brand-short" aria-hidden="true">D</span></div>
-        <Link href="/inbox" title="แชท"><span className="nav-icon" aria-hidden="true"><Icon name="chat" size={20} /></span><span className="nav-label">แชท</span></Link>
+        {chatStaff && <Link href="/inbox" title="แชท"><span className="nav-icon" aria-hidden="true"><Icon name="chat" size={20} /></span><span className="nav-label">แชท</span></Link>}
         {isAdmin && <Link href="/knowledge" title="ฐานข้อมูล & คำตอบ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ฐานข้อมูล &amp; คำตอบ</span></Link>}
-        <Link href="/bookings" title="นัดหมาย"><span className="nav-icon" aria-hidden="true"><Icon name="calendar" size={20} /></span><span className="nav-label">นัดหมาย</span></Link>
-        <Link href="/reports" title="รายงาน"><span className="nav-icon" aria-hidden="true"><Icon name="chart" size={20} /></span><span className="nav-label">รายงาน</span></Link>
+        <Link href="/appointments" title="นัดหมาย">
+          <span className="nav-icon" aria-hidden="true"><Icon name="calendar" size={20} /></span><span className="nav-label">นัดหมาย</span>
+          <AppointmentBadge initial={calls} />
+        </Link>
+        {chatStaff && <Link href="/reports" title="รายงาน"><span className="nav-icon" aria-hidden="true"><Icon name="chart" size={20} /></span><span className="nav-label">รายงาน</span></Link>}
         {isAdmin && <Link href="/imports/paste" title="นำเข้าคำตอบ"><span className="nav-icon" aria-hidden="true"><Icon name="download" size={20} /></span><span className="nav-label">นำเข้าคำตอบ</span></Link>}
         {isAdmin && <Link href="/staff" title="เจ้าหน้าที่"><span className="nav-icon" aria-hidden="true"><Icon name="users" size={20} /></span><span className="nav-label">เจ้าหน้าที่</span></Link>}
         {isAdmin && <Link href="/sensitive-log" title="ประวัติแชทลับ"><span className="nav-icon" aria-hidden="true"><Icon name="lock" size={20} /></span><span className="nav-label">ประวัติแชทลับ</span></Link>}
@@ -48,8 +56,8 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         <div className="nav-foot">
           {/* ตอนย่อเมนูซ่อนส่วนนี้ เหลือแค่ปุ่มขยาย */}
           <div className="nav-extra">
-            <TodayScore meId={me.id} />
-            <WaitingAlert meId={me.id} />
+            {chatStaff && <TodayScore meId={me.id} />}
+            {chatStaff && <WaitingAlert meId={me.id} />}
             <PushToggle />
             <div className="muted small">{me.displayName}</div>
             <SignOut />

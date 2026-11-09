@@ -51,10 +51,10 @@ export function lineContentRequest(messageId: string) {
   };
 }
 
-type LineMessage = Record<string, unknown>;
+export type LineMessage = Record<string, unknown>;
 
 /** ส่งหลายข้อความในครั้งเดียว: ใช้ replyToken ก่อน (ฟรี) ไม่สำเร็จค่อย push */
-async function lineSendMessages(userId: string, messages: LineMessage[], replyToken?: string) {
+export async function lineSendMessages(userId: string, messages: LineMessage[], replyToken?: string) {
   const post = (path: string, body: Record<string, unknown>) => fetch(`${API}/message/${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token()}` },
@@ -130,6 +130,21 @@ export async function lineMarkAsRead(markAsReadToken: string) {
     body: JSON.stringify({ markAsReadToken }),
   });
   if (!res.ok) throw new Error(`LINE markAsRead failed ${res.status}: ${await res.text()}`);
+}
+
+/** โควตาข้อความ push ของเดือนนี้ type none = ไม่จำกัด */
+export async function lineQuota(): Promise<{ type: string; limit: number | null; used: number }> {
+  const get = async (path: string) => {
+    const res = await fetch(`${API}/message/${path}`, { headers: { Authorization: `Bearer ${token()}` }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`LINE ${path} failed ${res.status}`);
+    return (await res.json()) as Record<string, unknown>;
+  };
+  const [quota, consumption] = await Promise.all([get("quota"), get("quota/consumption")]);
+  return {
+    type: String(quota.type ?? "none"),
+    limit: typeof quota.value === "number" ? quota.value : null,
+    used: Number(consumption.totalUsage ?? 0),
+  };
 }
 
 /** ใช้ replyToken ก่อนถ้ามี ถ้าไม่สำเร็จค่อย push */

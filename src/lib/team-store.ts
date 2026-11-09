@@ -25,7 +25,7 @@ async function reopenIfClosed(conversationId: string) {
 /** ผู้รับงานต้องเป็นเจ้าหน้าที่ที่ใช้งานอยู่ และอ่านแชทลับได้ถ้าแชทนี้เป็นแชทลับ */
 async function validAssignee(assigneeId: string, sensitive: boolean): Promise<boolean> {
   const { data } = await supabaseAdmin().from("staff").select("active, role, can_view_sensitive").eq("id", assigneeId).maybeSingle();
-  return !!data?.active && (!sensitive || data.role === "admin" || !!data.can_view_sensitive);
+  return !!data?.active && data.role !== "pharmacy" && (!sensitive || data.role === "admin" || !!data.can_view_sensitive);
 }
 
 export async function createTask(conversationId: string, input: { text?: unknown; assigneeId?: unknown }, staffId: string) {

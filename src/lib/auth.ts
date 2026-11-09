@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "./supabase/admin";
 import { supabaseServer } from "./supabase/server";
 
-export type StaffRole = "admin" | "agent";
+/** pharmacy = พยาบาล/ห้องยา เข้าได้เฉพาะหน้านัดหมาย */
+export type StaffRole = "admin" | "agent" | "pharmacy";
 export interface StaffContext { id: string; email: string | null; role: StaffRole; displayName: string; mustChangePassword: boolean; canViewSensitive: boolean; sensitiveAcked: boolean }
 
 /** เจ้าหน้าที่ที่ล็อกอินอยู่ คืน null ถ้าไม่ได้ล็อกอิน ไม่มีแถวใน staff หรือถูกปิดบัญชี */
@@ -15,8 +16,20 @@ export async function getStaffContext(): Promise<StaffContext | null> {
   return { id: user.id, email: user.email ?? null, role: staff.role as StaffRole, displayName: staff.display_name as string, mustChangePassword: !!staff.must_change_password, canViewSensitive: staff.role === "admin" || !!staff.can_view_sensitive, sensitiveAcked: !!staff.sensitive_ack_at };
 }
 
-/** ใช้ใน API route: คืน user ถ้าเป็นเจ้าหน้าที่ ไม่งั้นคืน 401 (ไม่ได้ล็อกอิน) หรือ 403 (ไม่มีแถวใน staff, ถูกปิดบัญชี หรือยังไม่เปลี่ยนรหัสชั่วคราว) */
+/** ใช้ใน API route: คืน user ถ้าเป็นเจ้าหน้าที่ ไม่งั้นคืน 401 (ไม่ได้ล็อกอิน) หรือ 403 (ไม่มีแถวใน staff, ถูกปิดบัญชี หรือยังไม่เปลี่ยนรหัสชั่วคราว)
+ * ห้องยา (pharmacy) ไม่ผ่าน เพราะทุก API ที่ใช้ตัวนี้แตะแชท ใช้ requireAppointmentStaff กับ API นัดหมายแทน */
 export async function requireStaff() {
+  const result = await requireAnyStaff();
+  if (!result.error && result.role === "pharmacy") {
+    return { user: null, role: null, canViewSensitive: false, error: NextResponse.json({ error: "forbidden" }, { status: 403 }) } as const;
+  }
+  return result;
+}
+
+/** API นัดหมาย: admin, agent และห้องยา */
+export const requireAppointmentStaff = () => requireAnyStaff();
+
+async function requireAnyStaff() {
   const sb = await supabaseServer();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) {

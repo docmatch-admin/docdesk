@@ -8,7 +8,7 @@ interface Row {
   display_name: string;
   email: string | null;
   username: string | null;
-  role: "admin" | "agent";
+  role: "admin" | "agent" | "pharmacy";
   active: boolean;
   must_change_password: boolean;
   can_view_sensitive: boolean;
@@ -134,6 +134,7 @@ export function StaffClient({ meId }: { meId: string }) {
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
               <option value="agent">agent</option>
               <option value="admin">admin</option>
+                <option value="pharmacy">ห้องยา (นัดหมายเท่านั้น)</option>
             </select>
           </label>
           <div className="row"><button className="btn primary">สร้างบัญชี</button></div>
@@ -159,9 +160,10 @@ export function StaffClient({ meId }: { meId: string }) {
               <select value={r.role} aria-label={`สิทธิ์ของ ${login}`} onChange={(e) => patch(r, { role: e.target.value })}>
                 <option value="agent">agent</option>
                 <option value="admin">admin</option>
+                <option value="pharmacy">ห้องยา (นัดหมายเท่านั้น)</option>
               </select>
               <label className="raw small" title="admin ดูแชทลับได้เสมอ">
-                <input type="checkbox" checked={r.role === "admin" || r.can_view_sensitive} disabled={r.role === "admin"}
+                <input type="checkbox" checked={r.role === "admin" || r.can_view_sensitive} disabled={r.role === "admin" || r.role === "pharmacy"}
                   onChange={(e) => patch(r, { can_view_sensitive: e.target.checked })} /> 🔒 ดูแชทลับ
               </label>
               {hrEnabled && (
