@@ -1595,7 +1595,18 @@ test("ตั้งค่า → นัดหมาย: กลุ่มหัว�
   assert.match(css, /@container apptset \(min-width: 1024px\) \{ \.set-grid \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\); \}/);
   assert.match(css, /@container apptset \(min-width: 640px\) \{ \.set-grid \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/);
   assert.match(css, /\.set-save \{ position: sticky;/);
-  assert.match(css, /\.set-table td, \.set-table tbody th \{ height: 40px;/);
+  // ช่องกรอกสูงอย่างน้อย 44px ทั้งหน้า แถวตารางจึงสูง 52px
+  assert.match(css, /\.set-table td, \.set-table tbody th \{ height: 52px;/);
+  // สเกลตัวอักษรกลางของหน้าตั้งค่า
+  for (const v of ["--fs-card-title: 20px", "--fs-group: 16px", "--fs-label: 15px", "--fs-body: 16px", "--fs-help: 14px", "--fs-badge: 13px", "--field-h: 44px", "--field-px: 14px", "--gap-label: 6px", "--gap-field: 16px", "--gap-group: 24px", "--check-size: 20px"]) assert.ok(css.includes(v), v);
+  // กฎเฉพาะหน้าตั้งค่าไม่กำหนดขนาดตัวอักษรตายตัวรายคอมโพเนนต์
+  const scoped = css.split(/\r?\n/).filter((l) => /^\.(set-|health-|line-usage|ai-models|var-chip|info-tip|tiny-note|settings-|preset-table|hours-grid)/.test(l.trim()));
+  assert.deepEqual(scoped.filter((l) => /font-size: [\d.]+px/.test(l)), []);
+  const page = readFileSync("src/app/(staff)/settings/settings-client.tsx", "utf8");
+  assert.match(page, /<div className="settings-grid">/);
+  assert.match(page, /มีการแก้ไขที่ยังไม่บันทึก/);
+  assert.ok(page.indexOf("<HealthPanel") < page.indexOf("<LineUsagePanel") && page.indexOf("<LineUsagePanel") < page.indexOf("<AiModelsPanel"), "แถวบน: สุขภาพ | โควตา | โมเดล");
+  assert.ok(page.indexOf("<AppointmentSettings") > page.indexOf("ข้อความการจอง"), "นัดหมายอยู่ท้ายสุด");
   const presets = readFileSync("src/app/(staff)/settings/appointment-presets.tsx", "utf8");
   assert.match(presets, /<table className="set-table preset-table">/);
   assert.match(presets, /<table className="set-table hours-grid">/);

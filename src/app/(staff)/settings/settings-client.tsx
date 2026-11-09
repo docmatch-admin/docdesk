@@ -10,7 +10,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import { AppointmentSettings } from "./appointment-settings";
 import { HealthPanel } from "./health-panel";
 import { AiModelsPanel } from "./ai-models-panel";
-import { LineUsagePanel } from "./line-usage-panel";
+import { LineUsagePanel, type Usage } from "./line-usage-panel";
 import { PriceAlerts } from "./price-alerts";
 import { TagSettings } from "./tag-settings";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
@@ -21,13 +21,22 @@ interface Hours { tz: string; days: Record<string, [string, string] | null> }
 const DAY = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
 const MODES = Object.keys(AI_MODE_LABEL) as AiMode[];
 
-export function SettingsClient() {
+/** preview: ข้อมูลตั้งต้นสำหรับภาพตัวอย่าง/เทสต์ (หน้าใช้งานจริงไม่ส่ง โหลดจากฐานข้อมูลเสมอ) */
+export interface SettingsPreview {
+  health?: Parameters<typeof HealthPanel>[0] extends infer P ? P extends { initial?: infer H } ? H : never : never;
+  usage?: Usage;
+  models?: Parameters<typeof AiModelsPanel>[0] extends infer P ? P extends { initial?: infer M } ? M : never : never;
+  appointments?: Parameters<typeof AppointmentSettings>[0] extends infer P ? P extends { initial?: infer A } ? A : never : never;
+  channels?: Channel[];
+}
+
+export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [mode, setMode] = useState<AiMode>("assist");
   const [minutes, setMinutes] = useState(5);
   const [hours, setHours] = useState<Hours>({ tz: "Asia/Bangkok", days: {} });
   const [profile, setProfile] = useState({ name: "", tone: "" });
-  const [channels, setChannels] = useState<Channel[]>([]);
+  const [channels, setChannels] = useState<Channel[]>(preview?.channels ?? []);
   const [saved, setSaved] = useState("");
   const [usage, setUsage] = useState<LlmUsageRow[]>([]);
   const [scoreRules, setScoreRules] = useState<ScoreRules>(DEFAULT_SCORE_RULES);
@@ -36,26 +45,39 @@ export function SettingsClient() {
   const [sensitiveKeywords, setSensitiveKeywords] = useState(DEFAULT_SENSITIVE_KEYWORDS.join("\n"));
   const [sensitiveDays, setSensitiveDays] = useState(DEFAULT_SENSITIVE_RETENTION_DAYS);
   const [bookingTemplates, setBookingTemplates] = useState<BookingTemplates>(DEFAULT_BOOKING_TEMPLATES);
+  // ค่าที่บันทึกล่าสุด (JSON) เทียบกับค่าปัจจุบัน → แสดง "มีการแก้ไขที่ยังไม่บันทึก"
+  const [baseline, setBaseline] = useState<string | null>(null);
 
   useEffect(() => {
     sb.from("llm_usage_daily").select("*").gte("day", `${bangkokDate().slice(0, 7)}-01`)
       .then(({ data }) => setUsage((data ?? []) as LlmUsageRow[]));
-    sb.from("settings").select("key, value").then(({ data }) => {
+    Promise.all([
+      sb.from("settings").select("key, value"),
+      sb.from("channels").select("id, type, name, ai_mode, enabled").order("created_at"),
+    ]).then(([{ data }, { data: ch }]) => {
+      const v = {
+        mode: "assist" as AiMode, minutes: 5, hours: { tz: "Asia/Bangkok", days: {} } as Hours, profile: { name: "", tone: "" },
+        retentionDays: 90, scoreRules: DEFAULT_SCORE_RULES, autoCloseHours: DEFAULT_AUTO_CLOSE_HOURS, bookingTemplates: DEFAULT_BOOKING_TEMPLATES,
+        sensitiveKeywords: DEFAULT_SENSITIVE_KEYWORDS.join("\n"), sensitiveDays: DEFAULT_SENSITIVE_RETENTION_DAYS,
+        channels: (ch ?? []) as Channel[],
+      };
       for (const r of data ?? []) {
-        if (r.key === "ai_mode") setMode(r.value as AiMode);
-        if (r.key === "fallback_minutes") setMinutes(Number(r.value));
-        if (r.key === "business_hours") setHours(r.value as Hours);
-        if (r.key === "clinic_profile") setProfile(r.value as { name: string; tone: string });
-        if (r.key === "media_retention_days") setRetentionDays(Number(r.value));
-        if (r.key === "score_rules") setScoreRules(normalizeScoreRules(r.value));
-        if (r.key === "auto_close_hours") setAutoCloseHours(normalizeAutoCloseHours(r.value));
-        if (r.key === "booking_templates") setBookingTemplates(normalizeBookingTemplates(r.value));
-        if (r.key === "sensitive_keywords") setSensitiveKeywords(normalizeSensitiveKeywords(r.value).join("\n"));
-        if (r.key === "sensitive_media_retention_days") setSensitiveDays(Number(r.value));
+        if (r.key === "ai_mode") v.mode = r.value as AiMode;
+        if (r.key === "fallback_minutes") v.minutes = Number(r.value);
+        if (r.key === "business_hours") v.hours = r.value as Hours;
+        if (r.key === "clinic_profile") v.profile = r.value as { name: string; tone: string };
+        if (r.key === "media_retention_days") v.retentionDays = Number(r.value);
+        if (r.key === "score_rules") v.scoreRules = normalizeScoreRules(r.value);
+        if (r.key === "auto_close_hours") v.autoCloseHours = normalizeAutoCloseHours(r.value);
+        if (r.key === "booking_templates") v.bookingTemplates = normalizeBookingTemplates(r.value);
+        if (r.key === "sensitive_keywords") v.sensitiveKeywords = normalizeSensitiveKeywords(r.value).join("\n");
+        if (r.key === "sensitive_media_retention_days") v.sensitiveDays = Number(r.value);
       }
+      setMode(v.mode); setMinutes(v.minutes); setHours(v.hours); setProfile(v.profile); setRetentionDays(v.retentionDays);
+      setScoreRules(v.scoreRules); setAutoCloseHours(v.autoCloseHours); setBookingTemplates(v.bookingTemplates);
+      setSensitiveKeywords(v.sensitiveKeywords); setSensitiveDays(v.sensitiveDays); setChannels(v.channels);
+      setBaseline(JSON.stringify(v));
     });
-    sb.from("channels").select("id, type, name, ai_mode, enabled").order("created_at")
-      .then(({ data }) => setChannels((data ?? []) as Channel[]));
   }, [sb]);
 
   async function saveAll() {
@@ -76,20 +98,32 @@ export function SettingsClient() {
       await sb.from("channels").update({ ai_mode: c.ai_mode, enabled: c.enabled }).eq("id", c.id);
     }
     setSaved(error ? "บันทึกไม่สำเร็จ: " + error.message : "บันทึกแล้ว ✓");
+    if (!error) setBaseline(current);
     setTimeout(() => setSaved(""), 3000);
   }
+
+  const current = JSON.stringify({ mode, minutes, hours, profile, retentionDays, scoreRules, autoCloseHours, bookingTemplates, sensitiveKeywords, sensitiveDays, channels });
+  const dirty = baseline !== null && baseline !== current;
+  // ออกจากหน้าโดยยังไม่บันทึก: เตือนก่อน
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   const setDay = (d: number, v: [string, string] | null) => setHours({ ...hours, days: { ...hours.days, [d]: v } });
   const stats = summarizeUsage(usage);
   const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <div className="page narrow settings-page">
+    <div className="page settings-page">
       <h1>ตั้งค่า AI</h1>
-
-      <HealthPanel />
-      <LineUsagePanel />
-      <PriceAlerts />
+      <div className="settings-grid">
+        {/* แถวบน: สุขภาพระบบ | โควตา LINE | โมเดล AI */}
+        <HealthPanel initial={preview?.health} />
+        <LineUsagePanel initial={preview?.usage} />
+        <AiModelsPanel initial={preview?.models} />
 
       <section className="card">
         <h3>โหมด AI ทั้งระบบ</h3>
@@ -169,16 +203,14 @@ export function SettingsClient() {
       </section>
 
       <section className="card">
-        <h3>ข้อความการจอง</h3>
-        <p className="muted small">ระบบแทนค่าในวงเล็บปีกกาให้ และแปลตามภาษาลูกค้าตอนส่ง เว้นว่างแล้วบันทึกจะกลับเป็นค่าเริ่มต้น</p>
-        {(Object.keys(BOOKING_TEMPLATE_LABEL) as (keyof BookingTemplates)[]).map((key) => (
-          <label key={key}>{BOOKING_TEMPLATE_LABEL[key]}
-            <textarea rows={2} value={bookingTemplates[key]} onChange={(e) => setBookingTemplates({ ...bookingTemplates, [key]: e.target.value })} />
-          </label>
-        ))}
+        <h3>การใช้ AI</h3>
+        <div className="row between ch-row"><span>เรียก LLM วันนี้</span><b>{stats.todayCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.todayCostThb)} บาท</b></div>
+        <div className="row between ch-row"><span>เรียก LLM เดือนนี้</span><b>{stats.monthCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.monthCostThb)} บาท</b></div>
+        <p className="muted small">
+          ค่าใช้จ่ายโดยประมาณ รวม embedding คิดที่ 1 USD = {USD_TO_THB} บาท ยอดจริงดูที่หน้า billing ของ OpenAI
+          {stats.unpricedModels.length > 0 && <> · ไม่รวมโมเดลที่ไม่รู้ราคา: {stats.unpricedModels.join(", ")}</>}
+        </p>
       </section>
-
-      <AppointmentSettings />
 
       <section className="card">
         <h3>เกณฑ์คะแนนเจ้าหน้าที่</h3>
@@ -227,23 +259,29 @@ export function SettingsClient() {
         <p className="muted small">ข้อความยังอยู่ แต่รูปจะขึ้นว่า “รูปถูกลบตามนโยบายเก็บข้อมูล” การลบกู้คืนไม่ได้ รูปที่ใช้บ่อยไม่ถูกลบ</p>
       </section>
 
-      <section className="card">
-        <h3>การใช้ AI</h3>
-        <div className="row between ch-row"><span>เรียก LLM วันนี้</span><b>{stats.todayCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.todayCostThb)} บาท</b></div>
-        <div className="row between ch-row"><span>เรียก LLM เดือนนี้</span><b>{stats.monthCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.monthCostThb)} บาท</b></div>
-        <p className="muted small">
-          ค่าใช้จ่ายโดยประมาณ รวม embedding คิดที่ 1 USD = {USD_TO_THB} บาท ยอดจริงดูที่หน้า billing ของ OpenAI
-          {stats.unpricedModels.length > 0 && <> · ไม่รวมโมเดลที่ไม่รู้ราคา: {stats.unpricedModels.join(", ")}</>}
-        </p>
+        <PriceAlerts />
+
+        <TagSettings />
+
+      <section className="card set-wide">
+        <h3>ข้อความการจอง</h3>
+        <p className="muted small">ระบบแทนค่าในวงเล็บปีกกาให้ และแปลตามภาษาลูกค้าตอนส่ง เว้นว่างแล้วบันทึกจะกลับเป็นค่าเริ่มต้น</p>
+        <div className="set-wide-grid">
+        {(Object.keys(BOOKING_TEMPLATE_LABEL) as (keyof BookingTemplates)[]).map((key) => (
+          <label key={key}>{BOOKING_TEMPLATE_LABEL[key]}
+            <textarea rows={2} value={bookingTemplates[key]} onChange={(e) => setBookingTemplates({ ...bookingTemplates, [key]: e.target.value })} />
+          </label>
+        ))}
+        </div>
       </section>
 
-      <AiModelsPanel />
+        <AppointmentSettings initial={preview?.appointments} />
+      </div>
 
-      <TagSettings />
-
-      <div className="row sticky-save">
-        <button className="btn primary" onClick={saveAll}>บันทึกการตั้งค่า</button>
-        <span className="muted">{saved}</span>
+      <div className={`settings-savebar ${dirty ? "dirty" : ""}`} role="region" aria-label="บันทึกการตั้งค่า">
+        <button className="btn primary" onClick={saveAll} disabled={baseline === null}>บันทึกการตั้งค่า</button>
+        {dirty ? <span className="settings-dirty">● มีการแก้ไขที่ยังไม่บันทึก</span> : <span className="muted small">{saved || "บันทึกแล้วทั้งหมด"}</span>}
+        <span className="muted small settings-savebar-note">ปุ่มนี้บันทึกทุกการ์ดยกเว้นนัดหมาย แท็ก โมเดล AI ซึ่งมีปุ่มบันทึกของตัวเอง</span>
       </div>
     </div>
   );
