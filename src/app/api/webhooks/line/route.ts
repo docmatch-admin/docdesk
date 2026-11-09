@@ -6,7 +6,7 @@ import { downloadLimited } from "@/lib/media";
 import { ingestInboundFile, ingestInboundImage } from "@/lib/media-store";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
 import { parseAppointmentPostback, parseLinkCode } from "@/lib/appointment-rules";
-import { handleAppointmentPostback, handleLinkCode } from "@/lib/appointment-store";
+import { handleAppointmentPostback, handleLinkCode, setLineFollow } from "@/lib/appointment-store";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -31,6 +31,11 @@ export async function POST(req: Request) {
   try {
   for (const ev of events) {
     const userId = ev.source?.userId;
+    // เลิกติดตาม/บล็อก OA: ข้อความนัดส่งไม่ถึง ให้ทีมโทรแทน ติดตามกลับแล้วล้างสถานะ
+    if ((ev.type === "follow" || ev.type === "unfollow") && userId && ev.source?.type === "user") {
+      await setLineFollow(userId, ev.type === "follow").catch((e) => logSystemError("webhook:line:follow", e));
+      continue;
+    }
     // ระบบนัด: ปุ่มยืนยัน/ขอเลื่อน และรหัสจากใบนัด ไม่ผ่าน AI ทุกโหมด
     if (userId && ev.source?.type === "user" && (await handleAppointmentEvent(ev, userId))) continue;
     if (ev.type !== "message" || !userId || ev.source?.type !== "user" || !ev.message) continue;

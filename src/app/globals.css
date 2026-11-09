@@ -775,3 +775,5 @@ body > .appt-slip { display: none; }
 .import-tab { display: flex; flex-direction: column; gap: 24px; max-width: 760px; }
 .import-section { display: flex; flex-direction: column; gap: 16px; }
 .import-section h2 { font-size: 18px; margin: 0; }
+
+.appt-slip-linked { text-align: center; font-weight: 700; margin: 3mm 0 2mm; padding: 2mm; border: 1.5px solid #000; border-radius: 2mm; }

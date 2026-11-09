@@ -378,7 +378,7 @@ export function parseAppointmentPostback(data: unknown): { action: PostbackActio
 // ---------------------------------------------------------------------------
 export const META_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export type DeliveryFailure = "no_chat" | "outside_24h" | "web" | "archived" | "unsupported";
+export type DeliveryFailure = "no_chat" | "outside_24h" | "web" | "archived" | "unsupported" | "unfollowed";
 export type Delivery = { ok: true; via: "line" | "facebook" | "instagram" } | { ok: false; reason: DeliveryFailure };
 
 export const DELIVERY_FAILURE_TEXT: Record<DeliveryFailure, string> = {
@@ -387,6 +387,7 @@ export const DELIVERY_FAILURE_TEXT: Record<DeliveryFailure, string> = {
   web: "ส่งไม่ได้-ต้องโทร: แชทหน้าเว็บส่งข้อความหาคนไข้ไม่ได้",
   archived: "ส่งไม่ได้-ต้องโทร: แชทนำเข้าจาก LINE OA ยังส่งข้อความไม่ได้",
   unsupported: "ส่งไม่ได้-ต้องโทร: ช่องทางนี้ยังไม่รองรับ",
+  unfollowed: "ส่งไม่ได้-ต้องโทร: คนไข้เลิกติดตาม/บล็อก LINE OA",
 };
 
 /**
@@ -397,11 +398,13 @@ export function chooseDelivery(input: {
   channelType: ChannelType | null;
   lastInboundAt: string | Date | null;
   archived?: boolean;
+  /** LINE: คนไข้เลิกติดตามหรือบล็อก OA */
+  unfollowed?: boolean;
   now?: number;
 }): Delivery {
   if (!input.channelType) return { ok: false, reason: "no_chat" };
   if (input.archived) return { ok: false, reason: "archived" };
-  if (input.channelType === "line") return { ok: true, via: "line" };
+  if (input.channelType === "line") return input.unfollowed ? { ok: false, reason: "unfollowed" } : { ok: true, via: "line" };
   if (input.channelType === "facebook" || input.channelType === "instagram") {
     const last = input.lastInboundAt ? new Date(input.lastInboundAt).getTime() : NaN;
     const age = (input.now ?? Date.now()) - last;

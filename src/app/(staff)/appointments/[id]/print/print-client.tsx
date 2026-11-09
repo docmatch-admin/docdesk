@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import qrcode from "qrcode-generator";
 import { thaiFullDate, thaiMediumDate, timePhrase, timeShort, type Appointment } from "@/lib/appointment-rules";
 
-interface Slip { appointment: Appointment; clinic: string; phone: string; address: string; qrUrl: string; series?: Appointment[] }
+interface Slip { appointment: Appointment; clinic: string; phone: string; address: string; qrUrl: string; series?: Appointment[]; linkedLine?: boolean }
 
 /**
  * ใบนัดเครื่องพิมพ์ความร้อน 80mm อย่างเดียว: กระดาษยาวตามเนื้อหา ไม่มีขอบ ขาวดำล้วน
@@ -83,9 +83,15 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
       {a.purpose_text && <div className="appt-slip-row"><span>เหตุผลนัด</span><b>{a.purpose_text}</b></div>}
       {a.instructions && <div className="appt-slip-instructions"><span>การปฏิบัติตัว</span><b>{a.instructions}</b></div>}
       {a.note && <div className="appt-slip-row"><span>หมายเหตุ</span><b>{a.note}</b></div>}
-      <div className="appt-slip-qr" dangerouslySetInnerHTML={{ __html: svg }} />
-      <div className="appt-slip-scan">สแกนแล้วกดส่ง เพื่อรับข้อความเตือนนัดทาง LINE</div>
-      <div className="appt-slip-code">#{a.link_code}</div>
+      {slip.linkedLine ? (
+        <div className="appt-slip-linked">✓ รับข้อความเตือนนัดทาง LINE แล้ว</div>
+      ) : (
+        <>
+          <div className="appt-slip-qr" dangerouslySetInnerHTML={{ __html: svg }} />
+          <div className="appt-slip-scan">สแกนแล้วกดส่ง เพื่อรับข้อความเตือนนัดทาง LINE</div>
+          <div className="appt-slip-code">#{a.link_code}</div>
+        </>
+      )}
       <div className="appt-slip-foot">
         โทร {slip.phone}
         {slip.address && <><br />{slip.address}</>}

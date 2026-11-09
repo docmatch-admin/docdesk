@@ -57,15 +57,17 @@ interface ConversationInfo {
   archived: boolean;
   status: string;
   lastInboundAt: string | null;
+  /** LINE: เลิกติดตาม/บล็อก OA */
+  unfollowed: boolean;
 }
 
 async function conversationInfo(conversationId: string): Promise<ConversationInfo | null> {
   const db = supabaseAdmin();
   const { data: conv } = await db.from("conversations")
-    .select("id, status, sensitive, tags, archived, contacts(external_id, display_name, language), channels(type)")
+    .select("id, status, sensitive, tags, archived, contacts(external_id, display_name, language, line_unfollowed_at), channels(type)")
     .eq("id", conversationId).maybeSingle();
   if (!conv) return null;
-  const contact = (Array.isArray(conv.contacts) ? conv.contacts[0] : conv.contacts) as { external_id: string; display_name: string | null; language: string } | null;
+  const contact = (Array.isArray(conv.contacts) ? conv.contacts[0] : conv.contacts) as { external_id: string; display_name: string | null; language: string; line_unfollowed_at?: string | null } | null;
   const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as { type: ChannelType } | null;
   if (!contact || !channel) return null;
   // นับทุกข้อความเข้า รวมการกดปุ่มของระบบนัด เพราะ Meta นับเป็นการทักเหมือนกัน
@@ -82,6 +84,7 @@ async function conversationInfo(conversationId: string): Promise<ConversationInf
     archived: !!conv.archived,
     status: conv.status as string,
     lastInboundAt: (lastIn?.created_at as string | undefined) ?? null,
+    unfollowed: !!contact.line_unfollowed_at,
   };
 }
 
@@ -177,7 +180,7 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
     return { sent: false, error: DELIVERY_FAILURE_TEXT.no_chat };
   }
   const info = await conversationInfo(appt.conversation_id);
-  const delivery = chooseDelivery({ channelType: info?.channelType ?? null, lastInboundAt: info?.lastInboundAt ?? null, archived: info?.archived, now: opts.now });
+  const delivery = chooseDelivery({ channelType: info?.channelType ?? null, lastInboundAt: info?.lastInboundAt ?? null, archived: info?.archived, unfollowed: info?.unfollowed, now: opts.now });
   if (!info || !delivery.ok) {
     const error = DELIVERY_FAILURE_TEXT[delivery.ok ? "no_chat" : delivery.reason];
     await db.from("appointments").update({ last_send_error: error, updated_at: nowIso() }).eq("id", appt.id);
@@ -735,7 +738,7 @@ export async function runAppointmentReminders(now = Date.now()): Promise<{ sent:
 // ---------------------------------------------------------------------------
 export async function sendTestAppointment(conversationId: string, staffId: string, now = Date.now()): Promise<DeliveryResult> {
   const info = await conversationInfo(conversationId);
-  const delivery = chooseDelivery({ channelType: info?.channelType ?? null, lastInboundAt: info?.lastInboundAt ?? null, archived: info?.archived, now });
+  const delivery = chooseDelivery({ channelType: info?.channelType ?? null, lastInboundAt: info?.lastInboundAt ?? null, archived: info?.archived, unfollowed: info?.unfollowed, now });
   if (!info || !delivery.ok) return { sent: false, via: info?.channelType, error: DELIVERY_FAILURE_TEXT[delivery.ok ? "no_chat" : delivery.reason] };
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
   const input = messageInput({
@@ -840,7 +843,10 @@ export async function appointmentSlip(id: string) {
   if (!appt) return null;
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
   const series = appt.series_id ? (await loadSeries(appt.series_id)).filter((a) => a.status !== "cancelled") : [];
+  const info = appt.conversation_id ? await conversationInfo(appt.conversation_id) : null;
   return {
+    /** ผูกแชท LINE แล้วและยังติดตาม OA: คนไข้ได้ข้อความเตือนอยู่แล้ว ไม่ต้องพิมพ์ QR */
+    linkedLine: info?.channelType === "line" && !info.unfollowed && !info.archived,
     appointment: appt,
     series,
     clinic,
@@ -955,4 +961,12 @@ export async function decideHnMatch(matchId: string, accept: boolean, staffId: s
   await db.from("appointment_hn_matches").update({ status: "rejected", decided_by: staffId, decided_at: at }).eq("appointment_id", appt.id).eq("status", "pending");
   await logAppointmentEvent(appt.id, "hn_match_accepted", "staff", { staffId, detail: { hn } });
   return { status: "attended" };
+}
+
+/** LINE follow/unfollow: บันทึกที่รายชื่อ ใช้ตัดสินว่าส่งข้อความนัดได้ไหม */
+export async function setLineFollow(userId: string, following: boolean) {
+  const db = supabaseAdmin();
+  const { data: channel } = await db.from("channels").select("id").eq("type", "line").eq("enabled", true).order("created_at").limit(1).maybeSingle();
+  if (!channel) return;
+  await db.from("contacts").update({ line_unfollowed_at: following ? null : nowIso() }).eq("channel_id", channel.id).eq("external_id", userId);
 }

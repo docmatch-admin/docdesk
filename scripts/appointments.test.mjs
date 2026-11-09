@@ -914,3 +914,47 @@ test("วันนี้ฉีดเข็ม 3 (รู้วันเข็ม 
   await store.runAppointmentReminders(Date.parse(`${today}T16:00:00+07:00`));
   assert.match(linePosts()[0].body.messages[0].altText, /เตือนนัดพรุ่งนี้ · เข็ม 4 จาก 5/);
 });
+
+// ---------------------------------------------------------------------------
+// LINE follow/unfollow, ใบนัดไม่พิมพ์ QR เมื่อผูก LINE แล้ว, กล่องขวาตาม HN
+// ---------------------------------------------------------------------------
+test("LINE unfollow: ข้อความนัดขึ้นส่งไม่ได้-ต้องโทร follow กลับแล้วส่งได้", async () => {
+  const unfollow = { type: "unfollow", webhookEventId: "uf-1", source: { type: "user", userId: LINE_USER } };
+  await lineWebhook.POST(lineRequest([unfollow]));
+  assert.ok(contact("c-line").line_unfollowed_at);
+  const r = await store.createAppointment({ patient_name: "สมชาย", appoint_date: inDays(3), time_mode: "slot", slot_id: "morning", conversation_id: "conv-line" }, "agent");
+  assert.equal(r.delivery.sent, false);
+  assert.match(r.delivery.error, /เลิกติดตาม/);
+  assert.equal(linePosts().length, 0);
+  const slip = await store.appointmentSlip(r.appointment.id);
+  assert.equal(slip.linkedLine, false, "เลิกติดตามแล้ว พิมพ์ QR ให้สแกนใหม่");
+
+  await lineWebhook.POST(lineRequest([{ type: "follow", webhookEventId: "f-1", replyToken: "rt-f", source: { type: "user", userId: LINE_USER } }]));
+  assert.equal(contact("c-line").line_unfollowed_at, null);
+  assert.equal((await store.appointmentSlip(r.appointment.id)).linkedLine, true, "ผูก LINE และติดตามอยู่ ไม่ต้องพิมพ์ QR");
+  assert.equal(calls.chat, 0);
+});
+
+test("ใบนัด: ไม่มีแชทหรือแชท Facebook ยังพิมพ์ QR", async () => {
+  const none = addAppointment({ conversation_id: null, link_code: "QR0001" });
+  const fb = addAppointment({ conversation_id: "conv-fb", link_code: "QR0002" });
+  assert.equal((await store.appointmentSlip(none.id)).linkedLine, false);
+  assert.equal((await store.appointmentSlip(fb.id)).linkedLine, false);
+  const src = readFileSync("src/app/(staff)/appointments/[id]/print/print-client.tsx", "utf8");
+  assert.match(src, /slip\.linkedLine \?/);
+});
+
+test("กล่องขวาของแชท: แสดงนัดทุกนัดของ HN ที่ผูก (รวมนัดที่ทำจากหน้านัดหมาย) ไม่ซ้ำ ไม่รวมเข็มที่ฉีดแล้ว", async () => {
+  const route = await import("../src/app/api/conversations/[id]/appointments/route.ts");
+  state.currentUser = { id: "agent", email: "a@test" };
+  state.tables.patient_links.push({ conversation_id: "conv-line", hn: "HN77", linked_at: nextTime() });
+  const fromPage = addAppointment({ hn: "HN77", conversation_id: null, link_code: "PG0001", appoint_date: inDays(5) });
+  const fromChat = addAppointment({ hn: null, conversation_id: "conv-line", link_code: "CH0001", appoint_date: inDays(2) });
+  const both = addAppointment({ hn: "HN77", conversation_id: "conv-line", link_code: "BT0001", appoint_date: inDays(9) });
+  addAppointment({ hn: "HN77", conversation_id: null, link_code: "DN0001", appoint_date: today, status: "attended", series_done: true });
+  addAppointment({ hn: "OTHER", conversation_id: null, link_code: "OT0001" });
+  const res = await route.GET(new Request("https://app.test/x"), ctx("conv-line"));
+  const j = await res.json();
+  assert.deepEqual(j.appointments.map((a) => a.id), [fromChat.id, fromPage.id, both.id]);
+  assert.equal(j.link.hn, "HN77");
+});
