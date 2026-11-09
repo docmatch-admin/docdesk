@@ -760,15 +760,15 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .appt-slip-address, .appt-slip-phone { font-size: 9pt; }
 .appt-slip-hr { border: 0; border-top: 1px dashed #000; margin: 2mm 0; }
 .appt-slip-title { text-align: center; font-weight: 700; font-size: 13pt; letter-spacing: .5px; }
-.appt-slip-row { display: grid; grid-template-columns: 19mm 1fr; gap: 1.5mm; margin: 0.6mm 0; }
+.appt-slip-row { display: grid; grid-template-columns: 23mm 1fr; gap: 1.5mm; margin: 0.6mm 0; }
 .appt-slip-row span { font-weight: 500; }
 .appt-slip-row b { font-weight: 700; overflow-wrap: anywhere; white-space: pre-line; }
 .appt-slip-date { text-align: center; font-weight: 700; font-size: 16pt; line-height: 1.2; margin: 1mm 0 0.5mm; }
 .appt-slip-time { text-align: center; font-weight: 700; font-size: 12.5pt; }
 .appt-slip-queue { text-align: center; font-size: 9.5pt; }
-.appt-slip-series { width: 100%; border-collapse: collapse; margin: 1mm 0; font-size: 10pt; }
+.appt-slip-series { width: 100%; border-collapse: collapse; margin: 1mm 0; font-size: 9.5pt; }
 .appt-slip-series th, .appt-slip-series td { text-align: left; padding: 0.8mm 0; border-bottom: 1px dashed #000; vertical-align: top; font-weight: 500; }
-.appt-slip-series th { width: 22mm; padding-right: 2mm; white-space: nowrap; }
+.appt-slip-series th { width: 18mm; padding-right: 2mm; white-space: nowrap; }
 .appt-slip-series tr.current th, .appt-slip-series tr.current td { font-weight: 700; }
 .appt-slip-series-note { font-size: 9pt; text-align: center; margin-bottom: 1mm; }
 .appt-slip-qr-text { text-align: center; font-size: 10pt; font-weight: 700; line-height: 1.3; }
