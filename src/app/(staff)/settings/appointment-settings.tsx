@@ -71,6 +71,7 @@ export function AppointmentSettings() {
           <input type="time" value={s.reminder_time} onChange={(e) => set({ reminder_time: e.target.value })} />
         </label>
         <label>เบอร์คลินิก<input value={s.clinic_phone} onChange={(e) => set({ clinic_phone: e.target.value })} /></label>
+        <label>เบอร์มือถือคลินิก (ว่าง = ไม่แสดง)<input value={s.clinic_mobile} onChange={(e) => set({ clinic_mobile: e.target.value })} placeholder="เช่น 081-234-5678" inputMode="tel" /></label>
         <label className="span2">LINE OA ID (สำหรับ QR บนใบนัด)<input value={s.line_oa_id} onChange={(e) => set({ line_oa_id: e.target.value })} placeholder="@p49clinic" /></label>
         <label className="span4">ที่อยู่คลินิก (แสดงในข้อความ LINE และใบนัด)<input value={s.clinic_address} onChange={(e) => set({ clinic_address: e.target.value })} /></label>
         <label className="span2">ชื่อคลินิกภาษาอังกฤษ (ใบนัด English)<input value={s.clinic_name_en} onChange={(e) => set({ clinic_name_en: e.target.value })} /></label>
@@ -87,7 +88,7 @@ export function AppointmentSettings() {
       <p className="muted small" style={{ marginTop: -4 }}>
         ปิดแล้ว LINE จะส่งแค่ข้อความเตือนก่อนวันนัด (ประหยัดโควตา) ยกเว้นคนไข้เพิ่งทักหรือเพิ่งสแกน QR ระบบตอบใบนัดดิจิทัลแบบ reply ได้ตามปกติ (ไม่นับโควตา) · Facebook/Instagram ส่งตามปกติ
       </p>
-      <p className="muted small">ตัวแปร: {TEMPLATE_VARIABLES.join(" ")} — {"{time}"} = "มาได้ช่วง 08.00–12.00 น. (ตรวจตามลำดับคิว)" หรือ "เวลา 09.30 น." · การปฏิบัติตัวต่อท้ายข้อความให้เสมอ · ไม่ผ่าน AI</p>
+      <p className="muted small">ตัวแปร: {TEMPLATE_VARIABLES.join(" ")} — {"{time}"} = "เวลา 08:00–12:00 น. (ตรวจตามลำดับคิว)" หรือ "เวลา 09:30 น." · {"{mobile}"} = เบอร์มือถือ (ว่างแล้วบรรทัดนั้นหายไป ไม่ใส่ใน template ระบบต่อท้ายให้) · การปฏิบัติตัวต่อท้ายข้อความให้เสมอ · ไม่ผ่าน AI</p>
       <label>ข้อความภาษาไทย<textarea rows={5} value={s.template_th} onChange={(e) => set({ template_th: e.target.value })} /></label>
       <label>ข้อความภาษาอังกฤษ (แชทที่คุยภาษาอังกฤษ)<textarea rows={5} value={s.template_en} onChange={(e) => set({ template_en: e.target.value })} /></label>
       <div className="row">

@@ -48,6 +48,11 @@ export function contactLabel(c: ContactNameFields | null | undefined, fallback =
     const platform = c?.platform_name?.trim();
     return { primary: base, secondary: platform && platform !== base ? platform : null };
   }
+  // เจ้าหน้าที่ตั้งชื่อแชทเองไว้: ผูก HN แล้วก็ไม่เขียนทับชื่อ
+  if (c.name_locked && c.display_name?.trim()) {
+    const platform = c.platform_name?.trim() || null;
+    return { primary: c.display_name.trim(), secondary: platform && platform !== c.display_name.trim() ? platform : null };
+  }
   const name = c.patient_full_name?.trim() || base;
   const platform = c.platform_name?.trim() || c.display_name?.trim() || null;
   const relative = c.patient_relation === "relative" ? " (ญาติ)" : "";

@@ -531,7 +531,9 @@ test("ปุ่มแก้ชื่อ: เจ้าหน้าที่ตั
   assert.equal(res.status, 409);
   assert.match((await res.json()).error, /ยกเลิกการผูก/);
   assert.equal(contact("c-line").display_name, "คุณสมชาย");
-  assert.equal(names.contactName(contact("c-line")), "ชื่อ HIS · HN 5");
+  // เจ้าหน้าที่ตั้งชื่อแชทเองไว้ (name_locked): ผูก HN แล้วชื่อแชทยังเป็นชื่อที่ตั้ง ไม่ถูกชื่อ HIS เขียนทับ
+  assert.equal(names.contactName(contact("c-line")), "คุณสมชาย");
+  assert.equal(names.contactName({ ...contact("c-line"), name_locked: false }), "ชื่อ HIS · HN 5");
 });
 
 test("migration 038: ชื่อที่ AI ตั้งคืนเป็นชื่อแพลตฟอร์ม หรือชื่อ HIS ถ้าผูกแล้ว และไม่มี ai ใน name_source", () => {
@@ -586,11 +588,11 @@ const SCHEDULE = { hours: rules.DEFAULT_CLINIC_HOURS, closures: { "2030-01-07": 
 test("วลีเวลา: ช่วงเวลา (ตรวจตามลำดับคิว) และเวลาตรง", () => {
   const slot = { time_mode: "slot", time_start: "08:00", time_end: "12:00" };
   const exact = { time_mode: "exact", time_start: "09:30", time_end: null };
-  assert.equal(rules.timePhrase(slot), "มาได้ช่วง 08.00–12.00 น. (ตรวจตามลำดับคิว)");
-  assert.equal(rules.timePhrase(exact), "เวลา 09.30 น.");
-  assert.equal(rules.timePhrase(slot, "en"), "Please come between 08:00–12:00 (seen in queue order)");
-  assert.equal(rules.timePhrase(exact, "en"), "at 09:30");
-  assert.equal(rules.timeShort(slot), "08.00–12.00");
+  assert.equal(rules.timePhrase(slot), "เวลา 08:00–12:00 น. (ตรวจตามลำดับคิว)");
+  assert.equal(rules.timePhrase(exact), "เวลา 09:30 น.");
+  assert.equal(rules.timePhrase(slot, "en"), "Time 08:00–12:00 (Seen in queue order)");
+  assert.equal(rules.timePhrase(exact, "en"), "Time 09:30");
+  assert.equal(rules.timeShort(slot), "08:00–12:00");
 });
 
 test("เวลาเปิด: จ–ศ เช้า+บ่าย เสาร์–อาทิตย์ เช้าอย่างเดียว วันหยุดพิเศษปิด", () => {
@@ -625,7 +627,7 @@ test("ลงนัดแบบช่วง: ระบบใช้เวลาจ
   const a = appt(appointment.id);
   assert.deepEqual([a.time_mode, a.slot_id, a.time_start, a.time_end], ["slot", "afternoon", "13:00", "18:00"]);
   const flex = linePosts()[0].body.messages[0];
-  assert.match(flex.altText, /มาได้ช่วง 13\.00–18\.00 น\. \(ตรวจตามลำดับคิว\)/);
+  assert.match(flex.altText, /เวลา 13:00–18:00 น\. \(ตรวจตามลำดับคิว\)/);
 
   const sat = nextWeekday(6);
   await assert.rejects(store.createAppointment({ patient_name: "x", appoint_date: sat, time_mode: "slot", slot_id: "afternoon" }, "agent"), /ไม่มีช่วงเวลานี้/);
@@ -957,7 +959,10 @@ test("กล่องขวาของแชท: แสดงนัดทุก
   addAppointment({ hn: "OTHER", conversation_id: null, link_code: "OT0001" });
   const res = await route.GET(new Request("https://app.test/x"), ctx("conv-line"));
   const j = await res.json();
-  assert.deepEqual(j.appointments.map((a) => a.id), [fromChat.id, fromPage.id, both.id]);
+  // แยกกลุ่มตาม HN ที่ผูก: กลุ่ม HN77 (ทำจากหน้านัดหมาย + ทำจากแชท) และนัดของแชทที่ไม่มี HN
+  assert.deepEqual(j.groups.map((g) => g.hn), ["HN77", null]);
+  assert.deepEqual(j.groups[0].upcoming.map((a) => a.id), [fromPage.id, both.id]);
+  assert.deepEqual(j.groups[1].upcoming.map((a) => a.id), [fromChat.id]);
   assert.equal(j.link.hn, "HN77");
 });
 
@@ -1094,13 +1099,13 @@ test("ใบนัดไทย: หัว ชื่อ HN 9 หลัก วั�
   assert.equal(v.title, "ใบนัด");
   assert.deepEqual(v.hn, { label: "HN", value: "000004714" });
   assert.equal(v.date, "วันจันทร์ที่ 23 พฤศจิกายน 2569");
-  assert.equal(v.time, "ช่วงเช้า 08.00–12.00 น.");
+  assert.equal(v.time, "ช่วงเช้า 08:00–12:00 น.");
   assert.equal(v.queueNote, "(ตรวจตามลำดับคิว)");
   assert.deepEqual(v.rows.map((r) => r.label), ["ผู้นัด", "เหตุผล", "การปฏิบัติตัว"]);
   assert.equal(v.qr.sizeMm, 40);
   assert.deepEqual(v.qr.below, ["สแกนแล้วกดส่ง", "เพื่อรับข้อความเตือนนัดทาง LINE"]);
   assert.equal(v.code, "#ABC234");
-  assert.deepEqual(v.footer, ["หากไม่สะดวกมาตามนัด กรุณาแจ้งล่วงหน้า", "ออกโดย พยาบาล · 9 พ.ย. 2569 14.30 น."]);
+  assert.deepEqual(v.footer, ["หากไม่สะดวกมาตามนัด กรุณาแจ้งล่วงหน้า", "ออกโดย พยาบาล · 9 พ.ย. 2569 14:30 น."]);
   assert.doesNotMatch(JSON.stringify(v), /Appointment|Morning|Scan|Doctor|Issued|Tel /, "ใบไทยไม่มีภาษาอังกฤษปน");
   // ใบไทยไม่ใช้คำแปล แม้จะมีอยู่แล้ว
   assert.equal(slipLib.slipView(slipBase(), "th", { purpose: "Blood test" }).rows[1].value, "เจาะเลือด");
@@ -1150,7 +1155,7 @@ test("ใบนัด series: ตารางเข็ม ✓ ฉีดแล้
     ["เข็ม 2", "พุธ 9 ธ.ค. 2569 · เช้า", true],
     ["เข็ม 3", "อาทิตย์ 9 พ.ค. 2570 · บ่าย", false],
   ]);
-  assert.equal(th.seriesNote, "เช้า 08.00–12.00 น. · บ่าย 13.00–18.00 น.");
+  assert.equal(th.seriesNote, "เช้า 08:00–12:00 น. · บ่าย 13:00–18:00 น.");
   const en = slipLib.slipView(data, "en");
   assert.equal(en.title, "Vaccination Appointment");
   assert.deepEqual(en.series.map((r) => [r.label, r.when]), [
@@ -1368,8 +1373,8 @@ test("กล่องขวาของแชท: นัดที่ยังไ
   const attended = addAppointment({ appoint_date: inDays(-7), status: "attended", link_code: "SID004" });
   const older = addAppointment({ appoint_date: inDays(-30), status: "no_show", link_code: "SID005" });
   const j = await (await route.GET(new Request("https://app.test/x"), { params: Promise.resolve({ id: "conv-line" }) })).json();
-  assert.deepEqual(j.appointments.map((a) => a.id), [near.id, far.id]);
-  assert.deepEqual(j.past.map((a) => a.id), [cancelledFuture.id, attended.id, older.id]);
+  assert.deepEqual(j.groups[0].upcoming.map((a) => a.id), [near.id, far.id]);
+  assert.deepEqual(j.groups[0].past.map((a) => a.id), [cancelledFuture.id, attended.id, older.id]);
 });
 
 test("ส่วนนัดครั้งต่อไป: หัวข้อไม่ตัดบรรทัด ปุ่ม + มี tooltip ยกเลิกผูกเป็นลิงก์พร้อมยืนยัน บัญชีบรรทัดเดียว", () => {
@@ -1379,8 +1384,201 @@ test("ส่วนนัดครั้งต่อไป: หัวข้อไ
   assert.match(src, /className="link-btn danger-link" onClick=\{\(\) => setAsk\(/);
   assert.match(src, />รายละเอียด<\/button>/);
   assert.doesNotMatch(src, /รายละเอียด · แก้ไข\/ยกเลิก/);
-  assert.match(src, /ดูนัดที่ผ่านมา \(\{past\.length\}\)/);
+  assert.match(src, /ดูนัดที่ผ่านมา \(\{g\.past\.length\}\)/);
   const css = readFileSync("src/app/globals.css", "utf8");
   assert.match(css, /\.appt-side-title \{[^}]*white-space: nowrap; min-width: max-content;/);
   assert.match(css, /\.appt-side-acc-name \{[^}]*text-overflow: ellipsis; white-space: nowrap;/);
+});
+
+// ---------------------------------------------------------------------------
+// ตรวจการผูกบัญชีญาติ (a–d)
+// ---------------------------------------------------------------------------
+test("ผูกบัญชีญาติ a) สแกนรหัสซ้ำจากบัญชีที่ผูก HN นั้นอยู่แล้ว: ไม่สร้างแถวซ้ำ ตอบ ผูกไว้แล้ว ไม่ส่งการ์ดซ้ำ", async () => {
+  linkPatientLine();
+  const a = addAppointment({ link_code: "DUP234" });
+  await lineWebhook.POST(lineRequest([lineText("ยืนยันนัด #DUP234", "m-dup-1")]));
+  assert.equal(state.tables.patient_links.length, 1, "ไม่มีแถวผูกซ้ำ");
+  const replies = linePosts();
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].body.messages[0].type, "text");
+  assert.match(replies[0].body.messages[0].text, /ผูกกับนัดนี้ไว้แล้ว/);
+  assert.equal(state.tables.appointment_events.find((e) => e.kind === "linked").detail.already, true);
+  assert.equal(appt(a.id).conversation_id, "conv-line");
+});
+
+test("ผูกบัญชีญาติ b,c) บัญชีใหม่เพิ่มเป็นบัญชีที่สอง ชื่อแชท (ญาติ) บัญชีคนไข้เดิมไม่ถูกแก้", async () => {
+  linkPatientLine();
+  const before = { ...contact("c-line") };
+  const beforeLink = { ...state.tables.patient_links[0] };
+  his.HN001 = { name: "สมชาย ใจดี", phone: "0812345678" };
+  addAppointment({ link_code: "REL555" });
+  await lineWebhook.POST(lineRequest([relativeText("ยืนยันนัด #REL555", "m-rel-b")]));
+  const rel = relativeConv();
+  assert.equal(state.tables.patient_links.length, 2);
+  assert.equal(state.tables.patient_links.find((l) => l.conversation_id === rel.id).role, "relative");
+  const relContact = state.tables.contacts.find((c) => c.external_id === RELATIVE);
+  assert.equal(names.contactName(relContact), "สมชาย ใจดี · HN HN001 (ญาติ)");
+  // c) บัญชีคนไข้เดิม
+  for (const k of ["hn", "patient_full_name", "name_source", "patient_relation", "display_name"]) assert.equal(contact("c-line")[k], before[k], `contacts.${k} ไม่เปลี่ยน`);
+  const after = state.tables.patient_links.find((l) => l.conversation_id === "conv-line");
+  assert.equal(after.role ?? "patient", beforeLink.role ?? "patient");
+  assert.equal(names.contactName(contact("c-line")), "สมชาย ใจดี · HN HN001");
+});
+
+test("ผูกบัญชีญาติ d) บัญชีญาติมีชื่อที่เจ้าหน้าที่ตั้งไว้: ไม่เขียนทับชื่อ", async () => {
+  linkPatientLine();
+  state.tables.contacts.push({ id: "c-rel", channel_id: "line", external_id: RELATIVE, display_name: "ลูกสาวคุณสมชาย", name_locked: true, name_source: "staff", language: "th" });
+  state.tables.conversations.push({ id: "conv-rel", contact_id: "c-rel", channel_id: "line", status: "closed", tags: [], unread_count: 0, open_tasks: 0, sensitive: false, archived: false });
+  his.HN001 = { name: "สมชาย ใจดี", phone: "0812345678" };
+  addAppointment({ link_code: "REL666" });
+  await lineWebhook.POST(lineRequest([relativeText("ยืนยันนัด #REL666", "m-rel-d")]));
+  const c = contact("c-rel");
+  assert.equal(c.display_name, "ลูกสาวคุณสมชาย");
+  assert.equal(c.name_source, "staff");
+  assert.equal(names.contactName(c), "ลูกสาวคุณสมชาย");
+  assert.equal(state.tables.patient_links.find((l) => l.conversation_id === "conv-rel").role, "relative");
+});
+
+// ---------------------------------------------------------------------------
+// บัญชีเดียวผูกหลาย HN
+// ---------------------------------------------------------------------------
+test("บัญชี A สแกนใบของ HN1 แล้วใบของ HN2: ชื่อแชท บทบาท กลุ่มในกล่องขวา และข้อความเตือนระบุชื่อคนที่นัด", async () => {
+  his.HN1 = { name: "สมชาย ใจดี", phone: "0811111111" };
+  his.HN2 = { name: "มานี ใจดี", phone: "0822222222" };
+  const now = Date.parse(`${today}T16:59:00+07:00`);
+  const old = new Date(now - 5 * 24 * HOUR).toISOString();
+  const a1 = addAppointment({ hn: "HN1", patient_name: "สมชาย ใจดี", conversation_id: null, link_code: "HNA111", appoint_date: inDays(1) });
+  const a2 = addAppointment({ hn: "HN2", patient_name: "มานี ใจดี", conversation_id: null, link_code: "HNB222", appoint_date: inDays(1), purpose_text: "ฉีดวัคซีน" });
+
+  await lineWebhook.POST(lineRequest([lineText("ยืนยันนัด #HNA111", "m-a1")]));
+  assert.deepEqual(state.tables.patient_links.map((l) => [l.hn, l.role]), [["HN1", "patient"]]);
+  assert.equal(names.contactName(contact("c-line")), "สมชาย ใจดี · HN HN1");
+  // ผูก HN เดียว: ข้อความเดิม ไม่มี "นัดของ"
+  assert.doesNotMatch(linePosts()[0].body.messages[0].altText, /นัดของ/);
+
+  outbound = [];
+  await lineWebhook.POST(lineRequest([lineText("ยืนยันนัด #HNB222", "m-a2")]));
+  assert.deepEqual(state.tables.patient_links.map((l) => [l.hn, l.role]).sort(), [["HN1", "patient"], ["HN2", "relative"]]);
+  assert.equal(contact("c-line").hn, "HN1", "HN หลัก = HN ที่เป็นคนไข้เอง");
+  assert.equal(names.contactName(contact("c-line")), "สมชาย ใจดี · HN HN1");
+  assert.equal(appt(a2.id).conversation_id, "conv-line");
+  assert.match(linePosts()[0].body.messages[0].altText, /นัดของ มานี ใจดี/, "การ์ดของ HN2 ระบุชื่อ");
+
+  // กล่องขวา: แยกกลุ่ม HN1 (ของตัวเอง หลัก) / HN2 (ญาติ)
+  state.currentUser = { id: "agent", email: "a@test" };
+  const route = await import("../src/app/api/conversations/[id]/appointments/route.ts");
+  const j = await (await route.GET(new Request("https://app.test/x"), { params: Promise.resolve({ id: "conv-line" }) })).json();
+  assert.deepEqual(j.groups.map((g) => [g.hn, g.name, g.role, g.primary, g.upcoming.map((x) => x.id)]), [
+    ["HN1", "สมชาย ใจดี", "patient", true, [a1.id]],
+    ["HN2", "มานี ใจดี", "relative", false, [a2.id]],
+  ]);
+
+  // เตือนก่อนวันนัด: บัญชีผูก 2 HN → ทุกข้อความระบุชื่อคนที่นัด
+  outbound = [];
+  Object.assign(appt(a1.id), { confirm_sent_at: old });
+  Object.assign(appt(a2.id), { confirm_sent_at: old });
+  await store.runAppointmentReminders(now);
+  const alts = linePosts().filter((o) => o.url.endsWith("/push")).map((o) => o.body.messages[0].altText);
+  assert.equal(alts.length, 2);
+  assert.ok(alts.some((t) => /นัดของ สมชาย ใจดี/.test(t)));
+  assert.ok(alts.some((t) => /นัดของ มานี ใจดี/.test(t)));
+  // ปุ่มยืนยันผูกกับนัดนั้นๆ
+  const datas = linePosts().filter((o) => o.url.endsWith("/push")).map((o) => o.body.messages[0].contents.footer.contents[0].action.data).sort();
+  assert.deepEqual(datas, [`appt:confirm:${a1.id}`, `appt:confirm:${a2.id}`].sort());
+
+  // ยกเลิกผูกเฉพาะ HN2: HN1 ไม่กระทบ
+  state.currentUser = { id: "adm", email: "adm@test" };
+  const del = await patientLinkRoute.DELETE(new Request("https://app.test/x?hn=HN2", { method: "DELETE" }), { params: Promise.resolve({ id: "conv-line" }) });
+  assert.equal(del.status, 200);
+  assert.deepEqual(state.tables.patient_links.map((l) => l.hn), ["HN1"]);
+  assert.equal(names.contactName(contact("c-line")), "สมชาย ใจดี · HN HN1");
+});
+
+test("บัญชีญาติล้วน (ไม่มี HN ที่เป็นคนไข้เอง): ชื่อแชท = ชื่อ HN ล่าสุด (ญาติ) / แอดมินเปลี่ยนบทบาทและ HN หลักได้", async () => {
+  his.HN1 = { name: "สมชาย ใจดี" };
+  his.HN2 = { name: "มานี ใจดี" };
+  // HN1 และ HN2 มีบัญชีคนไข้อยู่แล้ว
+  state.tables.patient_links.push({ conversation_id: "conv-fb", hn: "HN1", role: "patient", linked_at: nextTime() }, { conversation_id: "conv-fb", hn: "HN2", role: "patient", linked_at: nextTime() });
+  const linkStore = await import("../src/lib/patient-link-store.ts");
+  await linkStore.linkConversationToHn("conv-line", "HN1", { via: "staff", staffId: "adm" });
+  await linkStore.linkConversationToHn("conv-line", "HN2", { via: "staff", staffId: "adm" });
+  assert.deepEqual(state.tables.patient_links.filter((l) => l.conversation_id === "conv-line").map((l) => l.role), ["relative", "relative"]);
+  assert.equal(names.contactName(contact("c-line")), "มานี ใจดี · HN HN2 (ญาติ)");
+  // แอดมินตั้ง HN1 เป็นคนไข้ → ชื่อแชทเป็น HN1
+  await linkStore.setPatientRelation("conv-line", "patient", "HN1");
+  assert.equal(names.contactName(contact("c-line")), "สมชาย ใจดี · HN HN1");
+  // ผูกซ้ำ HN เดิม: ไม่สร้างแถวใหม่
+  const again = await linkStore.linkConversationToHn("conv-line", "HN1", { via: "link_code", staffId: null });
+  assert.equal(again.alreadyLinked, true);
+  assert.equal(state.tables.patient_links.filter((l) => l.conversation_id === "conv-line").length, 2);
+});
+
+// ---------------------------------------------------------------------------
+// เวลา ":" ทุกที่ + เบอร์มือถือ
+// ---------------------------------------------------------------------------
+const timeLib = await import("../src/lib/time-format.ts");
+
+test("formatTime ทุกค่า 00:00–23:59 เป็น HH:mm และ clock รับหลายรูปแบบ", () => {
+  for (let h = 0; h < 24; h++) for (let m = 0; m < 60; m++) {
+    assert.match(timeLib.formatTime(h, m), /^\d{2}:\d{2}$/);
+    assert.equal(timeLib.formatTime(h, m), `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+  }
+  assert.equal(timeLib.clock("8:00"), "08:00");
+  assert.equal(timeLib.clock("08:00:00"), "08:00");
+  assert.equal(timeLib.clock("08.30"), "08:30");
+  assert.equal(timeLib.timeRange("08:00:00", "12:00:00"), "08:00–12:00");
+  assert.equal(timeLib.thaiDateTime("2026-11-09T07:30:00Z"), "9 พ.ย. 14:30");
+  assert.equal(timeLib.bangkokClock("2026-11-09T17:05:00Z"), "00:05");
+});
+
+test("ข้อความ LINE/FB และใบนัดไม่มีเวลาแบบจุด (08.00) ใช้ เวลา ... น. และ Time ...", () => {
+  const dotted = /\d{2}\.\d{2}/;
+  const base = { id: "a1", patient_name: "สมชาย", appoint_date: "2026-11-23", time_mode: "slot", time_start: "08:00:00", time_end: "12:00:00", purpose_text: "เจาะเลือด", instructions: "งดอาหาร" };
+  const exact = { ...base, time_mode: "exact", time_start: "14:30:00", time_end: null };
+  const settings = rules.normalizeAppointmentSettings({ clinic_mobile: "081-234-5678" });
+  const series = [{ label: "เข็ม 1", appoint_date: "2026-11-09", time_mode: "slot", time_start: "08:00", time_end: "12:00", done: true }, { label: "เข็ม 2", appoint_date: "2026-12-09", time_mode: "slot", time_start: "13:00", time_end: "18:00" }];
+  for (const lang of ["th", "en"]) for (const kind of ["new", "reminder", "changed", "cancelled"]) for (const a of [base, exact]) {
+    const input = { kind, lang, appointment: a, settings, clinicName: "คลินิก", includePurpose: true, previous: { appoint_date: "2026-11-20", time_mode: "exact", time_start: "09:30", time_end: null }, series, forPatient: "มานี" };
+    const text = rules.appointmentText(input);
+    const flex = JSON.stringify(rules.appointmentFlex(input));
+    assert.doesNotMatch(text, dotted, `${lang} ${kind}`);
+    assert.doesNotMatch(flex, dotted, `flex ${lang} ${kind}`);
+    assert.doesNotMatch(text, /มาได้ช่วง/);
+    assert.match(text, /081-234-5678/, "เบอร์มือถือในทุกข้อความ");
+  }
+  const th = rules.appointmentText({ kind: "new", lang: "th", appointment: base, settings, clinicName: "คลินิก", includePurpose: false });
+  assert.match(th, /เวลา 08:00–12:00 น\. \(ตรวจตามลำดับคิว\)/);
+  assert.match(th, /โทร\/มือถือ 081-234-5678/);
+  const en = rules.appointmentText({ kind: "new", lang: "en", appointment: base, settings, clinicName: "Clinic", includePurpose: false });
+  assert.match(en, /Time 08:00–12:00 \(Seen in queue order\)/);
+  assert.match(rules.appointmentText({ kind: "new", lang: "th", appointment: exact, settings, clinicName: "คลินิก", includePurpose: false }), /เวลา 14:30 น\./);
+  for (const lang of ["th", "en"]) {
+    const v = slipLib.slipView(slipBase({ series: [] }), lang);
+    assert.doesNotMatch(JSON.stringify(v), dotted, `slip ${lang}`);
+  }
+});
+
+test("เบอร์มือถือคลินิก: ว่าง = ไม่มีบรรทัด / ตั้งแล้วแสดงในข้อความ ใบนัด TH/EN / {mobile} ใน template", () => {
+  const base = { id: "a1", patient_name: "สมชาย", appoint_date: "2026-11-23", time_mode: "exact", time_start: "10:00", time_end: null, purpose_text: null, instructions: null };
+  const empty = rules.normalizeAppointmentSettings({});
+  assert.equal(empty.clinic_mobile, "");
+  const t0 = rules.appointmentText({ kind: "new", lang: "th", appointment: base, settings: empty, clinicName: "คลินิก", includePurpose: false });
+  assert.doesNotMatch(t0, /มือถือ/);
+  const custom = rules.normalizeAppointmentSettings({ clinic_mobile: "089-999-0000", template_th: "เรียน {name}\n{date}\nมือถือ {mobile}" });
+  assert.match(rules.appointmentText({ kind: "new", lang: "th", appointment: base, settings: custom, clinicName: "คลินิก", includePurpose: false }), /\nมือถือ 089-999-0000/);
+  const noMobile = rules.normalizeAppointmentSettings({ template_th: "เรียน {name}\nมือถือ {mobile}\nจบ" });
+  assert.equal(rules.appointmentText({ kind: "new", lang: "th", appointment: base, settings: noMobile, clinicName: "คลินิก", includePurpose: false }).includes("มือถือ"), false, "ว่างแล้วบรรทัด {mobile} หาย");
+  const withM = slipBase({ clinic: { ...slipBase().clinic, mobile: "089-999-0000" } });
+  assert.equal(slipLib.slipView(withM, "th").clinicPhone, "โทร 02-000-4586 · มือถือ 089-999-0000");
+  assert.equal(slipLib.slipView(withM, "en").clinicPhone, "Tel 02-000-4586 · Mobile 089-999-0000");
+  assert.equal(slipLib.slipView(slipBase(), "th").clinicPhone, "โทร 02-000-4586");
+  assert.ok(rules.TEMPLATE_VARIABLES.includes("{mobile}"));
+});
+
+test("หน้าเว็บไม่ใช้ th-TH แสดงเวลา (ได้ 08.00) ใช้ helper กลาง", () => {
+  for (const f of ["src/app/(staff)/appointments/appointment-drawer.tsx", "src/app/(staff)/inbox/inbox-client.tsx", "src/app/(staff)/inbox/team-panel.tsx",
+    "src/app/(staff)/knowledge/knowledge-client.tsx", "src/app/(staff)/settings/health-panel.tsx", "src/app/(staff)/settings/price-alerts.tsx", "src/app/(staff)/appointments/new-appointment.tsx"]) {
+    const src = readFileSync(f, "utf8");
+    assert.doesNotMatch(src, /toLocale(Time)?String\("th-TH", \{[^}]*hour/, f);
+  }
 });

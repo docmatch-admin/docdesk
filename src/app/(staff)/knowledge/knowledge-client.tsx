@@ -1,5 +1,6 @@
 "use client";
 
+import { thaiDateTime } from "@/lib/time-format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
@@ -11,7 +12,7 @@ interface SyncStatus { last_success_at: string | null; error: string | null; nee
 interface Example { id: string; question: string; answer: string; starred: boolean; use_count: number; active: boolean; created_at: string; source?: string; import_batch_id?: string | null }
 
 const dateTh = (iso: string) => new Date(iso).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" });
-const timeTh = (iso: string) => new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
+const timeTh = (iso: string) => thaiDateTime(iso);
 const EMPTY = { id: "", category: "", title: "", content: "" };
 
 export function KnowledgeClient({ embedded = false }: { embedded?: boolean } = {}) {

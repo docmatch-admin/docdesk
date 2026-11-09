@@ -1,3 +1,4 @@
+import { clock } from "./time-format";
 import { offsetOf, type BusinessHoursConfig } from "./business-hours";
 import type { SuggestionOption } from "./types";
 
@@ -61,7 +62,8 @@ const fromMinutes = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0"
 
 export const thaiWeekday = (date: string) => WEEKDAY[weekdayIndex(date)];
 export const thaiDate = (date: string) => `${Number(date.slice(8, 10))} ${MONTH[Number(date.slice(5, 7)) - 1]}`;
-export const thaiTime = (time: string) => time.slice(0, 5).replace(":", ".");
+/** "08:00" (ตัวคั่น ":" ทั้งระบบ) */
+export const thaiTime = (time: string) => clock(time);
 const slotText = (s: BookingSlot) => `วัน${thaiWeekday(s.date)}ที่ ${thaiDate(s.date)} เวลา ${thaiTime(s.time)} น.`;
 
 export const localToday = (now: number, tz: string) =>

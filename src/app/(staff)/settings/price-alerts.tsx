@@ -1,13 +1,13 @@
 "use client";
 
+import { thaiDateTime } from "@/lib/time-format";
 import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
 interface Alert { code: string; name: string; message: string; at: string }
 interface Status { error: string | null; alerts?: Alert[] }
 
-const timeTh = (iso: string) =>
-  new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
+const timeTh = (iso: string) => thaiDateTime(iso);
 
 /** แสดงเมื่อราคาแพ็กเกจไม่ตรงกับเว็บหรือซิงก์ล้มเหลว */
 export function PriceAlerts() {

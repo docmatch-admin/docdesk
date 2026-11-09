@@ -83,7 +83,7 @@ export interface Conversation {
     /** ชื่อจาก LINE/Facebook/Instagram */
     platform_name?: string | null;
     /** ผูก HN แล้ว: ชื่อจาก HIS */
-    hn?: string | null; patient_full_name?: string | null; name_source?: string | null; patient_relation?: string | null;
+    hn?: string | null; patient_full_name?: string | null; name_source?: string | null; patient_relation?: string | null; name_locked?: boolean | null;
   };
   channels?: { type: ChannelType; name: string; ai_mode: AiMode | null };
 }

@@ -1,18 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Appointment } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { AppointmentDrawer } from "../appointments/appointment-drawer";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
 import type { LinkedAccountRow } from "../appointments/linked-accounts";
-import { AppointmentsSideView } from "./appointments-side-view";
-
-interface Link_ { hn: string; patient_name: string | null; phone: string | null }
+import { AppointmentsSideView, type SideGroup } from "./appointments-side-view";
 
 /**
- * นัดครั้งต่อไปของแชทนี้ (กรณีนัดผ่านแชท) ใช้ฟอร์มเดียวกับหน้านัดหมาย
- * แชทผูก HN แล้วเติม HN ชื่อ เบอร์ให้ ยังไม่ผูกให้กรอกเอง
+ * นัดครั้งต่อไปของแชทนี้ ใช้ฟอร์มเดียวกับหน้านัดหมาย
+ * แชท (บัญชี) ผูกได้หลาย HN: แสดงนัดแยกตามคนไข้ ทำนัดให้ HN ไหนเติม HN ชื่อ เบอร์ของคนนั้น ยังไม่ผูกให้กรอกเอง
  */
 export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmin, onChanged, onMessage }: {
   conversationId: string;
@@ -23,11 +20,9 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
   onMessage: (msg: string) => void;
 }) {
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [rows, setRows] = useState<Appointment[]>([]);
-  const [past, setPast] = useState<Appointment[]>([]);
-  const [link, setLink] = useState<Link_ | null>(null);
-  const [accounts, setAccounts] = useState<LinkedAccountRow[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [groups, setGroups] = useState<SideGroup[]>([]);
+  // ทำนัดให้ HN ไหน (null = กรอกเอง) undefined = ไม่ได้เปิดฟอร์ม
+  const [creatingFor, setCreatingFor] = useState<string | null | undefined>(undefined);
   const [open, setOpen] = useState<{ id: string; edit: boolean } | null>(null);
   // แอดมินยืนยันการจับคู่ HN: ค้นชื่อจาก iService ก่อน แล้วกดยืนยัน
   const [linking, setLinking] = useState(false);
@@ -39,14 +34,11 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
     const res = await fetch(`/api/conversations/${conversationId}/appointments`);
     if (!res.ok) return;
     const j = await res.json();
-    setRows(j.appointments as Appointment[]);
-    setPast((j.past ?? []) as Appointment[]);
-    setLink(j.link as Link_ | null);
-    setAccounts((j.accounts ?? []) as LinkedAccountRow[]);
+    setGroups((j.groups ?? []) as SideGroup[]);
   }, [conversationId]);
 
   useEffect(() => {
-    setRows([]); setPast([]); setLink(null); setAccounts([]); setCreating(false); setOpen(null);
+    setGroups([]); setCreatingFor(undefined); setOpen(null);
     setLinking(false); setHnInput(""); setPreview(null); setLinkErr("");
     load();
     const ch = sb.channel(`appt-${conversationId}`)
@@ -56,7 +48,7 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
   }, [sb, conversationId, load]);
 
   function saved(r: SaveResult) {
-    setCreating(false);
+    setCreatingFor(undefined);
     onMessage(r.delivery ? `บันทึกนัดแล้ว · ${deliveryText(r.delivery)}` : "บันทึกนัดแล้ว");
     load();
     onChanged();
@@ -77,35 +69,40 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return setLinkErr(j.error ?? "ผูกไม่สำเร็จ");
     setLinking(false); setPreview(null); setHnInput("");
-    onMessage(`ผูกแชทกับ HN ${preview.hn} แล้ว`);
+    onMessage(j.alreadyLinked ? `แชทนี้ผูกกับ HN ${preview.hn} ไว้แล้ว` : `ผูกแชทกับ HN ${preview.hn} แล้ว`);
     load(); onChanged();
   }
 
-  /** ยกเลิกการผูก: แชทนี้ หรือบัญชีอื่นที่ผูก HN เดียวกัน */
-  async function unlink(target = conversationId) {
-    const res = await fetch(`/api/conversations/${target}/patient-link`, { method: "DELETE" });
+  /** ยกเลิกการผูกรายแถว (แชท + HN) */
+  async function unlink(target: string, hn: string) {
+    const res = await fetch(`/api/conversations/${target}/patient-link?hn=${encodeURIComponent(hn)}`, { method: "DELETE" });
     const j = await res.json().catch(() => ({}));
-    onMessage(res.ok ? (target === conversationId ? "ยกเลิกการผูก HN แล้ว" : "ยกเลิกการผูกบัญชีแล้ว") : j.error ?? "ยกเลิกไม่สำเร็จ");
+    onMessage(res.ok ? (target === conversationId ? `ยกเลิกการผูก HN ${hn} แล้ว` : "ยกเลิกการผูกบัญชีแล้ว") : j.error ?? "ยกเลิกไม่สำเร็จ");
     load(); onChanged();
   }
 
-  async function setRelation(acc: LinkedAccountRow, relation: "patient" | "relative") {
-    const r = await fetch(`/api/conversations/${acc.conversation_id}/patient-link`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relation }) });
-    onMessage(r.ok ? "แก้ป้ายบัญชีแล้ว" : (await r.json().catch(() => ({}))).error ?? "แก้ป้ายไม่สำเร็จ");
+  async function patchLink(target: string, body: Record<string, unknown>, ok: string) {
+    const r = await fetch(`/api/conversations/${target}/patient-link`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    onMessage(r.ok ? ok : (await r.json().catch(() => ({}))).error ?? "บันทึกไม่สำเร็จ");
     load(); onChanged();
   }
 
-  const initial = { ...EMPTY_DRAFT, hn: link?.hn ?? "", patient_name: link?.patient_name ?? contactName ?? "", phone: link?.phone ?? "" };
+  const target = creatingFor ? groups.find((g) => g.hn === creatingFor) : null;
+  const initial = { ...EMPTY_DRAFT, hn: target?.hn ?? "", patient_name: target?.name ?? (creatingFor === null && !groups.some((g) => g.hn) ? contactName ?? "" : ""), phone: target?.phone ?? "" };
 
   return (
     <>
       <AppointmentsSideView
-        isAdmin={isAdmin} link={link} accounts={link ? accounts : []} upcoming={rows} past={past} blurred={blurred} creating={creating}
-        onCreate={() => setCreating(!creating)} onLinkHn={() => setLinking(!linking)} onUnlink={() => unlink()}
-        onRelation={setRelation} onDetach={(a) => unlink(a.conversation_id)}
+        isAdmin={isAdmin} groups={groups} blurred={blurred} creating={creatingFor !== undefined}
+        onCreate={(hn) => setCreatingFor(creatingFor !== undefined ? undefined : hn)}
+        onLinkHn={() => setLinking(!linking)}
+        onUnlink={(hn) => unlink(conversationId, hn)}
+        onPrimary={(hn) => patchLink(conversationId, { primary_hn: hn }, `ตั้ง HN ${hn} เป็นหลักแล้ว`)}
+        onRelation={(a: LinkedAccountRow, relation, hn) => patchLink(a.conversation_id, { relation, hn }, "แก้ป้ายบัญชีแล้ว")}
+        onDetach={(a, hn) => unlink(a.conversation_id, hn)}
         onOpen={(id) => setOpen({ id, edit: false })} onEdit={(id) => setOpen({ id, edit: true })}
         printHref={(id) => `/appointments/${id}/print?reprint=1`}>
-        {linking && !link && (
+        {linking && (
           <div className="appt-link-box">
             <form className="row" onSubmit={checkHn}>
               <input style={{ flex: 1, width: "auto", minWidth: 0 }} placeholder="HN" value={hnInput} onChange={(e) => { setHnInput(e.target.value); setPreview(null); }} inputMode="numeric" />
@@ -120,8 +117,8 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
             {linkErr && <div className="error small" role="alert">{linkErr}</div>}
           </div>
         )}
-        {creating && (
-          <AppointmentForm compact initial={initial} conversationId={conversationId} onCancel={() => setCreating(false)} onSaved={saved} />
+        {creatingFor !== undefined && (
+          <AppointmentForm key={creatingFor ?? "none"} compact initial={initial} conversationId={conversationId} onCancel={() => setCreatingFor(undefined)} onSaved={saved} />
         )}
       </AppointmentsSideView>
       {open && (

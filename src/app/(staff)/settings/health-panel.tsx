@@ -1,11 +1,11 @@
 "use client";
 
+import { thaiDateTime } from "@/lib/time-format";
 import { useEffect, useMemo, useState } from "react";
 import { HEALTH_LABEL, type HealthRow } from "@/lib/health-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
-const timeTh = (iso: string) =>
-  new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
+const timeTh = (iso: string) => thaiDateTime(iso);
 
 export function HealthPanel() {
   const sb = useMemo(() => supabaseBrowser(), []);

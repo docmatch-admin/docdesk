@@ -1,5 +1,6 @@
 "use client";
 
+import { thaiDateTime } from "@/lib/time-format";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
@@ -34,8 +35,7 @@ const SOURCE_LABEL: Record<SuggestionOption["source"], string> = {
   history: "🕘 ประวัติลูกค้า",
 };
 
-const timeTh = (iso: string) =>
-  new Date(iso).toLocaleString("th-TH", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short", timeZone: "Asia/Bangkok" });
+const timeTh = (iso: string) => thaiDateTime(iso);
 
 interface StaffOption { id: string; display_name: string; active: boolean; role?: string; can_view_sensitive?: boolean }
 interface AssignmentEntry { id: number; from_staff: string | null; to_staff: string | null; by_staff: string | null; created_at: string }
@@ -131,7 +131,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   // ---------- โหลดรายการแชท ----------
   const loadConvs = useCallback(async () => {
-    const columns = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source, patient_relation), channels(type, name, ai_mode)";
+    const columns = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source, patient_relation, name_locked), channels(type, name, ai_mode)";
     // กรองที่ฐานข้อมูล ไม่อย่างนั้นจะเห็นแค่ใน 200 แชทล่าสุด
     const seq = ++loadSeq.current;
     const term = searchRef.current.trim();

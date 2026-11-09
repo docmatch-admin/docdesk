@@ -1,3 +1,4 @@
+import { clock, timeRange } from "./time-format";
 import type { ChannelType } from "./types";
 
 /**
@@ -89,6 +90,8 @@ export interface AppointmentSettings {
   template_th: string;
   template_en: string;
   clinic_phone: string;
+  /** เบอร์มือถือคลินิก (ว่าง = ไม่แสดง) */
+  clinic_mobile: string;
   clinic_address: string;
   /** ใบนัด English */
   clinic_name_en: string;
@@ -96,7 +99,7 @@ export interface AppointmentSettings {
   line_oa_id: string;
 }
 
-export const TEMPLATE_VARIABLES = ["{name}", "{date}", "{time}", "{clinic}", "{phone}"];
+export const TEMPLATE_VARIABLES = ["{name}", "{date}", "{time}", "{clinic}", "{phone}", "{mobile}"];
 
 export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
   reminder_time: "10:00",
@@ -105,6 +108,7 @@ export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
   template_th: "เรียน คุณ{name}\nนัดหมายครั้งต่อไปที่ {clinic}\n{date}\n{time}\nสอบถามโทร {phone}",
   template_en: "Dear {name},\nYour next appointment at {clinic}\n{date}\n{time}\nQuestions? Call {phone}",
   clinic_phone: "02-000-4586",
+  clinic_mobile: "",
   clinic_address: "",
   clinic_name_en: "HappiWell Medical Clinic",
   clinic_address_en: "",
@@ -122,6 +126,7 @@ export function normalizeAppointmentSettings(value: unknown): AppointmentSetting
     template_th: text(v.template_th, DEFAULT_APPOINTMENT_SETTINGS.template_th),
     template_en: text(v.template_en, DEFAULT_APPOINTMENT_SETTINGS.template_en),
     clinic_phone: text(v.clinic_phone, DEFAULT_APPOINTMENT_SETTINGS.clinic_phone, 50),
+    clinic_mobile: typeof v.clinic_mobile === "string" ? v.clinic_mobile.trim().slice(0, 50) : "",
     clinic_address: typeof v.clinic_address === "string" ? v.clinic_address.slice(0, 300) : "",
     clinic_name_en: text(v.clinic_name_en, DEFAULT_APPOINTMENT_SETTINGS.clinic_name_en, 120),
     clinic_address_en: typeof v.clinic_address_en === "string" ? v.clinic_address_en.slice(0, 300) : "",
@@ -170,7 +175,8 @@ export const thaiMediumDate = (date: string) =>
   `${WEEKDAY_TH[weekday(date)]} ${Number(date.slice(8, 10))} ${MONTH_TH_SHORT[Number(date.slice(5, 7)) - 1]} ${Number(date.slice(0, 4)) + 543}`;
 export const englishDate = (date: string) =>
   `${WEEKDAY_EN[weekday(date)]}, ${Number(date.slice(8, 10))} ${MONTH_EN[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}`;
-export const thaiClock = (time: string) => time.slice(0, 5).replace(":", ".");
+/** "08:00" ตัวคั่น ":" ทั้งระบบ (ชื่อเดิมคงไว้ ใช้หลายที่) */
+export const thaiClock = (time: string) => clock(time);
 
 export function parseDate(value: unknown): string | null {
   const m = typeof value === "string" ? value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
@@ -303,19 +309,19 @@ export function isWithinOpenHours(date: string, time: string, s: ClinicSchedule)
   return slotsForDate(date, s).some((slot) => t >= slot.start.slice(0, 5) && t < slot.end.slice(0, 5));
 }
 
-const range = (a: string, b: string, th: boolean) => (th ? `${thaiClock(a)}–${thaiClock(b)}` : `${a.slice(0, 5)}–${b.slice(0, 5)}`);
+const range = (a: string, b: string, _th: boolean) => timeRange(a, b);
 
 /** วลีเวลาในข้อความและใบนัด */
 export function timePhrase(a: { time_mode: TimeMode; time_start: string; time_end: string | null }, lang: "th" | "en" = "th"): string {
   const th = lang === "th";
   if (a.time_mode === "slot" && a.time_end) {
-    return th ? `มาได้ช่วง ${range(a.time_start, a.time_end, true)} น. (ตรวจตามลำดับคิว)`
-      : `Please come between ${range(a.time_start, a.time_end, false)} (seen in queue order)`;
+    return th ? `เวลา ${range(a.time_start, a.time_end, true)} น. (ตรวจตามลำดับคิว)`
+      : `Time ${range(a.time_start, a.time_end, false)} (Seen in queue order)`;
   }
-  return th ? `เวลา ${thaiClock(a.time_start)} น.` : `at ${a.time_start.slice(0, 5)}`;
+  return th ? `เวลา ${thaiClock(a.time_start)} น.` : `Time ${clock(a.time_start)}`;
 }
 
-/** เวลาแบบสั้นในตาราง: "08.00–12.00" หรือ "09.30" */
+/** เวลาแบบสั้นในตาราง: "08:00–12:00" หรือ "09:30" */
 export const timeShort = (a: { time_mode: TimeMode; time_start: string; time_end: string | null }) =>
   a.time_mode === "slot" && a.time_end ? range(a.time_start, a.time_end, true) : thaiClock(a.time_start);
 
@@ -463,13 +469,14 @@ const HEADER: Record<Lang, Record<MessageKind, string>> = {
   },
 };
 
-export const REPLY_TEXT: Record<Lang, { confirmed: string; reschedule: string; closed: string; notFound: string; test: string }> = {
+export const REPLY_TEXT: Record<Lang, { confirmed: string; reschedule: string; closed: string; notFound: string; test: string; alreadyLinked: string }> = {
   th: {
     confirmed: "ขอบคุณที่ยืนยันนัดค่ะ 🙏 แล้วพบกันนะคะ",
     reschedule: "รับเรื่องขอเลื่อนนัดแล้วค่ะ เจ้าหน้าที่จะติดต่อกลับเพื่อนัดวันใหม่ค่ะ",
     closed: "นัดนี้ถูกยกเลิกหรือผ่านไปแล้วค่ะ หากต้องการนัดใหม่ เจ้าหน้าที่จะช่วยดูให้ค่ะ",
     notFound: "ไม่พบรหัสนัดนี้ค่ะ รบกวนตรวจรหัสบนใบนัดอีกครั้ง หรือรอเจ้าหน้าที่ตอบกลับค่ะ",
     test: "ได้รับการกดปุ่มทดสอบแล้วค่ะ",
+    alreadyLinked: "บัญชีนี้ผูกกับนัดนี้ไว้แล้วค่ะ จะได้รับข้อความเตือนก่อนวันนัดตามปกติ",
   },
   en: {
     confirmed: "Thank you for confirming your appointment 🙏 See you soon.",
@@ -477,6 +484,7 @@ export const REPLY_TEXT: Record<Lang, { confirmed: string; reschedule: string; c
     closed: "This appointment was cancelled or has passed. Our staff can help you book a new one.",
     notFound: "We could not find this appointment code. Please check the code on your card or wait for our staff.",
     test: "Test button received.",
+    alreadyLinked: "This account is already linked to this appointment. You will get a reminder before the visit.",
   },
 };
 
@@ -499,14 +507,19 @@ export interface MessageInput {
   series?: { label: string; appoint_date: string; time_mode: TimeMode; time_start: string; time_end: string | null; done?: boolean }[];
   /** เตือนนัดในชุด: เข็ม X จาก M */
   seriesPosition?: { label: string; seq: number; total: number };
+  /** บัญชีที่ผูกหลาย HN: ระบุชื่อคนที่นัด ("นัดของ ...") */
+  forPatient?: string;
 }
+
+const forPatientText = (input: MessageInput) =>
+  input.forPatient?.trim() ? (input.lang === "en" ? `Appointment for ${input.forPatient.trim()}` : `นัดของ ${input.forPatient.trim()}`) : "";
 
 function seriesLines(input: MessageInput): string[] {
   if (!input.series?.length) return [];
   return input.series.map((s) => {
     if (s.done) return input.lang === "en" ? `✓ ${s.label}: given ${englishDate(s.appoint_date)}` : `✓ ${s.label}: ฉีดแล้ว ${thaiMediumDate(s.appoint_date)}`;
     return input.lang === "en"
-      ? `• ${s.label}: ${englishDate(s.appoint_date)} (${timeShort(s).replace(/\./g, ":")})`
+      ? `• ${s.label}: ${englishDate(s.appoint_date)} (${timeShort(s)})`
       : `• ${s.label}: ${thaiMediumDate(s.appoint_date)} (${timeShort(s)} น.)`;
   });
 }
@@ -523,12 +536,21 @@ function previousText(input: MessageInput): string {
   const p = input.previous;
   if (!p || input.kind !== "changed") return "";
   return input.lang === "en"
-    ? `Previously: ${englishDate(p.appoint_date)} (${timeShort(p).replace(/\./g, ":")})`
+    ? `Previously: ${englishDate(p.appoint_date)} (${timeShort(p)})`
     : `จากเดิม ${thaiFullDate(p.appoint_date)} (${timeShort(p)} น.)`;
 }
 
-export const fillVariables = (template: string, values: Record<string, string>) =>
-  template.replace(/\{(name|date|time|clinic|phone)\}/g, (all, key: string) => values[key] ?? all);
+/**
+ * แทนตัวแปรใน template บรรทัดที่มี {mobile} แต่ไม่ได้ตั้งเบอร์มือถือ ตัดทั้งบรรทัด
+ * ตั้งเบอร์มือถือแล้วแต่ template ไม่มี {mobile} ต่อท้ายบรรทัด "โทร/มือถือ ..." ให้เอง
+ */
+export function fillVariables(template: string, values: Record<string, string>): string {
+  const mobile = values.mobile?.trim() ?? "";
+  let t = template;
+  if (!mobile) t = t.split("\n").filter((line) => !line.includes("{mobile}")).join("\n");
+  else if (!t.includes("{mobile}")) t = `${t}\n${values.mobileLabel ?? "โทร/มือถือ"} {mobile}`;
+  return t.replace(/\{(name|date|time|clinic|phone|mobile)\}/g, (all, key: string) => values[key] ?? all);
+}
 
 function variables(input: MessageInput): Record<string, string> {
   const a = input.appointment;
@@ -538,6 +560,8 @@ function variables(input: MessageInput): Record<string, string> {
     time: timePhrase(a, input.lang),
     clinic: input.clinicName,
     phone: input.settings.clinic_phone,
+    mobile: input.settings.clinic_mobile ?? "",
+    mobileLabel: input.lang === "en" ? "Mobile" : "โทร/มือถือ",
   };
 }
 
@@ -547,11 +571,12 @@ const cancelledKind = (kind: MessageKind) => kind === "cancelled";
 /** ข้อความเต็ม ใช้ส่ง Facebook/Instagram เป็น altText ของ LINE และบันทึกในแชท */
 export function appointmentText(input: MessageInput): string {
   const v = variables(input);
-  const header = HEADER[input.lang][input.kind];
+  const forWho = forPatientText(input);
+  const header = `${HEADER[input.lang][input.kind]}${forWho ? `\n${forWho}` : ""}`;
   if (input.kind === "cancelled") {
     const body = input.lang === "en"
-      ? `Your appointment on ${v.date} (${timeShort(input.appointment).replace(/\./g, ":")}) at ${v.clinic} has been cancelled.\nTo book again, call ${v.phone}`
-      : `นัด${v.date} (${timeShort(input.appointment)} น.) ที่ ${v.clinic} ถูกยกเลิกแล้วค่ะ\nหากต้องการนัดใหม่ โทร ${v.phone}`;
+      ? `Your appointment on ${v.date} (${timeShort(input.appointment)}) at ${v.clinic} has been cancelled.\nTo book again, call ${v.phone}${v.mobile ? ` / ${v.mobile}` : ""}`
+      : `นัด${v.date} (${timeShort(input.appointment)} น.) ที่ ${v.clinic} ถูกยกเลิกแล้วค่ะ\nหากต้องการนัดใหม่ โทร ${v.phone}${v.mobile ? `\nโทร/มือถือ ${v.mobile}` : ""}`;
     const cancelledLines = seriesLines(input);
     const list = cancelledLines.length ? `\n${input.lang === "en" ? "Cancelled appointments:" : "นัดที่ยกเลิก:"}\n${cancelledLines.join("\n")}` : "";
     return `${header}\n${body}${list}`;
@@ -589,7 +614,9 @@ export function appointmentFlex(input: MessageInput): Json {
   const body: Json[] = [
     { type: "text", text: HEADER[input.lang][input.kind], weight: "bold", size: "md", color: cancelled ? "#c0392b" : "#1f2a44", wrap: true },
     ...(positionText(input) ? [{ type: "text", text: positionText(input), size: "sm", weight: "bold", color: "#4a63e0" }] : []),
-    { type: "text", text: th ? `คุณ${a.patient_name}` : a.patient_name, size: "sm", color: "#555b66", wrap: true },
+    forPatientText(input)
+      ? { type: "text", text: forPatientText(input), size: "sm", weight: "bold", color: "#1f2a44", wrap: true }
+      : { type: "text", text: th ? `คุณ${a.patient_name}` : a.patient_name, size: "sm", color: "#555b66", wrap: true },
     { type: "separator", margin: "md" },
     {
       type: "box", layout: "vertical", margin: "md", spacing: "sm",
@@ -618,6 +645,7 @@ export function appointmentFlex(input: MessageInput): Json {
         { type: "text", text: v.clinic, size: "sm", weight: "bold", wrap: true },
         ...(input.settings.clinic_address ? [{ type: "text", text: input.settings.clinic_address, size: "xs", color: "#8a8f9c", wrap: true }] : []),
         { type: "text", text: `${th ? "โทร" : "Tel"} ${v.phone}`, size: "xs", color: "#8a8f9c" },
+        ...(v.mobile ? [{ type: "text", text: `${th ? "โทร/มือถือ" : "Mobile"} ${v.mobile}`, size: "xs", color: "#8a8f9c" }] : []),
       ],
     },
   ];

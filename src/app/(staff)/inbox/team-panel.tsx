@@ -1,5 +1,6 @@
 "use client";
 
+import { thaiDateTime } from "@/lib/time-format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Icon } from "../icons";
@@ -8,8 +9,7 @@ interface StaffOption { id: string; display_name: string; active: boolean; role?
 interface Task { id: string; conversation_id: string; text: string; assignee_id: string | null; done: boolean; done_by: string | null; done_at: string | null; created_by: string | null; created_at: string }
 interface Note { id: string; conversation_id: string; task_id: string | null; body: string; author_id: string | null; created_at: string }
 
-const timeTh = (iso: string) =>
-  new Date(iso).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
+const timeTh = (iso: string) => thaiDateTime(iso);
 
 /**
  * งานของทีมและคอมเมนต์ภายใน: อ่านผ่าน RLS เขียนผ่าน API

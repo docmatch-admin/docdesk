@@ -172,7 +172,7 @@ test("สัญญาณการจอง", () => {
 
 test("ขอเลื่อน: เสนอวันถัดจากนัดเดิม", () => {
   const text = rescheduleText({ service: FLU, date: "2030-01-03", time: "10:00:00" }, DEFAULT_BOOKING_TEMPLATES, HOURS, NOW);
-  assert.match(text, /วันพฤหัสบดีที่ 3 มกราคม เวลา 10\.00 น\./);
+  assert.match(text, /วันพฤหัสบดีที่ 3 มกราคม เวลา 10:00 น\./);
   assert.match(text, /วันศุกร์ที่ 4 มกราคม/);
 });
 
@@ -230,7 +230,7 @@ test("ขอพรุ่งนี้ 10 โมง โหมด auto: ส่ง�
   assert.equal(await tryAutoSend(conversationId, s.options, s.needs_human, s.id), true);
   const out = lastOut();
   assert.equal(out.sender_type, "ai");
-  assert.equal(out.body, "ได้เลยค่ะ จองวัคซีนไข้หวัดใหญ่ให้วันพฤหัสบดีที่ 3 มกราคม เวลา 10.00 น. นะคะ 😊 มาถึงแจ้งชื่อที่เคาน์เตอร์ได้เลยค่ะ");
+  assert.equal(out.body, "ได้เลยค่ะ จองวัคซีนไข้หวัดใหญ่ให้วันพฤหัสบดีที่ 3 มกราคม เวลา 10:00 น. นะคะ 😊 มาถึงแจ้งชื่อที่เคาน์เตอร์ได้เลยค่ะ");
   const b = state.tables.bookings[0];
   assert.deepEqual([b.service, b.date, b.time, b.status, b.confirmed_message_id], [FLU, "2030-01-03", "10:00", "ai_confirmed", out.id]);
   assert.equal(conv().booking_pending, true);
@@ -242,7 +242,7 @@ test("ขอพรุ่งนี้ 10 โมง โหมด auto: ส่ง�
 test("AI ไม่ได้ตัดสิน: ตอบ AI ยืนยันเอง แต่อาทิตย์บ่าย 3 ไม่ถูกบันทึก", async () => {
   const { conversationId, s } = await ask("จองอาทิตย์บ่าย 3", { service: FLU, date: "2030-01-06", time: "15:00" });
   await tryAutoSend(conversationId, s.options, s.needs_human, s.id);
-  assert.match(lastOut().body, /ปิดทำการ.*วันอาทิตย์ที่ 6 มกราคม เวลา 11\.30 น\. หรือ วันจันทร์ที่ 7 มกราคม เวลา 15\.00 น\./);
+  assert.match(lastOut().body, /ปิดทำการ.*วันอาทิตย์ที่ 6 มกราคม เวลา 11:30 น\. หรือ วันจันทร์ที่ 7 มกราคม เวลา 15:00 น\./);
   assert.equal(state.tables.bookings.length, 0);
   assert.ok(!conv().booking_pending);
 });
@@ -409,7 +409,7 @@ test("ขอเปลี่ยนเวลา: ตรวจใหม่ ยื�
   await tryAutoSend(conversationId, s2.options, s2.needs_human, s2.id);
   assert.equal(state.tables.bookings.length, 1);
   assert.deepEqual([state.tables.bookings[0].date, state.tables.bookings[0].time], ["2030-01-04", "14:00"]);
-  assert.match(lastOut().body, /วันศุกร์ที่ 4 มกราคม เวลา 14\.00/);
+  assert.match(lastOut().body, /วันศุกร์ที่ 4 มกราคม เวลา 14:00/);
 });
 
 test("ขอเปลี่ยนเป็นเวลาที่ปิด: เสนอเวลา นัดเดิมไม่เปลี่ยน", async () => {

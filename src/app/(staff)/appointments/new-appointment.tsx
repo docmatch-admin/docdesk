@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { thaiShortDate } from "@/lib/appointment-rules";
+import { bangkokClock } from "@/lib/time-format";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { Icon } from "../icons";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type AppointmentDraft } from "./appointment-form";
@@ -191,7 +192,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
       {err && <div className="error small" role="alert">{err}</div>}
       {cachedAt !== null && (
         <div className="appt-cache-bar" role="status">
-          iService ไม่ตอบสนอง — แสดงข้อมูล ณ {cachedAt ? new Date(cachedAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" }) : "ล่าสุดที่มี"} น. (ทำนัดต่อได้ตามปกติ)
+          iService ไม่ตอบสนอง — แสดงข้อมูล ณ {cachedAt ? bangkokClock(cachedAt) : "ล่าสุดที่มี"} น. (ทำนัดต่อได้ตามปกติ)
         </div>
       )}
 

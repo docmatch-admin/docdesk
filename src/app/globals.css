@@ -865,3 +865,15 @@ body > .appt-slip { display: none; }
 .mini-dialog-overlay { position: fixed; inset: 0; background: rgba(15, 20, 30, .35); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 16px; }
 .mini-dialog { background: #fff; border-radius: 12px; padding: 16px; max-width: 360px; width: 100%; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
 .mini-dialog p { margin: 0 0 12px; font-size: 14px; line-height: 1.5; }
+/* นัดครั้งต่อไป: แยกกลุ่มตามคนไข้ (บัญชีเดียวผูกหลาย HN) */
+.appt-side-group { display: flex; flex-direction: column; gap: 8px; }
+.appt-side-group + .appt-side-group { padding-top: 12px; border-top: 1px dashed var(--line); }
+.appt-side-group-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; min-width: 0; }
+.appt-side-group-name { font-weight: 700; font-size: 13px; min-width: 0; overflow-wrap: anywhere; word-break: keep-all; }
+.appt-side-group .appt-side-sub { margin-top: 0; }
+.appt-side-role { flex-shrink: 0; white-space: nowrap; font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 999px; background: #e6efff; color: #1f4fb8; }
+.appt-side-role.relative { background: #f3e8ff; color: #6b2fa6; }
+.appt-side-role.main { background: var(--bg); color: var(--muted); }
+.appt-side-pick { display: flex; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; margin-top: -4px; }
+.appt-side-pick .btn { justify-content: flex-start; gap: 6px; }
+.appt-side-more { align-self: flex-start; font-size: 12px; }

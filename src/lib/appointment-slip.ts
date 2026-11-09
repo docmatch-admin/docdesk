@@ -10,7 +10,7 @@ export type SlipField = "purpose" | "instructions" | "note" | "title";
 export type SlipTexts = Partial<Record<SlipField, string>>;
 export type SlipLang = "th" | "en";
 
-export interface SlipClinic { name: string; nameEn: string; address: string; addressEn: string; phone: string }
+export interface SlipClinic { name: string; nameEn: string; address: string; addressEn: string; phone: string; /** ว่าง = ไม่แสดง */ mobile?: string }
 
 export interface SlipData {
   appointment: Appointment;
@@ -89,7 +89,7 @@ const issuedTime = (iso: string, lang: SlipLang) => {
   const hm = `${get("hour").replace(/^24/, "00")}:${get("minute")}`;
   if (lang === "en") return `${englishShortDate(date)} ${hm}`;
   const [, , short] = thaiMediumDate(date).split(" ");
-  return `${Number(date.slice(8, 10))} ${short} ${Number(date.slice(0, 4)) + 543} ${hm.replace(":", ".")} น.`;
+  return `${Number(date.slice(8, 10))} ${short} ${Number(date.slice(0, 4)) + 543} ${hm} น.`;
 };
 
 /** ข้อความที่แปลได้ของนัดนี้ (ต้นฉบับไทย) ส่งไปแปลเฉพาะชุดนี้ */
@@ -138,7 +138,10 @@ export function slipView(d: SlipData, lang: SlipLang, en: SlipTexts = {}): SlipV
     lang,
     clinicName: th ? d.clinic.name : d.clinic.nameEn || d.clinic.name,
     clinicAddress: th ? d.clinic.address : d.clinic.addressEn,
-    clinicPhone: d.clinic.phone ? `${th ? "โทร" : "Tel"} ${d.clinic.phone}` : "",
+    clinicPhone: [
+      d.clinic.phone ? `${th ? "โทร" : "Tel"} ${d.clinic.phone}` : "",
+      d.clinic.mobile?.trim() ? `${th ? "มือถือ" : "Mobile"} ${d.clinic.mobile.trim()}` : "",
+    ].filter(Boolean).join(" · "),
     title: series
       ? (src.title ? text("title")! : th ? "ใบนัดวัคซีน" : "Vaccination Appointment")
       : th ? "ใบนัด" : "Appointment",

@@ -15,7 +15,7 @@ import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
 import { SENSITIVE_TAG } from "./sensitive-rules";
 import { slipSourceTexts, type SlipData } from "./appointment-slip";
 import { saveSlipTranslation, translateSlipTexts, type SlipField } from "./slip-translate";
-import { unlinkConversation, linkConversationToHn, linkedConversationsOf, upsertPatient, type PatientRelation } from "./patient-link-store";
+import { unlinkConversation, linkConversationToHn, linkedConversationsOf, linksOfConversation, rolesForHn, sameHn, upsertPatient, type PatientRelation } from "./patient-link-store";
 import { contactName, type ContactNameFields } from "./patient-name";
 import { supabaseAdmin } from "./supabase/admin";
 import type { ChannelType } from "./types";
@@ -97,8 +97,7 @@ async function conversationInfo(conversationId: string): Promise<ConversationInf
 export async function findLinkedConversation(hn: string | null | undefined): Promise<string | null> {
   const links = await linkedConversationsOf(hn);
   if (!links.length) return null;
-  const rel = await relationsOf(links.map((l) => l.conversation_id));
-  const ranked = [...links].sort((a, b) => Number(rel.get(a.conversation_id) === "relative") - Number(rel.get(b.conversation_id) === "relative") || b.linked_at.localeCompare(a.linked_at));
+  const ranked = [...links].sort((a, b) => Number(a.role === "relative") - Number(b.role === "relative") || b.linked_at.localeCompare(a.linked_at));
   return ranked[0].conversation_id;
 }
 
@@ -142,7 +141,9 @@ export interface LinkedAccount {
 export async function linkedAccounts(appt: Pick<Appointment, "id" | "hn" | "conversation_id">): Promise<LinkedAccount[]> {
   const ids = await recipientIds(appt);
   const viaHn = new Set((await linkedConversationsOf(appt.hn)).map((l) => l.conversation_id));
-  const rel = await relationsOf(ids);
+  const byHn = await rolesForHn(appt.hn, ids);
+  const byContact = await relationsOf(ids);
+  const rel = new Map(ids.map((id) => [id, byHn.get(id) ?? byContact.get(id) ?? null]));
   const out: LinkedAccount[] = [];
   for (const id of ids) {
     const info = await conversationInfo(id);
@@ -266,7 +267,9 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
       failed.push({ id: target, via: info?.channelType, reason, error: DELIVERY_FAILURE_TEXT[reason] });
       continue;
     }
-    const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous, series: opts.series, seriesPosition: opts.seriesPosition };
+    // บัญชีนี้เกี่ยวกับมากกว่า 1 HN (รวม HN ของนัดนี้ที่อาจกำลังจะผูก): ระบุชื่อคนที่นัด
+    const multiHn = new Set([...(await linksOfConversation(target)).map((l) => l.hn.replace(/^0+/, "")), ...(appt.hn ? [appt.hn.trim().replace(/^0+/, "")] : [])]).size > 1;
+    const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous, series: opts.series, seriesPosition: opts.seriesPosition, ...(multiHn ? { forPatient: appt.patient_name } : {}) };
     try {
       // replyToken ใช้ได้กับแชทที่ส่ง event มาเท่านั้น
       const mid = await pushAppointment(info, delivery.via, input, opts.only === target ? opts.replyToken : undefined, delivery.via === "line" && !!pushSkip);
@@ -740,7 +743,7 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
   const appt = await loadAppointment(parsed.appointmentId);
   // กดได้จากทุกบัญชีที่รับข้อความของนัดนี้ (คนไข้/ญาติ) บัญชีอื่นคือข้อมูลปลอมหรือถูกยกเลิกการผูกแล้ว
   if (!appt || !(await recipientIds(appt)).includes(conversationId)) return "ignored";
-  const relation = (await relationsOf([conversationId])).get(conversationId) ?? (appt.conversation_id === conversationId ? "patient" : "relative");
+  const relation = (await rolesForHn(appt.hn, [conversationId])).get(conversationId) ?? (await relationsOf([conversationId])).get(conversationId) ?? (appt.conversation_id === conversationId ? "patient" : "relative");
   const who = { conversation_id: conversationId, account: info.displayName, relation };
   if (!OPEN_STATUSES.includes(appt.status) || isPast(appt, now)) {
     await replyText(info, REPLY_TEXT[lang].closed, ref.replyToken);
@@ -790,6 +793,16 @@ export async function handleLinkCode(ref: InboundRef, text: string, code: string
   if (!OPEN_STATUSES.includes(appt.status) || isPast(appt, now)) {
     await replyText(info, REPLY_TEXT[lang].closed, ref.replyToken);
     return "closed";
+  }
+  const alreadyLinked = appt.hn
+    ? (await linksOfConversation(conversationId)).some((l) => sameHn(l.hn, appt.hn))
+    : appt.conversation_id === conversationId
+      || !!(await db.from("appointment_recipients").select("conversation_id").eq("appointment_id", appt.id).eq("conversation_id", conversationId).maybeSingle()).data;
+  if (alreadyLinked) {
+    if (!appt.conversation_id) await db.from("appointments").update({ conversation_id: conversationId, last_send_error: null, updated_at: nowIso() }).eq("id", appt.id);
+    await logAppointmentEvent(appt.id, "linked", "customer", { channel: info.channelType, detail: { code, conversation_id: conversationId, already: true } });
+    await replyText(info, REPLY_TEXT[lang].alreadyLinked, ref.replyToken);
+    return "linked";
   }
   const added = !!appt.conversation_id && appt.conversation_id !== conversationId;
   if (!appt.conversation_id) {
@@ -928,7 +941,7 @@ export async function listAppointments(opts: { tab: ListTab } & ListFilters, now
   const today = bangkokToday(now);
   const base = supabaseAdmin().from("appointments")
     // ระบุ FK: appointment_recipients ทำให้ appointments↔conversations มีได้หลายเส้นทาง PostgREST จะตอบ error (PGRST201) ถ้าไม่ระบุ
-    .select(`${APPOINTMENT_COLUMNS}, conversations!appointments_conversation_id_fkey(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation))`);
+    .select(`${APPOINTMENT_COLUMNS}, conversations!appointments_conversation_id_fkey(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation, name_locked))`);
   const desc = opts.tab === "all";
   const { data } = await applyListFilters(base, opts.tab, opts, today)
     .order("appoint_date", { ascending: !desc }).order("time_start", { ascending: !desc }).limit(LIST_LIMIT);
@@ -1005,7 +1018,7 @@ export async function appointmentSlip(id: string, issuerId?: string | null) {
     series,
     // ชุดนัด: หัวใบใช้ชื่อชุดที่ตั้งเอง (ถ้าเป็นแค่ชื่อเหตุผลนัดใช้ "ใบนัดวัคซีน")
     seriesTitle: s?.title && s.title !== appt.purpose_text ? s.title : null,
-    clinic: { name: clinic, nameEn: settings.clinic_name_en, address: settings.clinic_address, addressEn: settings.clinic_address_en, phone: settings.clinic_phone },
+    clinic: { name: clinic, nameEn: settings.clinic_name_en, address: settings.clinic_address, addressEn: settings.clinic_address_en, phone: settings.clinic_phone, mobile: settings.clinic_mobile },
     linkedLine: accounts.some((a) => a.channel === "line" && a.following),
     issuedBy: ((issuer as { display_name?: string } | null)?.display_name ?? "").trim() || "เจ้าหน้าที่",
     issuedAt: nowIso(),
@@ -1030,6 +1043,11 @@ export async function translateSlip(id: string) {
   return translateSlipTexts(src);
 }
 
+/** HN ของนัด (ใช้แก้ป้ายบัญชีต่อ HN จาก drawer) */
+export async function appointmentHn(id: string): Promise<string | null> {
+  return (await loadAppointment(id))?.hn ?? null;
+}
+
 /** พนักงานแก้คำแปลใน preview: เก็บเป็นค่าใน cache ของต้นฉบับข้อความนั้น */
 export async function editSlipTranslation(id: string, field: SlipField, text: string): Promise<boolean> {
   const src = await slipSources(id);
@@ -1049,7 +1067,8 @@ export async function detachAccount(id: string, conversationId: string, staffId:
   const appt = await loadAppointment(id);
   if (!appt) return false;
   const viaHn = (await linkedConversationsOf(appt.hn)).some((l) => l.conversation_id === conversationId);
-  if (viaHn) await unlinkConversation(conversationId, staffId);
+  // ยกเลิกเฉพาะแถว (บัญชี + HN ของนัดนี้) HN อื่นของบัญชีเดียวกันไม่กระทบ
+  if (viaHn) await unlinkConversation(conversationId, staffId, appt.hn);
   const ids = appt.series_id ? (await loadSeries(appt.series_id)).map((x) => x.id) : [appt.id];
   await db.from("appointment_recipients").delete().eq("conversation_id", conversationId).in("appointment_id", ids);
   const fresh = await loadAppointment(id);

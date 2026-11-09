@@ -1,5 +1,6 @@
 "use client";
 
+import { thaiDateTime } from "@/lib/time-format";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -27,7 +28,7 @@ const REASON_LABEL: Record<string, string> = {
   unfollowed: "เลิกติดตาม LINE", quota: "โควตา LINE หมด", quota_low: "โควตา LINE เหลือน้อย งดส่งทันที", send_on_create_off: "ปิดส่งทันทีเมื่อลงนัด",
 };
 const ACTOR_LABEL ={ staff: "เจ้าหน้าที่", customer: "คนไข้", system: "ระบบ" };
-const timeTh = (iso: string) => new Date(iso).toLocaleString("th-TH", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
+const timeTh = (iso: string) => thaiDateTime(iso);
 
 function eventText(e: EventRow): string {
   const d = e.detail ?? {};

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { denySensitiveChat, requireAdmin } from "@/lib/auth";
 import { lookupHisPatient } from "@/lib/his";
-import { linkConversationToHn, setPatientRelation, unlinkConversation } from "@/lib/patient-link-store";
+import { linkConversationToHn, setPatientRelation, setPrimaryHn, unlinkConversation } from "@/lib/patient-link-store";
 
 export const runtime = "nodejs";
 
@@ -45,23 +45,28 @@ export async function POST(req: Request, { params }: Ctx) {
   return NextResponse.json(result);
 }
 
-/** แอดมินแก้ป้ายบัญชี { relation: "patient" | "relative" } */
+/** แอดมินแก้ป้ายบัญชีต่อ HN { hn?, relation: "patient" | "relative" } หรือเลือก HN หลัก { primary_hn } */
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
   const { error } = await guard(id);
   if (error) return error;
-  const b = (await req.json().catch(() => ({}))) as { relation?: unknown };
+  const b = (await req.json().catch(() => ({}))) as { relation?: unknown; hn?: unknown; primary_hn?: unknown };
+  if (typeof b.primary_hn === "string") {
+    if (!(await setPrimaryHn(id, cleanHn(b.primary_hn)))) return NextResponse.json({ error: "แชทนี้ไม่ได้ผูก HN นี้" }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  }
   if (b.relation !== "patient" && b.relation !== "relative") return NextResponse.json({ error: "ป้ายไม่ถูกต้อง" }, { status: 400 });
-  if (!(await setPatientRelation(id, b.relation))) return NextResponse.json({ error: "ไม่พบแชท" }, { status: 404 });
+  if (!(await setPatientRelation(id, b.relation, cleanHn(b.hn) || null))) return NextResponse.json({ error: "ไม่พบแชท" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }
 
 /** แอดมินยกเลิกการผูก: กลับไปใช้ชื่อเดิม บันทึกว่าใครทำ */
-export async function DELETE(_req: Request, { params }: Ctx) {
+export async function DELETE(req: Request, { params }: Ctx) {
   const { id } = await params;
   const { error, user } = await guard(id);
   if (error) return error;
-  const result = await unlinkConversation(id, user.id);
+  // ?hn= ยกเลิกเฉพาะแถว (แชท + HN) นั้น ไม่ระบุ = ทุก HN ของแชทนี้
+  const result = await unlinkConversation(id, user.id, cleanHn(new URL(req.url).searchParams.get("hn")) || null);
   if (!result) return NextResponse.json({ error: "แชทนี้ยังไม่ได้ผูก HN" }, { status: 404 });
   return NextResponse.json({ ok: true, ...result });
 }
