@@ -884,24 +884,53 @@ export interface AppointmentListRow extends Appointment {
 /** ค้นหาใช้ใน PostgREST or() จึงตัดตัวอักษรที่มีความหมายในไวยากรณ์ออก */
 const searchTerm = (q: string) => q.replace(/[,()%*\:"']/g, " ").trim().slice(0, 60);
 
-/** purpose: id ของ preset หรือ "none" = ไม่ได้เลือก preset */
-export async function listAppointments(opts: { tab: "today" | "tomorrow" | "all"; q?: string; from?: string | null; to?: string | null; purpose?: string | null; status?: string | null }, now = Date.now()): Promise<AppointmentListRow[]> {
-  const today = bangkokToday(now);
-  let query = supabaseAdmin().from("appointments")
-    .select(`${APPOINTMENT_COLUMNS}, conversations(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation))`);
-  if (opts.tab === "today") query = query.eq("appoint_date", today);
-  else if (opts.tab === "tomorrow") query = query.eq("appoint_date", addDays(today, 1));
+export type ListTab = "today" | "tomorrow" | "all";
+/** ตัวกรองหน้านัดหมาย: purpose ใช้ทุกแท็บ q/from/to/status ใช้เฉพาะแท็บทั้งหมด (from/to ว่าง = ไม่กรองวัน) */
+export interface ListFilters { q?: string; from?: string | null; to?: string | null; purpose?: string | null; status?: string | null }
+export const LIST_LIMIT = 500;
+const LIST_STATUSES = ["scheduled", "confirmed", "reschedule_requested", "cancelled", "attended", "no_show"];
+
+/**
+ * เงื่อนไขชุดเดียวใช้ทั้งรายการและตัวเลข badge ของแท็บ ตัวเลขจึงตรงกับที่แสดงเสมอ
+ * ทุกแท็บแสดงทุกสถานะ (รวมมาแล้ว/ไม่มา/ยกเลิก) ไม่รวมเข็มที่ฉีดแล้ว (บันทึกประวัติ ไม่ใช่นัด)
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyListFilters<Q extends { eq: any; gte: any; lte: any; or: any; neq: any; is: any }>(query: Q, tab: ListTab, opts: ListFilters, today: string): Q {
+  let qy = query;
+  if (tab === "today") qy = qy.eq("appoint_date", today);
+  else if (tab === "tomorrow") qy = qy.eq("appoint_date", addDays(today, 1));
   else {
-    query = query.gte("appoint_date", opts.from || today);
-    if (opts.to) query = query.lte("appoint_date", opts.to);
+    if (opts.from) qy = qy.gte("appoint_date", opts.from);
+    if (opts.to) qy = qy.lte("appoint_date", opts.to);
+    const q = searchTerm(opts.q ?? "");
+    if (q) qy = qy.or(`patient_name.ilike.%${q}%,hn.ilike.%${q}%,phone.ilike.%${q}%`);
+    if (opts.status && LIST_STATUSES.includes(opts.status)) qy = qy.eq("status", opts.status);
   }
-  const q = searchTerm(opts.q ?? "");
-  if (q) query = query.or(`patient_name.ilike.%${q}%,hn.ilike.%${q}%,phone.ilike.%${q}%`);
-  query = query.neq("series_done", true);
-  if (opts.status && ["scheduled", "confirmed", "reschedule_requested", "cancelled", "attended", "no_show"].includes(opts.status)) query = query.eq("status", opts.status);
-  if (opts.purpose === "none") query = query.is("purpose_id", null);
-  else if (opts.purpose && UUID.test(opts.purpose)) query = query.eq("purpose_id", opts.purpose);
-  const { data } = await query.order("appoint_date").order("time_start").limit(500);
+  qy = qy.neq("series_done", true);
+  if (opts.purpose === "none") qy = qy.is("purpose_id", null);
+  else if (opts.purpose && UUID.test(opts.purpose)) qy = qy.eq("purpose_id", opts.purpose);
+  return qy;
+}
+
+/** จำนวนนัดของทุกแท็บตามตัวกรองปัจจุบัน (ตัวกรองเดียวกับรายการ) */
+export async function appointmentTabCounts(opts: ListFilters = {}, now = Date.now()): Promise<Record<ListTab, number>> {
+  const today = bangkokToday(now);
+  const count = async (tab: ListTab) => {
+    const { count: n } = await applyListFilters(supabaseAdmin().from("appointments").select("id", { count: "exact", head: true }), tab, opts, today);
+    return n ?? 0;
+  };
+  const [t, tm, all] = await Promise.all([count("today"), count("tomorrow"), count("all")]);
+  return { today: t, tomorrow: tm, all };
+}
+
+/** purpose: id ของ preset หรือ "none" = ไม่ได้เลือก preset แท็บทั้งหมดเรียงวันนัดใหม่สุดก่อน */
+export async function listAppointments(opts: { tab: ListTab } & ListFilters, now = Date.now()): Promise<AppointmentListRow[]> {
+  const today = bangkokToday(now);
+  const base = supabaseAdmin().from("appointments")
+    .select(`${APPOINTMENT_COLUMNS}, conversations(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation))`);
+  const desc = opts.tab === "all";
+  const { data } = await applyListFilters(base, opts.tab, opts, today)
+    .order("appoint_date", { ascending: !desc }).order("time_start", { ascending: !desc }).limit(LIST_LIMIT);
   const seriesIds = [...new Set(((data ?? []) as { series_id?: string | null }[]).map((r) => r.series_id).filter((x): x is string => !!x))];
   const seriesTotal = new Map<string, number>();
   if (seriesIds.length) {
@@ -1063,18 +1092,6 @@ export async function appointmentDayCounts(from: string, to: string): Promise<Re
 }
 
 /** ตัวเลขบนแท็บหน้านัดหมาย (ไม่นับนัดที่ยกเลิก) all = ตั้งแต่วันนี้เป็นต้นไป */
-export async function appointmentTabCounts(now = Date.now()) {
-  const today = bangkokToday(now);
-  const tomorrow = addDays(today, 1);
-  const { data } = await supabaseAdmin().from("appointments").select("appoint_date, status")
-    .gte("appoint_date", today).neq("status", "cancelled").neq("series_done", true);
-  const rows = (data ?? []) as { appoint_date: string }[];
-  return {
-    today: rows.filter((r) => r.appoint_date === today).length,
-    tomorrow: rows.filter((r) => r.appoint_date === tomorrow).length,
-    all: rows.length,
-  };
-}
 
 /** HN ที่มีนัดในอนาคตอยู่แล้ว ใช้แสดงป้าย "มีนัดแล้ว" ในรายการคนไข้วันนี้ */
 export async function upcomingAppointmentHns(now = Date.now()): Promise<string[]> {

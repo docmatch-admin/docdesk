@@ -818,3 +818,4 @@ body > .appt-slip { display: none; }
 .quota-banner.out { background: #b3263a; color: #fff; }
 .send-error { margin: 6px 0; padding: 6px 10px; border-radius: 8px; background: #fde8eb; color: #9b1c2e; font-size: 13px; font-weight: 600; }
 .line-usage-forecast { margin: 4px 0 8px; font-size: 14px; }
+.appt-filter-note { margin: 4px 0 8px; }

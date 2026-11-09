@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  bangkokToday, DELIVERY_LABEL, deliveryState, STATUS_LABEL, thaiShortDate, timeShort,
+  DELIVERY_LABEL, deliveryState, STATUS_LABEL, thaiShortDate, timeShort,
   type Appointment, type DeliveryState,
 } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -30,13 +30,15 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   const sb = useMemo(() => supabaseBrowser(), []);
   const [tab, setTab] = useState<Tab>("tomorrow");
   const [q, setQ] = useState("");
-  const [from, setFrom] = useState(bangkokToday());
+  // ว่าง = ไม่กรองวันที่ (แท็บทั้งหมดแสดงทุกนัด ใหม่สุดก่อน)
+  const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [purpose, setPurpose] = useState("");
   const [presets, setPresets] = useState<{ id: string; name: string }[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [counts, setCounts] = useState({ mustCall: 0, reschedule: 0, total: 0 });
   const [tabCounts, setTabCounts] = useState<Record<Tab, number> | null>(null);
+  const [limit, setLimit] = useState(500);
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
@@ -45,21 +47,25 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
 
   const load = useCallback(async () => {
+    // ส่งตัวกรองทั้งหมดเสมอ badge ของแท็บทั้งหมดจะตรงกับที่เห็นเมื่อกดเข้าไป (q/วัน/สถานะ มีผลเฉพาะแท็บทั้งหมด)
     const p = new URLSearchParams({ tab });
     if (purpose) p.set("purpose", purpose);
-    if (tab === "all" && status) p.set("status", status);
-    if (tab === "all") {
-      if (q.trim()) p.set("q", q.trim());
-      if (from) p.set("from", from);
-      if (to) p.set("to", to);
-    }
+    if (status) p.set("status", status);
+    if (q.trim()) p.set("q", q.trim());
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
     const res = await fetch(`/api/appointments?${p}`);
     if (!res.ok) return;
     const j = await res.json();
     setRows(j.rows as Row[]);
     setCounts(j.counts);
     if (j.tabCounts) setTabCounts(j.tabCounts);
+    if (j.limit) setLimit(j.limit);
   }, [tab, q, from, to, purpose, status]);
+
+  const filtered = !!purpose || (tab === "all" && (!!q.trim() || !!from || !!to || !!status));
+  const clearFilters = () => { setPurpose(""); setQ(""); setFrom(""); setTo(""); setStatus(""); };
+  const shownTotal = tabCounts?.[tab] ?? rows.length;
 
   useEffect(() => {
     fetch("/api/appointments/form-data").then((r) => (r.ok ? r.json() : null)).then((j) => j && setPresets(j.presets)).catch(() => {});
@@ -124,18 +130,33 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
               <label className="raw small">ตั้งแต่<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
               <label className="raw small">ถึง<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
               <select aria-label="กรองตามสถานะ" className="appt-purpose-filter" value={status} onChange={(e) => setStatus(e.target.value)}>
-                <option value="">ทุกสถานะ (รวมยกเลิก)</option>
+                <option value="">ทุกสถานะ (รวมมาแล้ว/ไม่มา/ยกเลิก)</option>
                 {(Object.keys(STATUS_LABEL) as (keyof typeof STATUS_LABEL)[]).map((k) => <option key={k} value={k}>{STATUS_LABEL[k]}</option>)}
               </select>
             </div>
           )}
         </div>
+        {filtered && rows.length > 0 && (
+          <div className="appt-filter-note small muted">กรองอยู่ · พบ {shownTotal.toLocaleString("th-TH")} นัด <button type="button" className="link-btn" onClick={clearFilters}>ล้างตัวกรอง</button></div>
+        )}
         {rows.length === 0 && (
           <div className="appt-empty-state">
             <Icon name="calendar" size={32} />
-            <p>{tab === "tomorrow" ? "ยังไม่มีนัดพรุ่งนี้" : tab === "today" ? "ยังไม่มีนัดวันนี้" : "ไม่พบนัดตามเงื่อนไข"}</p>
-            {!creating && <button className="btn primary" onClick={() => setCreating(true)}>+ ทำนัดใหม่</button>}
+            {filtered ? (
+              <>
+                <p>ไม่พบนัดตามเงื่อนไข · <button type="button" className="link-btn" onClick={clearFilters}>ล้างตัวกรอง</button></p>
+                <button className="btn outline" onClick={clearFilters}>ล้างตัวกรองทั้งหมด</button>
+              </>
+            ) : (
+              <>
+                <p>{tab === "tomorrow" ? "ยังไม่มีนัดพรุ่งนี้" : tab === "today" ? "ยังไม่มีนัดวันนี้" : "ยังไม่มีนัด"}</p>
+                {!creating && <button className="btn primary" onClick={() => setCreating(true)}>+ ทำนัดใหม่</button>}
+              </>
+            )}
           </div>
+        )}
+        {rows.length > 0 && shownTotal > rows.length && (
+          <div className="small muted">แสดง {rows.length.toLocaleString("th-TH")} รายการแรกจาก {shownTotal.toLocaleString("th-TH")} (ครั้งละไม่เกิน {limit}) — ตั้งช่วงวันที่เพื่อดูส่วนที่เหลือ</div>
         )}
         {rows.length > 0 && (
           <div className="report-table-wrap">

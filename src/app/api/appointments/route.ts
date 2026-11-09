@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { denySensitiveChat, requireAppointmentStaff } from "@/lib/auth";
 import { appointmentErrorResponse } from "@/lib/appointment-http";
-import { appointmentCallCounts, appointmentTabCounts, createAppointment, listAppointments, upcomingAppointmentHns } from "@/lib/appointment-store";
+import { appointmentCallCounts, appointmentTabCounts, createAppointment, LIST_LIMIT, listAppointments, upcomingAppointmentHns } from "@/lib/appointment-store";
 import { parseDate } from "@/lib/appointment-rules";
 
 export const runtime = "nodejs";
 
-/** หน้านัดหมาย: ?tab=today|tomorrow|all&q=&from=&to=&purpose=<preset id>|none */
+/** หน้านัดหมาย: ?tab=today|tomorrow|all&q=&from=&to=&status=&purpose=<preset id>|none badge ทุกแท็บใช้ตัวกรองชุดเดียวกับรายการ */
 export async function GET(req: Request) {
   const { error } = await requireAppointmentStaff();
   if (error) return error;
@@ -14,16 +14,19 @@ export async function GET(req: Request) {
   if (u.searchParams.get("upcoming_hns")) return NextResponse.json({ hns: await upcomingAppointmentHns() }, { headers: { "Cache-Control": "no-store" } });
   if (u.searchParams.get("counts")) return NextResponse.json({ counts: await appointmentCallCounts() }, { headers: { "Cache-Control": "no-store" } });
   const tab = u.searchParams.get("tab");
-  const rows = await listAppointments({
-    tab: tab === "today" || tab === "all" ? tab : "tomorrow",
+  const filters = {
     q: u.searchParams.get("q") ?? "",
     from: parseDate(u.searchParams.get("from")),
     to: parseDate(u.searchParams.get("to")),
     purpose: u.searchParams.get("purpose"),
     status: u.searchParams.get("status"),
-  });
-  const [counts, tabCounts] = await Promise.all([appointmentCallCounts(), appointmentTabCounts()]);
-  return NextResponse.json({ rows, counts, tabCounts }, { headers: { "Cache-Control": "no-store" } });
+  };
+  const [rows, counts, tabCounts] = await Promise.all([
+    listAppointments({ tab: tab === "today" || tab === "all" ? tab : "tomorrow", ...filters }),
+    appointmentCallCounts(),
+    appointmentTabCounts(filters),
+  ]);
+  return NextResponse.json({ rows, counts, tabCounts, limit: LIST_LIMIT }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /**

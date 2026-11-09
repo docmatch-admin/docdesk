@@ -1306,3 +1306,49 @@ test("ข้อความพนักงานส่งไม่ได้เ�
   assert.match(src, /setSendError\(msg\)/);
   assert.match(src, /\{sendError && \(/);
 });
+
+// ---------------------------------------------------------------------------
+// หน้านัดหมาย: แท็บทั้งหมดไม่กรองวันโดยปริยาย badge ตรงกับรายการ
+// ---------------------------------------------------------------------------
+test("แท็บทั้งหมด: ไม่กรองวันโดยปริยาย แสดงนัดที่ผ่านมาแล้วทุกสถานะ ใหม่สุดก่อน badge ตรงกับรายการทุกตัวกรอง", async () => {
+  const past = addAppointment({ appoint_date: inDays(-10), status: "attended", link_code: "LST001" });
+  const noShow = addAppointment({ appoint_date: inDays(-3), status: "no_show", link_code: "LST002" });
+  const cancelled = addAppointment({ appoint_date: inDays(-1), status: "cancelled", link_code: "LST003" });
+  const todayA = addAppointment({ appoint_date: today, link_code: "LST004" });
+  const tomorrowA = addAppointment({ appoint_date: inDays(1), link_code: "LST005", purpose_id: PURPOSE_BLOOD });
+  const future = addAppointment({ appoint_date: inDays(30), link_code: "LST006", patient_name: "มานี มีนา" });
+  addAppointment({ appoint_date: inDays(-20), status: "attended", series_done: true, link_code: "LST007" });
+
+  const all = await store.listAppointments({ tab: "all" });
+  assert.deepEqual(all.map((a) => a.id), [future.id, tomorrowA.id, todayA.id, cancelled.id, noShow.id, past.id], "ใหม่สุดก่อน รวมผ่านมาแล้ว ไม่รวมเข็มที่ฉีดแล้ว");
+  const cases = [
+    {},
+    { status: "attended" },
+    { status: "cancelled" },
+    { from: inDays(-5), to: today },
+    { q: "มานี" },
+    { purpose: PURPOSE_BLOOD },
+    { purpose: "none" },
+  ];
+  for (const f of cases) {
+    const counts = await store.appointmentTabCounts(f);
+    for (const tab of ["today", "tomorrow", "all"]) {
+      const rows = await store.listAppointments({ tab, ...f });
+      assert.equal(counts[tab], rows.length, `badge ${tab} ตรงกับรายการ ${JSON.stringify(f)}`);
+    }
+  }
+  assert.equal((await store.appointmentTabCounts({ status: "attended" })).all, 1);
+
+  // API: ส่งตัวกรองชุดเดียวกัน คืน badge ทุกแท็บ
+  const res = await appointmentsRoute.GET(new Request(`https://app.test/api/appointments?tab=all&status=no_show`));
+  const j = await res.json();
+  assert.deepEqual(j.rows.map((r) => r.id), [noShow.id]);
+  assert.equal(j.tabCounts.all, 1);
+});
+
+test("หน้านัดหมาย: ช่องตั้งแต่ว่างโดยปริยาย และมีปุ่มล้างตัวกรองเมื่อผลว่าง", () => {
+  const src = readFileSync("src/app/(staff)/appointments/appointments-client.tsx", "utf8");
+  assert.match(src, /const \[from, setFrom\] = useState\(""\)/);
+  assert.match(src, /ไม่พบนัดตามเงื่อนไข · <button type="button" className="link-btn" onClick=\{clearFilters\}>ล้างตัวกรอง<\/button>/);
+  assert.match(src, /const clearFilters = \(\) => \{ setPurpose\(""\); setQ\(""\); setFrom\(""\); setTo\(""\); setStatus\(""\); \};/);
+});
