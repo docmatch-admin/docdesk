@@ -1,8 +1,12 @@
 // งานของทีมและคอมเมนต์ภายใน: npm test
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, test } from "node:test";
+import { afterEach, beforeEach, mock, test } from "node:test";
 import { fake } from "./fakes/hooks.mjs";
+
+// นาฬิกาคงที่ให้ตรงกับนาฬิกาของ fake DB (เริ่ม 2026-11-01) ไม่ขึ้นกับวันที่รันจริง
+// กติกา Meta 24 ชม./7 วัน เทียบกับ Date.now() ถ้าใช้เวลาจริงเทสต์จะล้มหลังผ่านไป 7 วัน
+mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-11-02T06:00:00Z") });
 
 const { calls, replies, reset } = await import(fake("ai"));
 const { nextTime, resetDb, state } = await import(fake("admin"));
