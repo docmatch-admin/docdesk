@@ -1374,3 +1374,25 @@ body > .appt-slip { display: none; }
 .slist-cols .c-arrow { flex: 0 0 14px; }
 .slist-cols .c-tag { flex: 0 0 170px; }
 @media (max-width: 640px) { .slist-cols.aligned { display: none; } }
+/* ===== ฟอร์มนัด: ผู้นัด (dropdown ค้นหาได้) ===== */
+.appt-field-label { font-weight: 500; }
+.provider-select { position: relative; min-width: 0; }
+.provider-select-btn { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.provider-select-btn:focus-visible, .provider-select-btn[aria-expanded=true] { outline: 2px solid var(--blue-soft); border-color: var(--blue); }
+.provider-select-btn.empty .provider-select-value { color: var(--muted); }
+.provider-select-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-select-caret { color: var(--muted); font-size: 12px; }
+.provider-select-pop { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 40; min-width: 240px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 8px 24px var(--shadow); }
+.provider-select-pop input { min-height: 36px; margin-bottom: 4px; }
+.provider-select-list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
+.provider-select-list li { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.provider-select-list li.hi { background: var(--hover); }
+.provider-select-list li[aria-selected=true] { color: var(--blue); font-weight: 600; }
+.provider-select-list li.none { color: var(--muted); }
+.provider-select-list li.custom { color: var(--blue); }
+.provider-select-list .provider-select-empty { color: var(--muted); cursor: default; font-size: 13px; }
+.provider-option-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-today { flex-shrink: 0; font-size: 12px; font-weight: 600; padding: 0 8px; border-radius: 999px; background: var(--green-soft); color: var(--green-ink); }
+.row-menu-spacer { width: 32px; flex-shrink: 0; }
+.provider-row-name { font-weight: 500; }
+.provider-row-seen { font-size: var(--fs-help); color: var(--muted-strong); white-space: nowrap; }

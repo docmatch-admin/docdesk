@@ -15,7 +15,8 @@ import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
 import { SENSITIVE_TAG } from "./sensitive-rules";
 import { slipSourceTexts, type SlipData } from "./appointment-slip";
 import { saveSlipTranslation, translateSlipTexts, type SlipField } from "./slip-translate";
-import { unlinkConversation, linkConversationToHn, linkedConversationsOf, linksOfConversation, rolesForHn, sameHn, upsertPatient, type PatientRelation } from "./patient-link-store";
+import { hnVariants, unlinkConversation, linkConversationToHn, linkedConversationsOf, linksOfConversation, rolesForHn, sameHn, upsertPatient, type PatientRelation } from "./patient-link-store";
+import { cleanProviderName, providerOptions, type Provider } from "./providers";
 import { contactName, type ContactNameFields } from "./patient-name";
 import { supabaseAdmin } from "./supabase/admin";
 import type { ChannelType } from "./types";
@@ -442,9 +443,18 @@ async function resolveFields(b: AppointmentInput, today: string) {
     purpose_id,
     purpose_text,
     instructions: clip(b.instructions, 1000) || null,
-    provider: clip(b.provider, 120) || null,
+    // ผู้นัดว่างได้ (— ไม่ระบุ —) · ยุบช่องว่างซ้อน
+    provider: cleanProviderName(b.provider) || null,
     note: clip(b.note, 1000) || null,
   };
+}
+
+/** ชื่อผู้นัดที่บันทึกในนัด → ตาราง providers (ยืดอายุไม่ให้ถูกซ่อน) · ล้มเหลวไม่กระทบการบันทึกนัด */
+async function touchProvider(name: unknown) {
+  const clean = cleanProviderName(name);
+  if (!clean) return;
+  const { error } = await supabaseAdmin().rpc("touch_providers", { p_names: [clean] });
+  if (error) console.error("touch provider failed", error.code);
 }
 
 async function loadAppointment(id: string): Promise<Appointment | null> {
@@ -457,7 +467,10 @@ async function insertWithCode(row: Record<string, unknown>): Promise<Appointment
   const db = supabaseAdmin();
   for (let i = 0; i < 5; i++) {
     const { data, error } = await db.from("appointments").insert({ ...row, link_code: generateLinkCode() }).select(APPOINTMENT_COLUMNS).single();
-    if (!error && data) return data as unknown as Appointment;
+    if (!error && data) {
+      await touchProvider(row.provider);
+      return data as unknown as Appointment;
+    }
     if (error?.code !== "23505") throw error ?? new Error("insert failed");
   }
   throw new Error("สร้างรหัสนัดไม่สำเร็จ");
@@ -581,6 +594,7 @@ export async function updateAppointment(id: string, b: AppointmentInput, staffId
   if (moved) Object.assign(patch, { status: "scheduled", reminder_sent_at: null, reminder_attempted_at: null, called_at: null, called_by: null });
   const { error } = await supabaseAdmin().from("appointments").update(patch).eq("id", id);
   if (error) throw error;
+  if (fields.provider !== current.provider) await touchProvider(fields.provider);
   if (fields.hn) await upsertPatient({ hn: fields.hn, full_name: fields.patient_name, phone: fields.phone });
   await logAppointmentEvent(id, moved ? "rescheduled" : "edited", "staff", {
     staffId, detail: moved ? { from: `${current.appoint_date} ${timeShort(current)}`, to: `${fields.appoint_date} ${timeShort(fields)}` } : {},
@@ -970,17 +984,21 @@ export async function appointmentCallCounts(now = Date.now()) {
 }
 
 /** ข้อมูลช่วยกรอกฟอร์ม: เหตุผลนัดที่เคยพิมพ์ ผู้นัด เวลาที่ใช้บ่อย และแชทที่ผูกกับ HN */
-export async function appointmentFormData(hn: string | null, now = Date.now()) {
+export async function appointmentFormData(hn: string | null, now = Date.now(), currentProvider?: string | null) {
   const db = supabaseAdmin();
   const today = bangkokToday(now);
-  const [{ data: recent }, linked, schedule, presets, { data: templates }] = await Promise.all([
-    db.from("appointments").select("purpose_id, purpose_text, provider, created_at").order("created_at", { ascending: false }).limit(500),
+  const [{ data: recent }, linked, schedule, presets, { data: templates }, { data: providerRows }, { data: todayVisits }] = await Promise.all([
+    db.from("appointments").select("purpose_id, purpose_text, created_at").order("created_at", { ascending: false }).limit(500),
     findLinkedConversation(hn),
     loadClinicSchedule(today, addDays(today, 400)),
     loadPurposes(),
     db.from("appointment_series_templates").select("id, name, purpose_id, items, sort_order, active").eq("active", true),
+    db.from("providers").select("name, last_seen_at, active"),
+    // แพทย์ที่ตรวจคนไข้รายนี้ใน visit วันนี้ (ป้าย "ตรวจวันนี้" ไม่เลือกให้)
+    hn ? db.from("his_visit_cache").select("doctor_name").eq("visit_date", today).in("hn", hnVariants(hn)) : Promise.resolve({ data: [] }),
   ]);
-  const rows = (recent ?? []) as { purpose_id: string | null; purpose_text: string | null; provider: string | null }[];
+  const rows = (recent ?? []) as { purpose_id: string | null; purpose_text: string | null }[];
+  const todayDoctors = ((todayVisits ?? []) as { doctor_name: string | null }[]).map((v) => cleanProviderName(v.doctor_name)).filter(Boolean);
   let linkedChannel: ChannelType | null = null;
   if (linked) {
     const info = await conversationInfo(linked);
@@ -990,7 +1008,7 @@ export async function appointmentFormData(hn: string | null, now = Date.now()) {
     presets: presets.filter((p) => p.active),
     // เหตุผลที่พิมพ์เอง (ไม่ใช่ preset) ใช้เป็น autocomplete ของ "อื่นๆ"
     purposeHistory: frequentTexts(rows.filter((r) => !r.purpose_id || !presets.some((p) => p.id === r.purpose_id && p.name === r.purpose_text)).map((r) => r.purpose_text)),
-    providers: frequentTexts(rows.map((r) => r.provider), 20),
+    providers: providerOptions((providerRows ?? []) as Provider[], todayDoctors, currentProvider, now),
     linked: linked ? { conversation_id: linked, channel: linkedChannel } : null,
     schedule,
     templates: ((templates ?? []) as { id: string; name: string; purpose_id: string | null; items: unknown; sort_order: number }[])

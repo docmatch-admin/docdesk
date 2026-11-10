@@ -238,6 +238,19 @@ const client = {
     if (fn === "set_conversation_tag") return { data: setTag(args), error: null };
     if (fn === "set_assignee" || fn === "assign_if_unassigned") return { data: setAssignee(fn, args), error: null };
     if (fn === "revoke_staff_sessions") { state.revoked.push(args.p_user); return { error: null }; }
+    if (fn === "touch_providers") {
+      // เหมือนฟังก์ชันในฐานข้อมูล: ยุบช่องว่าง รวมชื่อซ้ำ (ไม่สนตัวพิมพ์) เก็บเวลาล่าสุด
+      const list = (state.tables.providers ??= []);
+      const seen = args.p_seen ?? new Date().toISOString();
+      for (const raw of args.p_names) {
+        const name = String(raw).replace(/\s+/g, " ").trim();
+        if (!name) continue;
+        const cur = list.find((p) => p.name.toLowerCase() === name.toLowerCase());
+        if (cur) cur.last_seen_at = cur.last_seen_at > seen ? cur.last_seen_at : seen;
+        else list.push({ name, last_seen_at: seen, active: null });
+      }
+      return { error: null };
+    }
     if (fn === "match_examples") return { data: state.matchExamples };
     if (fn === "match_knowledge") return { data: state.matchKnowledge };
     if (fn === "line_send_summary") {

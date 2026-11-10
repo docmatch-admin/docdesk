@@ -1772,3 +1772,82 @@ test("รายการแถวกะทัดรัด: แท็กเป็
   assert.match(css, /\.page\.settings-page \{ min-height: 100%; display: flex; flex-direction: column; \}/);
   assert.match(css, /\.page\.settings-page > \.settings-layout \{ flex: 1 0 auto;/);
 });
+
+test("ผู้นัด: ทำความสะอาดชื่อ รวมซ้ำ ซ่อนเกิน 180 วัน แพทย์ที่ตรวจวันนี้อยู่บนสุดแต่ไม่เลือกให้", async () => {
+  const p = await import("../src/lib/providers.ts");
+  assert.equal(p.cleanProviderName("  นพ.สมชาย   ใจดี \n"), "นพ.สมชาย ใจดี");
+  assert.equal(p.cleanProviderName(null), "");
+  const now = Date.parse("2026-11-10T05:00:00Z");
+  const day = (n) => new Date(now - n * 86_400_000).toISOString();
+  const list = [
+    { name: "พญ.เก่ามาก", last_seen_at: day(200), active: null },
+    { name: "พญ.เก่าแต่เปิดไว้", last_seen_at: day(400), active: true },
+    { name: "นพ.ซ่อนเอง", last_seen_at: day(1), active: false },
+    { name: "นพ.เมื่อวาน", last_seen_at: day(1), active: null },
+    { name: "นพ.สัปดาห์ก่อน", last_seen_at: day(7), active: null },
+  ];
+  assert.equal(p.providerVisible(list[0], now), false, "ไม่พบเกิน 180 วันซ่อน");
+  assert.equal(p.providerVisible(list[1], now), true, "แอดมินเปิดไว้แสดงเสมอ");
+  assert.equal(p.providerVisible(list[2], now), false, "แอดมินปิดซ่อนเสมอ");
+  const opts = p.providerOptions(list, ["นพ.สัปดาห์ก่อน"], null, now);
+  assert.deepEqual(opts.map((o) => o.name), ["นพ.สัปดาห์ก่อน", "นพ.เมื่อวาน", "พญ.เก่าแต่เปิดไว้"]);
+  assert.deepEqual(opts.map((o) => o.today), [true, false, false]);
+  // ค่าเดิมของนัดที่ถูกซ่อนแล้วยังเลือกค้างไว้ได้
+  assert.ok(p.providerOptions(list, [], "พญ.เก่ามาก", now).some((o) => o.name === "พญ.เก่ามาก"));
+  // ค้นไม่สนคำนำหน้าและช่องว่าง
+  assert.deepEqual(p.filterProviders(opts, "เมื่อ วาน").map((o) => o.name), ["นพ.เมื่อวาน"]);
+  assert.equal(p.filterProviders(opts, "").length, 3);
+});
+
+test("ผู้นัด: ฟอร์มเริ่มว่าง (ไม่เติมหมอจาก visit) dropdown มี — ไม่ระบุ — และป้ายตรวจวันนี้", () => {
+  const nw = readFileSync("src/app/(staff)/appointments/new-appointment.tsx", "utf8");
+  assert.match(nw, /provider: "" \}\);/);
+  assert.doesNotMatch(nw, /provider: tidy\(p\.doctor/);
+  const form = readFileSync("src/app/(staff)/appointments/appointment-form.tsx", "utf8");
+  assert.match(form, /<ProviderSelect value=\{form\.provider\}/);
+  assert.doesNotMatch(form, /datalist id="appt-providers"/);
+  const sel = readFileSync("src/app/(staff)/appointments/provider-select.tsx", "utf8");
+  assert.match(sel, /\{ name: "", label: "— ไม่ระบุ —" \}/);
+  assert.match(sel, /ตรวจวันนี้/);
+  assert.match(sel, /role="listbox"/);
+  const drawer = readFileSync("src/app/(staff)/appointments/appointment-drawer.tsx", "utf8");
+  assert.match(drawer, /\{a\.provider && <><dt>ผู้นัด<\/dt><dd>\{a\.provider\}<\/dd><\/>\}/);
+  assert.doesNotMatch(drawer, /a\.provider \|\| "–"/);
+  const cache = readFileSync("supabase/functions/_shared/his-cache.ts", "utf8");
+  assert.match(cache, /await touchProviders\(db, rows\.map\(\(r\) => r\.doctor_name\)\)/);
+  assert.match(cache, /replace\(\/\\s\+\/g, " "\)/);
+  const sql = readFileSync("supabase/migrations/053_providers.sql", "utf8");
+  assert.match(sql, /create table if not exists providers/);
+  assert.match(sql, /on conflict \(lower\(name\)\) do update set last_seen_at = greatest/);
+  assert.match(sql, /grant execute on function touch_providers\(text\[\], timestamptz\) to service_role;/);
+});
+
+test("ผู้นัดว่าง: ใบนัด TH/EN และข้อความทุกแบบไม่มีบรรทัดผู้นัด/Doctor", () => {
+  const noProvider = slipBase();
+  noProvider.appointment = { ...noProvider.appointment, provider: null };
+  for (const lang of ["th", "en"]) {
+    const v = slipLib.slipView(noProvider, lang);
+    assert.ok(!v.rows.some((r) => /ผู้นัด|Doctor/.test(r.label)), lang);
+    assert.doesNotMatch(JSON.stringify(v), /ผู้นัด|"Doctor"|"–"/, lang);
+    const withP = slipLib.slipView(slipBase(), lang);
+    assert.ok(withP.rows.some((r) => r.label === (lang === "th" ? "ผู้นัด" : "Doctor") && r.value === "นพ.ทดสอบ"), `${lang} มีผู้นัดแสดง`);
+  }
+  const settings = rules.normalizeAppointmentSettings({});
+  const appt = { id: "a1", patient_name: "สมชาย", appoint_date: "2026-11-23", time_mode: "slot", time_start: "08:00", time_end: "12:00", purpose_text: "เจาะเลือด", instructions: null, provider: null };
+  for (const lang of ["th", "en"]) for (const kind of ["new", "reminder", "changed", "cancelled"]) {
+    const input = { kind, lang, appointment: appt, settings, clinicName: "คลินิก", includePurpose: true, previous: { appoint_date: "2026-11-20", time_mode: "exact", time_start: "09:30", time_end: null } };
+    assert.doesNotMatch(rules.appointmentText(input), /ผู้นัด|Doctor|null/, `${lang} ${kind}`);
+    assert.doesNotMatch(JSON.stringify(rules.appointmentFlex(input)), /ผู้นัด|Doctor/, `flex ${lang} ${kind}`);
+  }
+});
+
+test("ผู้นัด: บันทึกชื่อสะอาด ว่างได้ แก้นัดเดิมให้ว่างได้ และชื่อที่ใช้ถูกเพิ่มในรายชื่อ", async () => {
+  resetDb();
+  const { appointment } = await store.createAppointment({ patient_name: "แดง", appoint_date: inDays(3), time_mode: "exact", time_start: "10:00", provider: "  นพ.สมชาย   ใจดี " }, "agent");
+  assert.equal(appointment.provider, "นพ.สมชาย ใจดี");
+  assert.ok((state.tables.providers ?? []).some((p) => p.name === "นพ.สมชาย ใจดี"), "ชื่อที่ใช้ในนัดเข้า providers");
+  const { appointment: none } = await store.createAppointment({ patient_name: "ดำ", appoint_date: inDays(3), time_mode: "exact", time_start: "10:30", provider: "" }, "agent");
+  assert.equal(none.provider, null);
+  const { appointment: edited } = await store.updateAppointment(appointment.id, { provider: "" }, "agent");
+  assert.equal(edited.provider, null, "เลือก — ไม่ระบุ — แล้วนัดเดิมว่างได้");
+});

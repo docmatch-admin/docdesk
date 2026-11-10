@@ -12,6 +12,15 @@ export async function saveVisits(db: SupabaseClient, visits: Visit[]) {
   if (!rows.length) return;
   const { error } = await db.from("his_visit_cache").upsert(rows, { onConflict: "vn" });
   if (error) console.error("visit cache failed", error.code);
+  await touchProviders(db, rows.map((r) => r.doctor_name));
+}
+
+/** ชื่อแพทย์ที่พบใน visit → ตาราง providers (ตัวเลือก "ผู้นัด") ทำความสะอาด/รวมซ้ำในฐานข้อมูล */
+export async function touchProviders(db: SupabaseClient, names: (string | null)[]) {
+  const list = [...new Set(names.map((n) => (n ?? "").replace(/\s+/g, " ").trim()).filter(Boolean))];
+  if (!list.length) return;
+  const { error } = await db.rpc("touch_providers", { p_names: list });
+  if (error) console.error("providers update failed", error.code);
 }
 
 export async function cachedVisits(db: SupabaseClient, date: string): Promise<{ visits: Visit[]; at: string | null }> {

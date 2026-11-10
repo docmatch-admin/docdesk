@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ProviderSelect } from "./provider-select";
+import type { ProviderOption } from "@/lib/providers";
 import {
   bangkokToday, DEFAULT_CLINIC_HOURS, DEFAULT_SLOT_ID, defaultSeriesLabel, isClosedDate, isWithinOpenHours, nextOpenDate, offsetFromDays, planFromTemplate,
   relativeDate, slotsForDate, thaiMediumDate,
@@ -48,7 +50,7 @@ export interface SeriesTemplate {
 interface FormData {
   presets: PurposePreset[];
   purposeHistory: string[];
-  providers: string[];
+  providers: ProviderOption[];
   linked: { conversation_id: string; channel: ChannelType | null } | null;
   schedule: ClinicSchedule;
   templates?: SeriesTemplate[];
@@ -252,7 +254,10 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
   useEffect(() => {
     const hn = form.hn.trim();
     const t = setTimeout(() => {
-      fetch(`/api/appointments/form-data${hn ? `?hn=${encodeURIComponent(hn)}` : ""}`)
+      const q = new URLSearchParams();
+      if (hn) q.set("hn", hn);
+      if (initial.provider) q.set("provider", initial.provider);
+      fetch(`/api/appointments/form-data${q.size ? `?${q}` : ""}`)
         .then((r) => (r.ok ? r.json() : null)).then((d) => d && setData(d as FormData)).catch(() => {});
     }, hn ? 300 : 0);
     return () => clearTimeout(t);
@@ -532,14 +537,14 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
         <label className="span4">การปฏิบัติตัว (ส่งในข้อความนัดและพิมพ์บนใบนัด)
           <textarea rows={2} value={form.instructions} onChange={(e) => set({ instructions: e.target.value })} placeholder="เช่น งดน้ำงดอาหาร 8–12 ชม." />
         </label>
-        <label className="span2">ผู้นัด
-          <input list="appt-providers" value={form.provider} onChange={(e) => set({ provider: e.target.value })} autoComplete="off" />
-        </label>
+        <div className="span2 appt-field">
+          <span className="appt-field-label">ผู้นัด</span>
+          <ProviderSelect value={form.provider} options={data?.providers ?? []} onChange={(v) => set({ provider: v })} />
+        </div>
         <label className="span2">หมายเหตุ (ภายใน/บนใบนัด)
           <input value={form.note} onChange={(e) => set({ note: e.target.value })} autoComplete="off" />
         </label>
       </div>
-      <datalist id="appt-providers">{data?.providers.map((p) => <option key={p} value={p} />)}</datalist>
 
       {creating && (
         <div className={`appt-link-state ${willSend ? "ok" : ""}`}>

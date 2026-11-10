@@ -189,7 +189,8 @@ export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, initialMod
                 <dl className="drawer-dl">
                   <dt>เหตุผลนัด</dt><dd>{a.purpose_text || "–"}</dd>
                   <dt>การปฏิบัติตัว</dt><dd>{a.instructions || "–"}</dd>
-                  <dt>ผู้นัด</dt><dd>{a.provider || "–"}</dd>
+                  {/* ไม่ระบุผู้นัด: ตัดทั้งบรรทัด */}
+                  {a.provider && <><dt>ผู้นัด</dt><dd>{a.provider}</dd></>}
                   <dt>หมายเหตุ</dt><dd>{a.note || "–"}</dd>
                   <dt>เบอร์</dt><dd>{a.phone ? <a href={`tel:${a.phone.replace(/[^\d+]/g, "")}`}>{a.phone}</a> : "–"}</dd>
                   <dt>รหัสใบนัด</dt><dd><code>#{a.link_code}</code></dd>

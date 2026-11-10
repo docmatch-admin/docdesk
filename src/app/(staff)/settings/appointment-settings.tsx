@@ -8,6 +8,8 @@ import {
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { ClinicHoursSettings, PurposePresets, type Preset, type Slot } from "./appointment-presets";
 import { SeriesTemplates } from "./series-templates";
+import { ProviderSettings } from "./provider-settings";
+import type { Provider } from "@/lib/providers";
 import { SetGroup, SetLine, Switch, useSaveUnit } from "./settings-save";
 
 interface Quota { type: string; limit: number | null; used: number }
@@ -19,7 +21,7 @@ const PREVIEW_KINDS: [MessageKind, string][] = [["new", "นัดใหม่"]
  * ตั้งค่า → นัดหมาย: ข้อมูลติดต่อบนข้อความ/ใบนัด เทมเพลต เวลาเปิดคลินิก เหตุผลนัด
  * บันทึกด้วยปุ่ม "บันทึกการตั้งค่า" ของหน้า (ไม่มีปุ่มบันทึกในการ์ด)
  */
-export function AppointmentSettings({ initial, children }: { initial?: { settings?: Settings; presets?: Preset[]; slots?: Slot[] }; children?: React.ReactNode } = {}) {
+export function AppointmentSettings({ initial, children }: { initial?: { settings?: Settings; presets?: Preset[]; slots?: Slot[]; providers?: Provider[] }; children?: React.ReactNode } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [s, setS] = useState<Settings>(initial?.settings ?? DEFAULT_APPOINTMENT_SETTINGS);
   const [stored, setStored] = useState(JSON.stringify(normalizeAppointmentSettings(initial?.settings ?? DEFAULT_APPOINTMENT_SETTINGS)));
@@ -206,6 +208,7 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
       </SetGroup>
 
       <PurposePresets initial={initial?.presets} />
+      <ProviderSettings initial={initial?.providers} />
       <ClinicHoursSettings initialSlots={initial?.slots} />
       <SeriesTemplates />
       {children}

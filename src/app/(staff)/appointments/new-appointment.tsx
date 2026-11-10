@@ -111,12 +111,12 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
     setLoading(false);
   }
 
-  /** เลือกแล้วเรียก list_patient ด้วย HN ทันที เติมชื่อ+เบอร์ (แก้ได้) ผู้นัดเริ่มต้น = หมอที่ตรวจ visit นั้น */
+  /** เลือกแล้วเรียก list_patient ด้วย HN ทันที เติมชื่อ+เบอร์ (แก้ได้) · ผู้นัดเริ่มว่าง (หมอที่ตรวจวันนี้ขึ้นบนสุดในตัวเลือก แต่ไม่เลือกให้) */
   async function pick(p: { hn: string; name: string; phone?: string; doctor?: string }) {
     let phone = p.phone ?? "";
     setHisName(p.name);
     setSelectedHn(p.hn);
-    setDraft({ ...EMPTY_DRAFT, hn: p.hn, patient_name: p.name, phone, provider: tidy(p.doctor ?? "") });
+    setDraft({ ...EMPTY_DRAFT, hn: p.hn, patient_name: p.name, phone, provider: "" });
     if (p.hn) {
       const d = await call<{ patient: Patient | null }>({ action: "patient", hn: p.hn });
       const his = d?.patient;
