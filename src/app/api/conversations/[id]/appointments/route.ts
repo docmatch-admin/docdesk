@@ -39,7 +39,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   ]);
   const seen = new Set<string>();
   const all = ([...(byChat ?? []), ...(byHn ?? [])] as unknown as Appointment[])
-    .filter((a) => !a.series_done && !seen.has(a.id) && seen.add(a.id));
+    // นัดที่ยกเลิกไม่แสดงในกล่องขวา (ดูได้ในหน้านัดหมาย → ทั้งหมด → รวมยกเลิก)
+    .filter((a) => !a.series_done && a.status !== "cancelled" && !seen.has(a.id) && seen.add(a.id));
   const isUpcoming = (a: Appointment) => a.appoint_date >= today && OPEN.includes(a.status);
   const split = (rows: Appointment[]) => ({
     upcoming: rows.filter(isUpcoming).sort((a, b) => a.appoint_date.localeCompare(b.appoint_date) || a.time_start.localeCompare(b.time_start)),

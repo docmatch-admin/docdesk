@@ -913,20 +913,22 @@ const searchTerm = (q: string) => q.replace(/[,()%*\:"']/g, " ").trim().slice(0,
 
 export type ListTab = "today" | "tomorrow" | "all";
 /** ตัวกรองหน้านัดหมาย: purpose ใช้ทุกแท็บ q/from/to/status ใช้เฉพาะแท็บทั้งหมด (from/to ว่าง = ไม่กรองวัน) */
-export interface ListFilters { q?: string; from?: string | null; to?: string | null; purpose?: string | null; status?: string | null }
+export interface ListFilters { q?: string; from?: string | null; to?: string | null; purpose?: string | null; status?: string | null; /** แท็บทั้งหมด: รวมนัดที่ยกเลิก */ includeCancelled?: boolean }
 export const LIST_LIMIT = 500;
 const LIST_STATUSES = ["scheduled", "confirmed", "reschedule_requested", "cancelled", "attended", "no_show"];
 
 /**
  * เงื่อนไขชุดเดียวใช้ทั้งรายการและตัวเลข badge ของแท็บ ตัวเลขจึงตรงกับที่แสดงเสมอ
- * ทุกแท็บแสดงทุกสถานะ (รวมมาแล้ว/ไม่มา/ยกเลิก) ไม่รวมเข็มที่ฉีดแล้ว (บันทึกประวัติ ไม่ใช่นัด)
+ * แสดงทุกสถานะ (รวมมาแล้ว/ไม่มา) ไม่รวมเข็มที่ฉีดแล้ว (บันทึกประวัติ ไม่ใช่นัด)
+ * นัดที่ยกเลิก: ซ่อนจากแท็บพรุ่งนี้/วันนี้เสมอ · แท็บทั้งหมดแสดงเมื่อเลือก "รวมยกเลิก" หรือกรองสถานะยกเลิก (ลบถาวรเมื่อพ้นระยะเก็บ)
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function applyListFilters<Q extends { eq: any; gte: any; lte: any; or: any; neq: any; is: any }>(query: Q, tab: ListTab, opts: ListFilters, today: string): Q {
   let qy = query;
-  if (tab === "today") qy = qy.eq("appoint_date", today);
-  else if (tab === "tomorrow") qy = qy.eq("appoint_date", addDays(today, 1));
+  if (tab === "today") qy = qy.eq("appoint_date", today).neq("status", "cancelled");
+  else if (tab === "tomorrow") qy = qy.eq("appoint_date", addDays(today, 1)).neq("status", "cancelled");
   else {
+    if (!opts.includeCancelled && opts.status !== "cancelled") qy = qy.neq("status", "cancelled");
     if (opts.from) qy = qy.gte("appoint_date", opts.from);
     if (opts.to) qy = qy.lte("appoint_date", opts.to);
     const q = searchTerm(opts.q ?? "");

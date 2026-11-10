@@ -14,7 +14,7 @@ function formatSeconds(s: number | null): string {
 
 export function TeamReport({ meId, isAdmin }: { meId: string; isAdmin: boolean }) {
   const [period, setPeriod] = useState<TeamPeriod>("day");
-  const [rows, setRows] = useState<TeamRow[]>([]);
+  const [rows, setRows] = useState<(TeamRow & { tasksDone?: number })[]>([]);
   const [ranking, setRanking] = useState<{ staffId: string; name: string; total: number; rank: number }[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -57,6 +57,7 @@ export function TeamReport({ meId, isAdmin }: { meId: string; isAdmin: boolean }
                 <th scope="col">ตอบใน 5 นาที</th>
                 <th scope="col">คะแนนความเร็ว</th>
                 <th scope="col">คะแนนคุณภาพ</th>
+                <th scope="col">งานเสร็จ</th>
                 <th scope="col">รวม</th>
               </tr>
             </thead>
@@ -69,10 +70,11 @@ export function TeamReport({ meId, isAdmin }: { meId: string; isAdmin: boolean }
                   <td>{r.within5Percent === null ? "–" : `${r.within5Percent}%`}</td>
                   <td>{r.speedPoints}</td>
                   <td>{r.qualityPoints}</td>
+                  <td>{r.tasksDone ?? 0}</td>
                   <td><b>{r.total}</b></td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={7} className="muted">{loading ? "กำลังโหลด…" : "ยังไม่มีข้อมูลในช่วงนี้"}</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={8} className="muted">{loading ? "กำลังโหลด…" : "ยังไม่มีข้อมูลในช่วงนี้"}</td></tr>}
             </tbody>
           </table>
         </div>

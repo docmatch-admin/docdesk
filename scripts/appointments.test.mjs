@@ -1315,7 +1315,7 @@ test("ข้อความพนักงานส่งไม่ได้เ�
 // ---------------------------------------------------------------------------
 // หน้านัดหมาย: แท็บทั้งหมดไม่กรองวันโดยปริยาย badge ตรงกับรายการ
 // ---------------------------------------------------------------------------
-test("แท็บทั้งหมด: ไม่กรองวันโดยปริยาย แสดงนัดที่ผ่านมาแล้วทุกสถานะ ใหม่สุดก่อน badge ตรงกับรายการทุกตัวกรอง", async () => {
+test("แท็บทั้งหมด: ไม่กรองวันโดยปริยาย แสดงนัดที่ผ่านมาแล้ว (ยกเลิกซ่อน เว้นแต่ รวมยกเลิก) ใหม่สุดก่อน badge ตรงกับรายการทุกตัวกรอง", async () => {
   const past = addAppointment({ appoint_date: inDays(-10), status: "attended", link_code: "LST001" });
   const noShow = addAppointment({ appoint_date: inDays(-3), status: "no_show", link_code: "LST002" });
   const cancelled = addAppointment({ appoint_date: inDays(-1), status: "cancelled", link_code: "LST003" });
@@ -1325,9 +1325,13 @@ test("แท็บทั้งหมด: ไม่กรองวันโดย
   addAppointment({ appoint_date: inDays(-20), status: "attended", series_done: true, link_code: "LST007" });
 
   const all = await store.listAppointments({ tab: "all" });
-  assert.deepEqual(all.map((a) => a.id), [future.id, tomorrowA.id, todayA.id, cancelled.id, noShow.id, past.id], "ใหม่สุดก่อน รวมผ่านมาแล้ว ไม่รวมเข็มที่ฉีดแล้ว");
+  assert.deepEqual(all.map((a) => a.id), [future.id, tomorrowA.id, todayA.id, noShow.id, past.id], "ใหม่สุดก่อน รวมผ่านมาแล้ว ไม่รวมเข็มที่ฉีดแล้ว ไม่รวมยกเลิก");
+  const withCancelled = await store.listAppointments({ tab: "all", includeCancelled: true });
+  assert.deepEqual(withCancelled.map((a) => a.id), [future.id, tomorrowA.id, todayA.id, cancelled.id, noShow.id, past.id], "รวมยกเลิก");
+  assert.deepEqual((await store.listAppointments({ tab: "all", status: "cancelled" })).map((a) => a.id), [cancelled.id], "กรองสถานะยกเลิก");
   const cases = [
     {},
+    { includeCancelled: true },
     { status: "attended" },
     { status: "cancelled" },
     { from: inDays(-5), to: today },
@@ -1355,7 +1359,9 @@ test("หน้านัดหมาย: ช่องตั้งแต่ว่
   const src = readFileSync("src/app/(staff)/appointments/appointments-client.tsx", "utf8");
   assert.match(src, /const \[from, setFrom\] = useState\(""\)/);
   assert.match(src, /ไม่พบนัดตามเงื่อนไข · <button type="button" className="link-btn" onClick=\{clearFilters\}>ล้างตัวกรอง<\/button>/);
-  assert.match(src, /const clearFilters = \(\) => \{ setPurpose\(""\); setQ\(""\); setFrom\(""\); setTo\(""\); setStatus\(""\); \};/);
+  assert.match(src, /const clearFilters = \(\) => \{ setPurpose\(""\); setQ\(""\); setFrom\(""\); setTo\(""\); setStatus\(""\); setWithCancelled\(false\); \};/);
+  assert.match(src, /> รวมยกเลิก/);
+  assert.match(src, /if \(withCancelled\) p\.set\("include_cancelled", "1"\);/);
 });
 
 test("รายการนัด embed แชทผ่าน FK ของ appointments.conversation_id (มี appointment_recipients แล้วต้องระบุ)", () => {
@@ -1364,7 +1370,7 @@ test("รายการนัด embed แชทผ่าน FK ของ appoi
   assert.doesNotMatch(src.replace(/conversations!appointments_conversation_id_fkey\(/g, ""), /from\("appointments"\)\s*\n?\s*\.select\([^)]*conversations\(/);
 });
 
-test("กล่องขวาของแชท: นัดที่ยังไม่ถึงเรียงใกล้สุดก่อน นัดที่ผ่านแล้ว/ปิดแล้วแยกไว้ใน past (ใหม่สุดก่อน)", async () => {
+test("กล่องขวาของแชท: นัดที่ยังไม่ถึงเรียงใกล้สุดก่อน นัดที่ผ่านแล้ว/ปิดแล้วแยกไว้ใน past (ใหม่สุดก่อน) · นัดที่ยกเลิกไม่แสดง", async () => {
   const route = await import("../src/app/api/conversations/[id]/appointments/route.ts");
   state.currentUser = { id: "agent", email: "a@test" };
   const far = addAppointment({ appoint_date: inDays(40), link_code: "SID001" });
@@ -1374,7 +1380,8 @@ test("กล่องขวาของแชท: นัดที่ยังไ
   const older = addAppointment({ appoint_date: inDays(-30), status: "no_show", link_code: "SID005" });
   const j = await (await route.GET(new Request("https://app.test/x"), { params: Promise.resolve({ id: "conv-line" }) })).json();
   assert.deepEqual(j.groups[0].upcoming.map((a) => a.id), [near.id, far.id]);
-  assert.deepEqual(j.groups[0].past.map((a) => a.id), [cancelledFuture.id, attended.id, older.id]);
+  assert.deepEqual(j.groups[0].past.map((a) => a.id), [attended.id, older.id]);
+  assert.ok(!JSON.stringify(j).includes(cancelledFuture.id), "นัดที่ยกเลิกซ่อนจากกล่องขวาทันที");
 });
 
 test("ส่วนนัดครั้งต่อไป: หัวข้อไม่ตัดบรรทัด ปุ่ม + มี tooltip ยกเลิกผูกเป็นลิงก์พร้อมยืนยัน บัญชีบรรทัดเดียว", () => {

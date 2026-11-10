@@ -20,6 +20,7 @@ export async function GET(req: Request) {
     to: parseDate(u.searchParams.get("to")),
     purpose: u.searchParams.get("purpose"),
     status: u.searchParams.get("status"),
+    includeCancelled: u.searchParams.get("include_cancelled") === "1",
   };
   const [rows, counts, tabCounts] = await Promise.all([
     listAppointments({ tab: tab === "today" || tab === "all" ? tab : "tomorrow", ...filters }),

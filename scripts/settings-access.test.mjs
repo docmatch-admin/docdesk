@@ -50,7 +50,7 @@ const req = (method, body) => new Request("https://app.test/api/x", {
 test("agent: แก้ได้ / เห็นอย่างเดียว / ไม่เห็น ตามสเปก · admin แก้ได้ทุกอย่าง · ห้องยาไม่มีหน้าตั้งค่า", () => {
   const edit = ["purposes", "closures", "seriesTemplates", "providers", "tags", "tagRules", "display"];
   const view = ["apptContact", "apptMessaging", "apptTemplate", "bookingTemplates", "clinicHours", "businessHours", "lineQuota", "health", "autoClose"];
-  const hidden = ["aiModels", "aiMode", "channels", "persona", "sensitive", "scoring", "retention", "aiUsage", "priceAlerts", "audit", "testSend"];
+  const hidden = ["aiModels", "aiMode", "channels", "persona", "sensitive", "scoring", "retention", "dataRetention", "aiUsage", "priceAlerts", "audit", "testSend"];
   for (const a of edit) assert.equal(access.areaAccess("agent", a), "edit", a);
   for (const a of view) assert.equal(access.areaAccess("agent", a), "view", a);
   for (const a of hidden) assert.equal(access.areaAccess("agent", a), null, a);

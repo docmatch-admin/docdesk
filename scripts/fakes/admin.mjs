@@ -5,6 +5,48 @@ export const state = { tables: {}, matchExamples: [], matchKnowledge: [], files:
 
 export function nextTime() { clock += 1000; return new Date(clock).toISOString(); }
 export function setClock(iso) { clock = Date.parse(iso) - 1000; }
+// เหมือนฟังก์ชัน retention_delete_* ในฐานข้อมูล (migration 055): ตรวจเงื่อนไข บันทึกสถิติ ลบ
+const R = await import("../../src/lib/retention-rules.ts");
+function retentionDelete(fn, limit) {
+  if (!(limit >= 1 && limit <= 500)) throw new Error("batch ต้องอยู่ระหว่าง 1–500 แถว");
+  const t = state.tables;
+  const setting = (k, d) => R.normalizeRetentionDays(t.settings?.find((x) => x.key === k)?.value, d);
+  const stats = (t.retention_stats ??= []);
+  const bump = (month, metric, dim, key, n) => {
+    const row = stats.find((x) => x.month === month && x.metric === metric && x.dim === dim && x.key === key);
+    if (row) row.count += n; else stats.push({ month, metric, dim, key, count: n });
+  };
+  const now = Date.now();
+  if (fn === "retention_delete_tasks") {
+    const days = setting(R.RETENTION_SETTING_KEYS.taskDays, R.RETENTION_DEFAULTS.taskDays);
+    const conv = (id) => (t.conversations ?? []).find((c) => c.id === id);
+    const victims = (t.chat_tasks ?? []).filter((x) => R.taskExpired(x, conv(x.conversation_id), now, days))
+      .sort((a, b) => conv(a.conversation_id).closed_at.localeCompare(conv(b.conversation_id).closed_at)).slice(0, limit);
+    const ids = new Set(victims.map((v) => v.id));
+    for (const v of victims) bump(R.monthOf(v.done_at), "tasks_done", "assignee", v.assignee_id ?? "none", 1);
+    const notes = (t.chat_notes ?? []).filter((n) => ids.has(n.task_id)).length;
+    t.chat_notes = (t.chat_notes ?? []).filter((n) => !ids.has(n.task_id));
+    t.chat_tasks = (t.chat_tasks ?? []).filter((x) => !ids.has(x.id));
+    return { tasks: victims.length, notes };
+  }
+  const days = setting(R.RETENTION_SETTING_KEYS.cancelledAppointmentDays, R.RETENTION_DEFAULTS.cancelledAppointmentDays);
+  const today = new Date(now + 7 * 3600_000).toISOString().slice(0, 10);
+  const victims = (t.appointments ?? []).filter((a) => R.cancelledAppointmentExpired(a, today, days))
+    .sort((a, b) => a.appoint_date.localeCompare(b.appoint_date)).slice(0, limit);
+  const ids = new Set(victims.map((v) => v.id));
+  for (const v of victims) {
+    bump(R.monthOf(v.appoint_date), "appointments_cancelled", "cancel_reason", v.cancel_reason_code ?? "none", 1);
+    bump(R.monthOf(v.appoint_date), "appointments_cancelled", "purpose", v.purpose_text?.trim() || "none", 1);
+  }
+  const events = (t.appointment_events ?? []).filter((e) => ids.has(e.appointment_id)).length;
+  t.appointment_events = (t.appointment_events ?? []).filter((e) => !ids.has(e.appointment_id));
+  t.appointments = (t.appointments ?? []).filter((a) => !ids.has(a.id));
+  const seriesIds = new Set(victims.map((v) => v.series_id).filter(Boolean));
+  const before = (t.appointment_series ?? []).length;
+  t.appointment_series = (t.appointment_series ?? []).filter((s) => !seriesIds.has(s.id) || t.appointments.some((a) => a.series_id === s.id));
+  return { appointments: victims.length, events, series: before - t.appointment_series.length };
+}
+
 export function resetDb(tables) {
   state.tables = { suggestions: [], messages: [], settings: [], knowledge_items: [], ai_daily_usage: [], ...tables };
   state.matchExamples = [];
@@ -238,6 +280,7 @@ const client = {
     if (fn === "set_conversation_tag") return { data: setTag(args), error: null };
     if (fn === "set_assignee" || fn === "assign_if_unassigned") return { data: setAssignee(fn, args), error: null };
     if (fn === "revoke_staff_sessions") { state.revoked.push(args.p_user); return { error: null }; }
+    if (fn === "retention_delete_tasks" || fn === "retention_delete_appointments") return { data: retentionDelete(fn, args.p_limit), error: null };
     if (fn === "touch_providers") {
       // เหมือนฟังก์ชันในฐานข้อมูล: ยุบช่องว่าง รวมชื่อซ้ำ (ไม่สนตัวพิมพ์) เก็บเวลาล่าสุด
       const list = (state.tables.providers ??= []);

@@ -16,6 +16,8 @@ import { SetGroup, SetLine, SettingsContext, SettingsRoleContext, Switch, type S
 import { areaAccess, visibleSections } from "@/lib/settings-access";
 import type { StaffRole } from "@/lib/auth-types";
 import { AuditLog } from "./audit-log";
+import { RetentionRuns } from "./retention-runs";
+import { normalizeRetentionDays, RETENTION_DEFAULTS, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, RETENTION_SETTING_KEYS } from "@/lib/retention-rules";
 import { DisplaySettings } from "./display-settings";
 import { TagSettings } from "./tag-settings";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
@@ -43,6 +45,7 @@ const CORE_CARDS: Record<string, { label: string; tab: SettingsTab; keys: string
   booking: { label: "ข้อความการจอง", tab: "appointments", keys: ["bookingTemplates"] },
   score: { label: "เกณฑ์คะแนนเจ้าหน้าที่", tab: "team", keys: ["scoreRules"] },
   retention: { label: "การเก็บรูปภาพ", tab: "team", keys: ["retentionDays"] },
+  dataRetention: { label: "การเก็บงานและนัดยกเลิก", tab: "team", keys: ["taskKeepDays", "cancelledKeepDays"] },
 };
 
 /** preview: ข้อมูลตั้งต้นสำหรับภาพตัวอย่าง/เทสต์ (หน้าใช้งานจริงไม่ส่ง โหลดจากฐานข้อมูลเสมอ) */
@@ -55,6 +58,7 @@ export interface SettingsPreview {
   channels?: Channel[];
   hours?: Hours;
   tags?: Parameters<typeof TagSettings>[0] extends infer P ? P extends { initialTags?: infer T } ? T : never : never;
+  retentionRuns?: Parameters<typeof RetentionRuns>[0] extends infer P ? P extends { initial?: infer R } ? R : never : never;
   audit?: Parameters<typeof AuditLog>[0] extends infer P ? P extends { initial?: infer A } ? A : never : never;
   tagRules?: Parameters<typeof TagSettings>[0] extends infer P ? P extends { initialRules?: infer R } ? R : never : never;
 }
@@ -78,6 +82,9 @@ export function SettingsClient({ preview, role = "admin" }: { preview?: Settings
   const [usage, setUsage] = useState<LlmUsageRow[]>([]);
   const [scoreRules, setScoreRules] = useState<ScoreRules>(DEFAULT_SCORE_RULES);
   const [retentionDays, setRetentionDays] = useState(90);
+  // นโยบายเก็บข้อมูล: งานที่เสร็จแล้ว / นัดที่ยกเลิก (ต่ำสุด 7 วัน)
+  const [taskKeepDays, setTaskKeepDays] = useState<number>(RETENTION_DEFAULTS.taskDays);
+  const [cancelledKeepDays, setCancelledKeepDays] = useState<number>(RETENTION_DEFAULTS.cancelledAppointmentDays);
   const [autoCloseHours, setAutoCloseHours] = useState(DEFAULT_AUTO_CLOSE_HOURS);
   const [sensitiveKeywords, setSensitiveKeywords] = useState(DEFAULT_SENSITIVE_KEYWORDS.join("\n"));
   const [sensitiveDays, setSensitiveDays] = useState(DEFAULT_SENSITIVE_RETENTION_DAYS);
@@ -117,7 +124,7 @@ export function SettingsClient({ preview, role = "admin" }: { preview?: Settings
     ]).then(([{ data }, { data: ch }]) => {
       const v = {
         mode: "assist" as AiMode, minutes: 5, hours: { tz: "Asia/Bangkok", days: {} } as Hours, profile: { name: "", tone: "" },
-        retentionDays: 90, scoreRules: DEFAULT_SCORE_RULES, autoCloseHours: DEFAULT_AUTO_CLOSE_HOURS, bookingTemplates: DEFAULT_BOOKING_TEMPLATES,
+        retentionDays: 90, taskKeepDays: RETENTION_DEFAULTS.taskDays as number, cancelledKeepDays: RETENTION_DEFAULTS.cancelledAppointmentDays as number, scoreRules: DEFAULT_SCORE_RULES, autoCloseHours: DEFAULT_AUTO_CLOSE_HOURS, bookingTemplates: DEFAULT_BOOKING_TEMPLATES,
         sensitiveKeywords: DEFAULT_SENSITIVE_KEYWORDS.join("\n"), sensitiveDays: DEFAULT_SENSITIVE_RETENTION_DAYS,
         channels: (ch ?? []) as Channel[],
       };
@@ -127,20 +134,22 @@ export function SettingsClient({ preview, role = "admin" }: { preview?: Settings
         if (r.key === "business_hours") v.hours = r.value as Hours;
         if (r.key === "clinic_profile") v.profile = r.value as { name: string; tone: string };
         if (r.key === "media_retention_days") v.retentionDays = Number(r.value);
+        if (r.key === RETENTION_SETTING_KEYS.taskDays) v.taskKeepDays = normalizeRetentionDays(r.value, RETENTION_DEFAULTS.taskDays);
+        if (r.key === RETENTION_SETTING_KEYS.cancelledAppointmentDays) v.cancelledKeepDays = normalizeRetentionDays(r.value, RETENTION_DEFAULTS.cancelledAppointmentDays);
         if (r.key === "score_rules") v.scoreRules = normalizeScoreRules(r.value);
         if (r.key === "auto_close_hours") v.autoCloseHours = normalizeAutoCloseHours(r.value);
         if (r.key === "booking_templates") v.bookingTemplates = normalizeBookingTemplates(r.value);
         if (r.key === "sensitive_keywords") v.sensitiveKeywords = normalizeSensitiveKeywords(r.value).join("\n");
         if (r.key === "sensitive_media_retention_days") v.sensitiveDays = Number(r.value);
       }
-      setMode(v.mode); setMinutes(v.minutes); setHours(v.hours); setProfile(v.profile); setRetentionDays(v.retentionDays);
+      setMode(v.mode); setMinutes(v.minutes); setHours(v.hours); setProfile(v.profile); setRetentionDays(v.retentionDays); setTaskKeepDays(v.taskKeepDays); setCancelledKeepDays(v.cancelledKeepDays);
       setScoreRules(v.scoreRules); setAutoCloseHours(v.autoCloseHours); setBookingTemplates(v.bookingTemplates);
       setSensitiveKeywords(v.sensitiveKeywords); setSensitiveDays(v.sensitiveDays); setChannels(v.channels);
       setBaseline(Object.fromEntries(Object.entries(v).map(([k, x]) => [k, JSON.stringify(x)])));
     });
   }, [sb]);
 
-  const values: Record<string, unknown> = { mode, minutes, hours, profile, retentionDays, scoreRules, autoCloseHours, bookingTemplates, sensitiveKeywords, sensitiveDays, channels };
+  const values: Record<string, unknown> = { mode, minutes, hours, profile, retentionDays, taskKeepDays, cancelledKeepDays, scoreRules, autoCloseHours, bookingTemplates, sensitiveKeywords, sensitiveDays, channels };
   const keyDirty = (k: string) => baseline !== null && baseline[k] !== JSON.stringify(values[k]);
   const cardDirty = (id: keyof typeof CORE_CARDS) => CORE_CARDS[id].keys.some(keyDirty);
   const coreDirty = Object.keys(CORE_CARDS).some((id) => cardDirty(id));
@@ -156,6 +165,8 @@ export function SettingsClient({ preview, role = "admin" }: { preview?: Settings
       { key: "business_hours", value: hours, updated_at: now },
       { key: "clinic_profile", value: profile, updated_at: now },
       { key: "media_retention_days", value: Math.max(1, Math.floor(retentionDays) || 90), updated_at: now },
+      { key: RETENTION_SETTING_KEYS.taskDays, value: normalizeRetentionDays(taskKeepDays, RETENTION_DEFAULTS.taskDays), updated_at: now },
+      { key: RETENTION_SETTING_KEYS.cancelledAppointmentDays, value: normalizeRetentionDays(cancelledKeepDays, RETENTION_DEFAULTS.cancelledAppointmentDays), updated_at: now },
       { key: "auto_close_hours", value: normalizeAutoCloseHours(autoCloseHours), updated_at: now },
       { key: "score_rules", value: normalizeScoreRules(scoreRules), updated_at: now },
       { key: "booking_templates", value: normalizeBookingTemplates(bookingTemplates), updated_at: now },
@@ -383,6 +394,16 @@ export function SettingsClient({ preview, role = "admin" }: { preview?: Settings
                   <SetLine label="ลบรูปในแชทเมื่อเก่ากว่า" desc="ลบอัตโนมัติ กู้คืนไม่ได้" htmlFor="set-retention">
                     <span className="inline-field"><input id="set-retention" className="w-num" type="number" min={1} max={3650} value={retentionDays} onChange={(e) => setRetentionDays(Number(e.target.value))} /> วัน</span>
                   </SetLine>
+                </SetGroup>
+                <SetGroup title="การเก็บงานและนัดยกเลิก" area="dataRetention" dirty={cardDirty("dataRetention")}
+                  info={`ซ่อนทันที ลบถาวรเมื่อพ้นระยะ (ทุกวัน 03:00 ชุดละ ≤ 500 แถว) ก่อนลบเก็บตัวเลขสรุปรายเดือนไว้ รายงานย้อนหลังยังได้ตัวเลขเดิม · ต่ำสุด ${RETENTION_MIN_DAYS} วัน`}>
+                  <SetLine label="งานที่เสร็จแล้ว" desc="ซ่อนเมื่อแชทปิด · ลบพร้อมคอมเมนต์ในงานเมื่อแชทปิดครบระยะ (งานค้างไม่ถูกลบ)" htmlFor="set-task-keep">
+                    <span className="inline-field"><input id="set-task-keep" className="w-num" type="number" min={RETENTION_MIN_DAYS} max={RETENTION_MAX_DAYS} value={taskKeepDays} onChange={(e) => setTaskKeepDays(Number(e.target.value))} /> วันหลังปิดแชท</span>
+                  </SetLine>
+                  <SetLine label="นัดที่ยกเลิก" desc="ซ่อนจากพรุ่งนี้/วันนี้/กล่องขวา · ลบเมื่อเลยวันนัดครบระยะ (นัดสถานะอื่นไม่ถูกลบ)" htmlFor="set-cancel-keep">
+                    <span className="inline-field"><input id="set-cancel-keep" className="w-num" type="number" min={RETENTION_MIN_DAYS} max={RETENTION_MAX_DAYS} value={cancelledKeepDays} onChange={(e) => setCancelledKeepDays(Number(e.target.value))} /> วันหลังวันนัด</span>
+                  </SetLine>
+                  <RetentionRuns initial={preview?.retentionRuns} />
                 </SetGroup>
                 {can("audit") && <AuditLog initial={preview?.audit} />}
               </>

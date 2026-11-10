@@ -16,7 +16,7 @@ export type SettingsArea =
   // นัดหมาย
   | "apptContact" | "apptMessaging" | "apptTemplate" | "purposes" | "providers" | "clinicHours" | "closures" | "seriesTemplates" | "bookingTemplates" | "testSend"
   // ทีมและระบบ
-  | "scoring" | "retention" | "audit"
+  | "scoring" | "retention" | "dataRetention" | "audit"
   // การแสดงผล (ส่วนตัว)
   | "display";
 
@@ -42,7 +42,7 @@ export const SECTION_AREAS: Record<SettingsSection, SettingsArea[]> = {
   ai: ["aiModels", "aiMode", "channels", "persona"],
   chat: ["businessHours", "autoClose", "tags", "tagRules", "sensitive"],
   appointments: ["apptContact", "apptMessaging", "apptTemplate", "purposes", "providers", "clinicHours", "closures", "seriesTemplates", "bookingTemplates", "testSend"],
-  team: ["scoring", "retention", "audit"],
+  team: ["scoring", "retention", "dataRetention", "audit"],
   display: ["display"],
 };
 

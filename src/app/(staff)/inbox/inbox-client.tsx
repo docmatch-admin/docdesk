@@ -1014,7 +1014,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 onError={flash} onReschedule={draftReschedule} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
               <AppointmentsBlock conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
                 onMessage={flash} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
-              <TeamPanel conversationId={selected.id} sensitive={!!selected.sensitive}
+              <TeamPanel conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
                 staff={staffList} onChanged={loadConvs} onError={flash} />
             </>
           )}

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireStaff } from "@/lib/auth";
 import { buildTeamReport, periodStart, type ResponseRow, type ScoreRow, type TeamPeriod } from "@/lib/scoring";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { tasksDoneByAssignee } from "@/lib/retention-store";
 
 export const runtime = "nodejs";
 
@@ -26,12 +27,15 @@ export async function GET(req: Request) {
   const from = periodStart(period);
   const db = supabaseAdmin();
 
-  const [{ data: staff }, responses, scores] = await Promise.all([
+  const [{ data: staff }, responses, scores, tasksDone] = await Promise.all([
     db.from("staff").select("id, display_name, active"),
     fetchAll<ResponseRow>((a, b) => db.from("response_events").select("replied_by, conversation_id, business_seconds, points").gte("replied_at", from).range(a, b)),
     fetchAll<ScoreRow>((a, b) => db.from("score_events").select("staff_id, points").gte("created_at", from).range(a, b)),
+    // งานที่เสร็จต่อผู้รับ: แถวที่ยังอยู่ + ตัวเลขที่เก็บไว้ก่อนลบตามนโยบายเก็บข้อมูล
+    tasksDoneByAssignee(from),
   ]);
-  const rows = buildTeamReport(responses, scores, (staff ?? []) as { id: string; display_name: string; active: boolean }[]);
+  const rows = buildTeamReport(responses, scores, (staff ?? []) as { id: string; display_name: string; active: boolean }[])
+    .map((r) => ({ ...r, tasksDone: tasksDone[r.staffId] ?? 0 }));
   const ranking = rows.map((r) => ({ staffId: r.staffId, name: r.name, total: r.total, rank: r.rank }));
   return NextResponse.json({ rows: role === "admin" ? rows : rows.filter((r) => r.staffId === user.id), ranking, period });
 }

@@ -15,8 +15,10 @@ const timeTh = (iso: string) => thaiDateTime(iso);
  * งานของทีมและคอมเมนต์ภายใน: อ่านผ่าน RLS เขียนผ่าน API
  * ทุกอย่างในกล่องนี้ลูกค้าไม่เห็น เพราะเก็บแยกจาก messages
  */
-export function TeamPanel({ conversationId, staff, sensitive, onChanged, onError }: {
+export function TeamPanel({ conversationId, staff, sensitive, closed = false, onChanged, onError }: {
   conversationId: string;
+  /** แชทปิดแล้ว (เสร็จแล้ว): ซ่อนงานที่เสร็จแล้วทันที (ลบถาวรเมื่อปิดครบระยะเก็บ) */
+  closed?: boolean;
   staff: StaffOption[];
   sensitive: boolean;
   onChanged: () => void;
@@ -87,58 +89,69 @@ export function TeamPanel({ conversationId, staff, sensitive, onChanged, onError
     }
   }
 
-  const doneCount = tasks.filter((t) => t.done).length;
+  // งานค้างแสดงเสมอ · งานที่เสร็จแล้ว: แชทปิด = ซ่อน · แชทเปิด (รวมเปิดใหม่ภายในระยะเก็บ) = ส่วนย่อ "งานที่เสร็จแล้ว (N)"
+  const pending = tasks.filter((t) => !t.done);
+  const finished = tasks.filter((t) => t.done);
+  const doneCount = finished.length;
   const chatNotes = notes.filter((n) => !n.task_id);
   const threadOf = (id: string) => notes.filter((n) => n.task_id === id);
   const who = (id: string | null) => (id && name.get(id)) || "เจ้าหน้าที่";
+
+  const renderTask = (t: Task) => {
+      const thread = threadOf(t.id);
+      const expanded = openThread === t.id;
+      const latest = thread.at(-1);
+      return (
+        <li key={t.id} className={`task ${t.done ? "done" : ""}`}>
+          <label className="task-check">
+            <input type="checkbox" checked={t.done} disabled={busy}
+              onChange={(e) => call("tasks", "PATCH", { task_id: t.id, done: e.target.checked })} />
+            <span className="task-text">{t.text}</span>
+          </label>
+          <div className="task-meta muted small">
+            {t.assignee_id && <span>ผู้รับ: {who(t.assignee_id)}</span>}
+            {t.done && t.done_at && <span>เสร็จโดย {who(t.done_by)} · {timeTh(t.done_at)}</span>}
+            <button type="button" className="link-btn" aria-expanded={expanded}
+              onClick={() => { setOpenThread(expanded ? null : t.id); setReply(""); }}>{expanded ? "ซ่อนคอมเมนต์" : thread.length ? `คอมเมนต์ ${thread.length}` : "เพิ่มคอมเมนต์"}</button>
+          </div>
+          {!expanded && latest && (
+            <div className="task-latest small"><b>{who(latest.author_id)}:</b> {latest.body}</div>
+          )}
+          {expanded && (
+            <div className="task-thread">
+              {thread.map((n) => (
+                <div key={n.id} className="note small">
+                  <div className="note-by muted">{who(n.author_id)} · {timeTh(n.created_at)}</div>
+                  <div className="note-body">{n.body}</div>
+                </div>
+              ))}
+              <form className="inline-form" onSubmit={(e) => addNote(e, t.id)}>
+                <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="อัปเดตงานนี้…" aria-label="อัปเดตงานนี้" maxLength={2000} />
+                <button className="icon-btn dark" disabled={busy || !reply.trim()} aria-label="ส่งคอมเมนต์งานนี้" title="ส่ง"><Icon name="send" /></button>
+              </form>
+            </div>
+          )}
+        </li>
+      );
+};
 
   return (
     <>
       <section className="side-block">
         <div className="side-head">
           <h3>งานของทีม</h3>
-          {tasks.length > 0 && <span className={`chip tiny ${doneCount < tasks.length ? "orange" : ""}`}>{doneCount}/{tasks.length} เสร็จ</span>}
+          {pending.length > 0 && <span className="chip tiny orange">ค้าง {pending.length}</span>}
         </div>
-        {tasks.length === 0 && <div className="muted small">ยังไม่มีงาน</div>}
+        {pending.length === 0 && (closed || finished.length === 0) && <div className="muted small">{closed && finished.length ? "ไม่มีงานค้าง (งานที่เสร็จแล้วถูกซ่อนเมื่อปิดแชท)" : "ยังไม่มีงานค้าง"}</div>}
         <ul className="task-list">
-          {tasks.map((t) => {
-            const thread = threadOf(t.id);
-            const expanded = openThread === t.id;
-            const latest = thread.at(-1);
-            return (
-              <li key={t.id} className={`task ${t.done ? "done" : ""}`}>
-                <label className="task-check">
-                  <input type="checkbox" checked={t.done} disabled={busy}
-                    onChange={(e) => call("tasks", "PATCH", { task_id: t.id, done: e.target.checked })} />
-                  <span className="task-text">{t.text}</span>
-                </label>
-                <div className="task-meta muted small">
-                  {t.assignee_id && <span>ผู้รับ: {who(t.assignee_id)}</span>}
-                  {t.done && t.done_at && <span>เสร็จโดย {who(t.done_by)} · {timeTh(t.done_at)}</span>}
-                  <button type="button" className="link-btn" aria-expanded={expanded}
-                    onClick={() => { setOpenThread(expanded ? null : t.id); setReply(""); }}>{expanded ? "ซ่อนคอมเมนต์" : thread.length ? `คอมเมนต์ ${thread.length}` : "เพิ่มคอมเมนต์"}</button>
-                </div>
-                {!expanded && latest && (
-                  <div className="task-latest small"><b>{who(latest.author_id)}:</b> {latest.body}</div>
-                )}
-                {expanded && (
-                  <div className="task-thread">
-                    {thread.map((n) => (
-                      <div key={n.id} className="note small">
-                        <div className="note-by muted">{who(n.author_id)} · {timeTh(n.created_at)}</div>
-                        <div className="note-body">{n.body}</div>
-                      </div>
-                    ))}
-                    <form className="inline-form" onSubmit={(e) => addNote(e, t.id)}>
-                      <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="อัปเดตงานนี้…" aria-label="อัปเดตงานนี้" maxLength={2000} />
-                      <button className="icon-btn dark" disabled={busy || !reply.trim()} aria-label="ส่งคอมเมนต์งานนี้" title="ส่ง"><Icon name="send" /></button>
-                    </form>
-                  </div>
-                )}
-              </li>
-            );
-          })}
+          {pending.map(renderTask)}
         </ul>
+        {!closed && finished.length > 0 && (
+          <details className="task-done-fold">
+            <summary>งานที่เสร็จแล้ว ({finished.length})</summary>
+            <ul className="task-list">{finished.map(renderTask)}</ul>
+          </details>
+        )}
         <form className="task-form" onSubmit={addTask}>
           <div className="inline-form">
             <input value={newTask} onChange={(e) => setNewTask(e.target.value)} placeholder="เพิ่มงาน เช่น โทรยืนยันนัด" aria-label="เพิ่มงาน" maxLength={500} />

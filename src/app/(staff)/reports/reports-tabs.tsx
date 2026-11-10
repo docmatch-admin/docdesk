@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ReportsClient } from "./reports-client";
 import { TeamReport } from "./team-report";
+import { MonthlySummary } from "./monthly-summary";
 
 /** agent เห็นเฉพาะแท็บทีม */
 export function ReportsTabs({ meId, isAdmin }: { meId: string; isAdmin: boolean }) {
@@ -15,7 +16,7 @@ export function ReportsTabs({ meId, isAdmin }: { meId: string; isAdmin: boolean 
           <button role="tab" aria-selected={tab === "team"} className={tab === "team" ? "on" : ""} onClick={() => setTab("team")}>ทีม</button>
         </div>
       </div>
-      {tab === "tags" ? <ReportsClient /> : <div className="page"><TeamReport meId={meId} isAdmin={isAdmin} /></div>}
+      {tab === "tags" ? <ReportsClient /> : <div className="page"><TeamReport meId={meId} isAdmin={isAdmin} />{isAdmin && <MonthlySummary />}</div>}
     </div>
   );
 }

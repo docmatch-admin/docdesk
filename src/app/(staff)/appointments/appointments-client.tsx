@@ -42,6 +42,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
+  const [withCancelled, setWithCancelled] = useState(false);
   const [toast, setToast] = useState("");
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
@@ -51,6 +52,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
     const p = new URLSearchParams({ tab });
     if (purpose) p.set("purpose", purpose);
     if (status) p.set("status", status);
+    if (withCancelled) p.set("include_cancelled", "1");
     if (q.trim()) p.set("q", q.trim());
     if (from) p.set("from", from);
     if (to) p.set("to", to);
@@ -61,10 +63,10 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
     setCounts(j.counts);
     if (j.tabCounts) setTabCounts(j.tabCounts);
     if (j.limit) setLimit(j.limit);
-  }, [tab, q, from, to, purpose, status]);
+  }, [tab, q, from, to, purpose, status, withCancelled]);
 
-  const filtered = !!purpose || (tab === "all" && (!!q.trim() || !!from || !!to || !!status));
-  const clearFilters = () => { setPurpose(""); setQ(""); setFrom(""); setTo(""); setStatus(""); };
+  const filtered = !!purpose || (tab === "all" && (!!q.trim() || !!from || !!to || !!status || withCancelled));
+  const clearFilters = () => { setPurpose(""); setQ(""); setFrom(""); setTo(""); setStatus(""); setWithCancelled(false); };
   const shownTotal = tabCounts?.[tab] ?? rows.length;
 
   useEffect(() => {
@@ -130,9 +132,12 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
               <label className="raw small">ตั้งแต่<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
               <label className="raw small">ถึง<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
               <select aria-label="กรองตามสถานะ" className="appt-purpose-filter" value={status} onChange={(e) => setStatus(e.target.value)}>
-                <option value="">ทุกสถานะ (รวมมาแล้ว/ไม่มา/ยกเลิก)</option>
+                <option value="">ทุกสถานะ (รวมมาแล้ว/ไม่มา)</option>
                 {(Object.keys(STATUS_LABEL) as (keyof typeof STATUS_LABEL)[]).map((k) => <option key={k} value={k}>{STATUS_LABEL[k]}</option>)}
               </select>
+              <label className="raw small" title="นัดที่ยกเลิกซ่อนอยู่ ลบถาวรเมื่อเลยวันนัดตามระยะเก็บ (ตั้งค่า → ทีมและระบบ)">
+                <input type="checkbox" checked={withCancelled || status === "cancelled"} disabled={status === "cancelled"} onChange={(e) => setWithCancelled(e.target.checked)} /> รวมยกเลิก
+              </label>
             </div>
           )}
         </div>
