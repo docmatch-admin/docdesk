@@ -333,3 +333,30 @@ test("ชิปแท็กโหมดมืด: พื้นเข้ม ต�
   assert.match(chip, /style=\{tagChipStyle\(c\) as React\.CSSProperties\}/);
   assert.match(css, /:root\[data-theme="dark"\] \.tag-chip\[style\] \{ background: var\(--tag-dark-bg\); color: var\(--tag-dark-ink\);/);
 });
+
+test("นัดที่ปิดแล้ว: ไม่ลด opacity · ยกเลิก = ขีดฆ่าอย่างเดียวบนสีรอง + ป้ายสถานะอ่านชัด · มา/ไม่มามีป้ายของตัวเอง", () => {
+  assert.doesNotMatch(css, /\.appt-table tr\.appt-closed \{ opacity/);
+  assert.doesNotMatch(css, /\.appt-row\.appt-cancelled td \{[^}]*opacity/);
+  assert.match(css, /\.appt-table tr\.appt-closed td, \.appt-table tr\.appt-closed td \.muted \{ color: var\(--muted-strong\); \}/);
+  assert.match(css, /\.appt-row\.appt-cancelled td \{ text-decoration: line-through; \}/);
+  assert.match(css, /\.appt-row\.appt-cancelled td:nth-last-child\(-n\+2\) \{ text-decoration: none; \}/);
+  for (const s of ["cancelled", "attended", "no_show"]) assert.match(css, new RegExp(`\.appt-state\.status-${s} \{`), s);
+  const client = readFileSync("src/app/(staff)/appointments/appointments-client.tsx", "utf8");
+  assert.match(client, /state === "closed" \? `appt-state closed status-\$\{r\.status\}`/);
+  // สีรองบนพื้นการ์ด/พื้นหน้า และป้ายสถานะ ผ่าน 4.5:1 ทั้งสองโหมด
+  for (const t of [LIGHT, { ...LIGHT, ...DARK }]) {
+    for (const [fg, bg] of [["muted-strong", "card"], ["muted-strong", "bg"], ["danger-ink", "danger-soft"], ["success-ink", "success-soft"], ["warning-ink", "warning-soft"]]) {
+      assert.ok(tagColors.contrast(t[fg], t[bg]) >= 4.5, `${fg}/${bg}`);
+    }
+  }
+});
+
+test("ผู้นัด: ชื่อแพทย์ใน visit cache เข้า providers ด้วย trigger ในฐานข้อมูล (ไม่ขึ้นกับ Edge Function) · หน้าตั้งค่าบอกเมื่อโหลดไม่ได้", () => {
+  const sql = readFileSync("supabase/migrations/053_providers.sql", "utf8");
+  assert.match(sql, /create trigger providers_from_visit after insert or update of doctor_name, fetched_at on his_visit_cache/);
+  assert.match(sql, /perform touch_providers\(array\[new\.doctor_name\]/);
+  assert.match(sql, /from his_visit_cache where doctor_name is not null group by 1/, "backfill จาก cache เดิม");
+  const ui = readFileSync("src/app/(staff)/settings/provider-settings.tsx", "utf8");
+  assert.match(ui, /ต้องรัน migration 053/);
+  assert.match(ui, /side=\{!loadErr &&/);
+});

@@ -190,7 +190,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                         {r.chat_name && <div className="name-platform">{r.chat_name}</div>}
                       </td>
                       <td>
-                        <span className={STATE_CLASS[state]} title={r.last_send_error ?? undefined}>{state === "closed" ? STATUS_LABEL[r.status] : DELIVERY_LABEL[state]}</span>
+                        <span className={state === "closed" ? `appt-state closed status-${r.status}` : STATE_CLASS[state]} title={r.last_send_error ?? undefined}>{state === "closed" ? STATUS_LABEL[r.status] : DELIVERY_LABEL[state]}</span>
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" aria-label={`โทรหา ${r.patient_name} แล้ว`} checked={!!r.called_at} disabled={!open}

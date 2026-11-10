@@ -45,3 +45,17 @@ on conflict (lower(name)) do update set last_seen_at = greatest(providers.last_s
 -- ทำความสะอาดชื่อในนัดเดิม (ช่องว่างซ้อน/หัวท้าย) · ค่าว่างเป็น null
 update appointments set provider = nullif(regexp_replace(btrim(provider), '\s+', ' ', 'g'), '')
 where provider is not null and provider is distinct from nullif(regexp_replace(btrim(provider), '\s+', ' ', 'g'), '');
+
+-- ชื่อแพทย์ใน visit ที่บันทึกลง cache (ทั้งหน้าเลือกคนไข้และ cron ทุก 5 นาที) → providers ทันที
+-- ทำในฐานข้อมูล จึงไม่ขึ้นกับว่า Edge Function deploy เวอร์ชันล่าสุดหรือยัง
+create or replace function providers_from_visit() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if new.doctor_name is not null and length(btrim(new.doctor_name)) > 0 then
+    perform touch_providers(array[new.doctor_name], coalesce(new.fetched_at, now()));
+  end if;
+  return new;
+end $$;
+drop trigger if exists providers_from_visit on his_visit_cache;
+create trigger providers_from_visit after insert or update of doctor_name, fetched_at on his_visit_cache
+  for each row execute function providers_from_visit();

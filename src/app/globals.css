@@ -555,7 +555,8 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .appt-link-state { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn-ink); }
 .appt-link-state.ok { background: var(--mint-soft); color: var(--green-ink); }
 .appt-table td { vertical-align: top; }
-.appt-table tr.appt-closed { opacity: .55; }
+/* นัดที่ปิดแล้ว (มา/ไม่มา/ยกเลิก): ตัวอักษรสีรอง ไม่ลด opacity (คอนทราสต์ ≥ 4.5:1 ทั้งสองโหมด) */
+.appt-table tr.appt-closed td, .appt-table tr.appt-closed td .muted { color: var(--muted-strong); }
 .appt-actions { white-space: nowrap; }
 .appt-actions .btn { margin: 0 2px 2px 0; }
 .appt-state { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--bg); white-space: nowrap; }
@@ -563,6 +564,10 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .appt-state.confirmed { background: var(--mint-soft); color: var(--green-ink); }
 .appt-state.reschedule { background: var(--warn-soft); color: var(--warn-ink); }
 .appt-state.call { background: var(--red-soft); color: var(--red-ink); font-weight: 600; }
+.appt-state.closed { font-weight: 600; border: 1px solid transparent; }
+.appt-state.status-cancelled { background: var(--danger-soft); color: var(--danger-ink); border-color: var(--danger-border); }
+.appt-state.status-attended { background: var(--success-soft); color: var(--success-ink); }
+.appt-state.status-no_show { background: var(--warning-soft); color: var(--warning-ink); border-color: var(--warning-border); }
 .appt-side-card { padding: 8px 10px; margin-top: 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 13px; }
 @media (max-width: 720px) {
   .appt-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -727,8 +732,9 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .appt-row { cursor: pointer; }
 .appt-row:hover td { background: var(--bg); }
 .appt-row.selected td { background: var(--blue-soft); }
-.appt-row.appt-cancelled td { text-decoration: line-through; opacity: .5; }
-.appt-row.appt-cancelled td:last-child { text-decoration: none; }
+/* ยกเลิก: ขีดฆ่าอย่างเดียว · ป้ายสถานะและช่องโทรไม่ขีด */
+.appt-row.appt-cancelled td { text-decoration: line-through; }
+.appt-row.appt-cancelled td:nth-last-child(-n+2) { text-decoration: none; }
 .appt-side-card { cursor: pointer; }
 .appt-side-card:hover { border-color: var(--blue); }
 @media (max-width: 640px) { .drawer-dl { grid-template-columns: 1fr; } .drawer-dl dt { margin-top: 4px; } }

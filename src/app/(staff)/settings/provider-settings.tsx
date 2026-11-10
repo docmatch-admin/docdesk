@@ -15,10 +15,13 @@ export function ProviderSettings({ initial }: { initial?: Provider[] } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [rows, setRows] = useState<Provider[]>(initial ?? []);
   const [msg, setMsg] = useState("");
+  const [loadErr, setLoadErr] = useState("");
 
   const load = useCallback(async () => {
-    const { data } = await sb.from("providers").select("name, last_seen_at, active").order("last_seen_at", { ascending: false });
-    setRows((data ?? []) as Provider[]);
+    const { data, error } = await sb.from("providers").select("name, last_seen_at, active").order("last_seen_at", { ascending: false });
+    // โหลดไม่ได้ต้องบอก ไม่แสดงเป็นรายชื่อว่าง (เคยขึ้น "แสดง 0/0" ตอนตารางยังไม่ถูกสร้าง)
+    setLoadErr(error ? (error.code === "42P01" || error.code === "PGRST205" ? "ยังไม่มีตารางรายชื่อผู้นัดในฐานข้อมูล (ต้องรัน migration 053)" : `โหลดรายชื่อไม่สำเร็จ: ${error.message}`) : "");
+    if (!error) setRows((data ?? []) as Provider[]);
   }, [sb]);
   useEffect(() => { load(); }, [load]);
 
@@ -41,11 +44,11 @@ export function ProviderSettings({ initial }: { initial?: Provider[] } = {}) {
 
   const shown = rows.filter((p) => providerVisible(p)).length;
   return (
-    <SetGroup title="ผู้นัด (แพทย์)" area="providers" side={<span className="chip">แสดง {shown}/{rows.length}</span>}
+    <SetGroup title="ผู้นัด (แพทย์)" area="providers" side={!loadErr && <span className="chip">แสดง {shown}/{rows.length}</span>}
       info={`แก้ชื่อได้ (นัดเดิมยังเก็บชื่อเดิม) · รายชื่อมาจากชื่อแพทย์ใน visit ของ iService ที่ระบบดึงมา และชื่อที่เคยใช้ในนัด อัปเดตทุกครั้งที่ดึง visit · ไม่พบเกิน ${PROVIDER_STALE_DAYS} วันจะซ่อนเอง ปิด/เปิดเองได้ (มีผลทันที)`}>
-      {msg && <p className="error small slist-msg" role="alert">{msg}</p>}
+      {(loadErr || msg) && <p className="error small slist-msg" role="alert">{loadErr || msg}</p>}
       <ListSection columns={<span>แสดงในฟอร์ม</span>}>
-        {rows.length === 0 && <p className="muted small slist-msg">ยังไม่มีรายชื่อ — จะเพิ่มเองเมื่อระบบดึง visit วันนี้จาก iService</p>}
+        {rows.length === 0 && !loadErr && <p className="muted small slist-msg">ยังไม่มีรายชื่อ — จะเพิ่มเองเมื่อระบบดึง visit วันนี้จาก iService</p>}
         {rows.map((p) => {
           const visible = providerVisible(p);
           const auto = p.active === null;
