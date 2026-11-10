@@ -10,7 +10,7 @@ import { ClinicHoursSettings, PurposePresets, type Preset, type Slot } from "./a
 import { SeriesTemplates } from "./series-templates";
 import { ProviderSettings } from "./provider-settings";
 import type { Provider } from "@/lib/providers";
-import { SetGroup, SetLine, Switch, useSaveUnit } from "./settings-save";
+import { SetGroup, SetLine, Switch, useAreaAccess, useSaveUnit } from "./settings-save";
 
 interface Quota { type: string; limit: number | null; used: number }
 interface ChatOption { id: string; name: string; channel: string }
@@ -33,6 +33,8 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
   const [testChat, setTestChat] = useState("");
   const [testResult, setTestResult] = useState("");
   const [previewLang, setPreviewLang] = useState<Lang | null>(null);
+  // ส่งทดสอบ/โควตาเฉพาะ admin (API ก็ตอบ 403 ให้คนอื่น)
+  const canTest = useAreaAccess("testSend") === "edit";
 
   useEffect(() => {
     sb.from("settings").select("key, value").in("key", ["appointment_settings", "clinic_profile"]).then(({ data }) => {
@@ -45,11 +47,11 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
         if (r.key === "clinic_profile") setClinicName((r.value as { name?: string })?.name?.trim() || "คลินิก");
       }
     });
-    fetch("/api/appointments/line-quota").then(async (r) => {
+    if (canTest) fetch("/api/appointments/line-quota").then(async (r) => {
       if (r.ok) setQuota(await r.json());
       else setQuotaErr((await r.json().catch(() => ({}))).error ?? "อ่านโควตาไม่สำเร็จ");
     }).catch(() => setQuotaErr("อ่านโควตาไม่สำเร็จ"));
-  }, [sb]);
+  }, [sb, canTest]);
 
   // หาแชทของตัวเองจากชื่อ ใช้ฟังก์ชันค้นหาแชทเดิม
   useEffect(() => {
@@ -122,7 +124,7 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
 
   return (
     <>
-      <SetGroup title="การติดต่อ" dirty={dirty} info="ข้อมูลที่ใช้ในข้อความนัด/เตือนทาง LINE Facebook Instagram และบนใบนัด">
+      <SetGroup title="การติดต่อ" area="apptContact" dirty={dirty} info="ข้อมูลที่ใช้ในข้อความนัด/เตือนทาง LINE Facebook Instagram และบนใบนัด">
         <SetLine label="เวลาส่งเตือน" desc="ส่งข้อความเตือนวันก่อนวันนัด เวลานี้" htmlFor="appt-reminder">
           <input id="appt-reminder" type="time" className="w-time" value={s.reminder_time} onChange={(e) => set({ reminder_time: e.target.value })} />
         </SetLine>
@@ -134,7 +136,7 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
         </SetLine>
       </SetGroup>
 
-      <SetGroup title="LINE และที่อยู่">
+      <SetGroup title="LINE และที่อยู่" area="apptContact">
         <SetLine label="LINE OA ID" desc="ใช้สร้าง QR บนใบนัด" htmlFor="appt-line">
           <input id="appt-line" className="w-md" value={s.line_oa_id} onChange={(e) => set({ line_oa_id: e.target.value })} placeholder="@p49clinic" />
         </SetLine>
@@ -149,7 +151,7 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
         </SetLine>
       </SetGroup>
 
-      <SetGroup title="การส่งข้อความ">
+      <SetGroup title="การส่งข้อความ" area="apptMessaging">
         <SetLine label="ใส่เหตุผลนัดในข้อความ" desc="แชทลับไม่ใส่เสมอ · การปฏิบัติตัวส่งทุกครั้ง">
           <Switch checked={s.send_purpose_in_message} onChange={(v) => set({ send_purpose_in_message: v })} label={s.send_purpose_in_message ? "ใส่" : "ไม่ใส่"} />
         </SetLine>
@@ -158,7 +160,7 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
         </SetLine>
       </SetGroup>
 
-      <SetGroup title="ข้อความนัด" side={
+      <SetGroup title="ข้อความนัด" area="apptTemplate" side={
         <button type="button" className="btn ghost small" aria-expanded={!!previewLang} onClick={() => setPreviewLang(previewLang ? null : "th")}>
           {previewLang ? "ซ่อนตัวอย่าง" : "ดูตัวอย่างข้อความ"}
         </button>
@@ -213,7 +215,7 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
       <SeriesTemplates />
       {children}
 
-      <SetGroup title="ส่งทดสอบหาตัวเอง">
+      <SetGroup title="ส่งทดสอบหาตัวเอง" area="testSend">
         <SetLine label="แชทของคุณ" desc="ทักแชท LINE ของคลินิกจากบัญชีตัวเองก่อน (Facebook/Instagram ต้องทักภายใน 24 ชม.)">
           <div className="row test-send">
             <input placeholder="ค้นชื่อแชทของคุณ" aria-label="ค้นชื่อแชทของคุณ" value={chatQuery} onChange={(e) => setChatQuery(e.target.value)} />

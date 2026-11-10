@@ -42,7 +42,7 @@ export function AiModelsPanel({ initial }: { initial?: { stored: AiModelSettings
 
   const using = (u: ModelUse) => (active ? `ใช้อยู่: ${active[u].model} (${active[u].inherited ? `ใช้โมเดลหลัก · ${SOURCE_LABEL[active[u].source]}` : SOURCE_LABEL[active[u].source]})` : "กำลังโหลด…");
   return (
-    <SetGroup title="โมเดล AI" className="ai-models" dirty={dirty} info="ค่าในหน้านี้ใช้ก่อนเสมอ ช่องที่ว่างจะใช้ env บน Vercel (OPENAI_CHAT_MODEL / OPENAI_EMBED_MODEL) ถ้าไม่มีใช้ค่าเริ่มต้นในโค้ด · เปลี่ยนโมเดล embedding ต้องสร้าง embedding ของคลังความรู้และตัวอย่างคำตอบใหม่ทั้งหมด">
+    <SetGroup title="โมเดล AI" area="aiModels" className="ai-models" dirty={dirty} info="ค่าในหน้านี้ใช้ก่อนเสมอ ช่องที่ว่างจะใช้ env บน Vercel (OPENAI_CHAT_MODEL / OPENAI_EMBED_MODEL) ถ้าไม่มีใช้ค่าเริ่มต้นในโค้ด · เปลี่ยนโมเดล embedding ต้องสร้าง embedding ของคลังความรู้และตัวอย่างคำตอบใหม่ทั้งหมด">
       <SetLine label="โมเดลหลัก (แชท)" desc="ใช้ร่างคำตอบและงานทั่วไป" htmlFor="model-chat">
         <input id="model-chat" value={form.chat} onChange={(e) => setForm({ ...form, chat: e.target.value })} placeholder="เช่น gpt-4o-mini" autoComplete="off" spellCheck={false} />
         <div className="set-line-hint">{using("draft")}</div>

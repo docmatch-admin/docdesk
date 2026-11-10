@@ -63,7 +63,7 @@ export function SeriesTemplates() {
     setEditing((t) => (t ? { ...t, items: t.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) } : t));
 
   return (
-    <SetGroup title="Template ชุดนัด" dirty={dirty} info="เช่น วัคซีนหลายเข็ม — ใส่ทุกเข็มรวมเข็ม 1 (วันอ้างอิง) เข็มถัดไปนับจากวันฉีดเข็ม 1 หรือจากเข็มก่อนหน้า ตอนทำนัดระบบข้ามเข็มที่ฉีดไปแล้วให้ (ระบบไม่ได้ใส่ตารางวัคซีนให้ สร้างเองตามแนวทางของคลินิก)">
+    <SetGroup title="Template ชุดนัด" area="seriesTemplates" dirty={dirty} info="เช่น วัคซีนหลายเข็ม — ใส่ทุกเข็มรวมเข็ม 1 (วันอ้างอิง) เข็มถัดไปนับจากวันฉีดเข็ม 1 หรือจากเข็มก่อนหน้า ตอนทำนัดระบบข้ามเข็มที่ฉีดไปแล้วให้ (ระบบไม่ได้ใส่ตารางวัคซีนให้ สร้างเองตามแนวทางของคลินิก)">
       <SetLine label="ชุดนัด" desc="เช่น วัคซีนหลายเข็ม">
       {rows.length === 0 && !editing && <div className="muted small">ยังไม่มี template</div>}
       {rows.map((t) => (

@@ -20,6 +20,10 @@ const PATHS = {
   message: "M4 5h16v11H9l-5 4zM8 9h8M8 12h5",
   printer: "M7 9V4h10v5M7 17H5v-8h14v8h-2M7 14h10v6H7z",
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4",
+  sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+  moon: "M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z",
+  bell: "M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20a2 2 0 0 0 4 0",
+  bellOff: "M6 16V11a6 6 0 0 1 9.5-4.9M18 11v5l2 2H4M10 20a2 2 0 0 0 4 0M3 3l18 18",
 } as const;
 
 export type IconName = keyof typeof PATHS;

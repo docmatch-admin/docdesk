@@ -6,19 +6,16 @@ import { shouldAlertStaff } from "@/lib/assignment";
 import type { BusinessHoursConfig } from "@/lib/business-hours";
 import { titleWithCount } from "@/lib/case-flow";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { usePreferences } from "./preferences";
+import { Icon } from "./icons";
 
 const REPEAT_MS = 60_000;
 /** นัดที่ยังไม่ลงระบบเตือนทุกเครื่อง ไม่ขึ้นกับผู้ดูแล จนกว่าจะกดลงนัด */
 const BOOKING_REPEAT_MS = 3 * 60_000;
 /** ต้องประเมินซ้ำเอง เพราะแชทของคนอื่นจะมาแจ้งเราเมื่อครบเวลา โดยไม่มีข้อมูลเปลี่ยน */
 const EVALUATE_MS = 30_000;
-const MUTE_KEY = "docdesk_alert_muted";
 
 interface WaitingChat { assigned_to: string | null; waiting_since: string | null; last_inbound_at: string | null }
-
-function readMuted() {
-  try { return localStorage.getItem(MUTE_KEY) === "1"; } catch { return false; }
-}
 
 function beep(ctx: AudioContext) {
   [880, 660].forEach((hz, i) => {
@@ -45,11 +42,11 @@ export function WaitingAlert({ meId }: { meId: string }) {
   const previousBookings = useRef(0);
   const [hours, setHours] = useState<BusinessHoursConfig>({ tz: "Asia/Bangkok", days: {} });
   const [now, setNow] = useState(() => Date.now());
-  const [muted, setMuted] = useState(false);
+  // ปิดเสียงที่เครื่องไหน ทุกเครื่องของผู้ใช้คนนี้เงียบตาม (user_preferences + realtime)
+  const { prefs, update } = usePreferences();
+  const muted = prefs.sound_muted;
   const audio = useRef<AudioContext | null>(null);
   const previous = useRef(0);
-
-  useEffect(() => { setMuted(readMuted()); }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -122,15 +119,10 @@ export function WaitingAlert({ meId }: { meId: string }) {
     return () => clearInterval(repeat);
   }, [bookingPending, muted]);
 
-  function toggle() {
-    const next = !muted;
-    setMuted(next);
-    try { localStorage.setItem(MUTE_KEY, next ? "1" : "0"); } catch { /* จำไม่ได้ก็ใช้แค่รอบนี้ */ }
-  }
-
   return (
-    <button className="btn ghost small" onClick={toggle} aria-pressed={!muted}>
-      {muted ? "🔕 เสียงเตือน: ปิด" : "🔔 เสียงเตือน: เปิด"}
+    <button className="btn ghost small nav-quick" onClick={() => update({ sound_muted: !muted })} aria-pressed={!muted} title="ใช้ค่าเดียวกับ ตั้งค่า → การแสดงผล (ทุกเครื่อง)">
+      <Icon name={muted ? "bellOff" : "bell"} size={16} />
+      <span>{muted ? "เสียงเตือน: ปิด" : "เสียงเตือน: เปิด"}</span>
     </button>
   );
 }

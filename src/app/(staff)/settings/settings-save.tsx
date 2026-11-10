@@ -2,6 +2,9 @@
 
 import { createContext, useContext, useEffect, useRef } from "react";
 import { InfoTip } from "./info-tip";
+import { Icon } from "../icons";
+import { areaAccess, type Access, type SettingsArea } from "@/lib/settings-access";
+import type { StaffRole } from "@/lib/auth-types";
 
 /**
  * หน้าตั้งค่า: ปุ่ม "บันทึกการตั้งค่า" ปุ่มเดียวบันทึกทุกหมวด
@@ -9,6 +12,12 @@ import { InfoTip } from "./info-tip";
  * ทุกหมวดยังอยู่ใน DOM แม้เลือกหมวดอื่น ค่าที่แก้ไม่หายเมื่อสลับหมวด
  */
 export type SettingsTab = "overview" | "ai" | "chat" | "appointments" | "team" | "display";
+
+/** role ของผู้ใช้ที่เปิดหน้าตั้งค่า (หน้าเว็บใช้ซ่อน/ล็อก ฐานข้อมูลและ API บังคับสิทธิ์จริง) */
+export const SettingsRoleContext = createContext<StaffRole>("admin");
+export function useAreaAccess(area: SettingsArea): Access | null {
+  return areaAccess(useContext(SettingsRoleContext), area);
+}
 
 export interface SaveUnit {
   id: string;
@@ -44,20 +53,26 @@ export function useTabAlert(key: string, tab: SettingsTab, on: boolean) {
 }
 
 /** กลุ่มการตั้งค่า: หัวข้อกลุ่ม (ไม่มีอีโมจิ) · ป้ายชิดขวา · ⓘ → เส้นคั่นบาง → แถวตั้งค่า (ไม่มีกรอบการ์ด) */
-export function SetGroup({ title, info, dirty, side, className, children }: {
-  title: string; info?: string; dirty?: boolean; side?: React.ReactNode; className?: string; children?: React.ReactNode;
+export function SetGroup({ title, info, dirty, side, className, area, children }: {
+  title: string; info?: string; dirty?: boolean; side?: React.ReactNode; className?: string;
+  /** ส่วนของหน้าตั้งค่า: ไม่มีสิทธิ์ = ไม่แสดง · อ่านอย่างเดียว = ช่องทั้งหมดถูกปิด + กุญแจ "เฉพาะ admin" */
+  area?: SettingsArea; children?: React.ReactNode;
 }) {
+  const access = useAreaAccess(area ?? "display");
+  if (area && !access) return null;
+  const locked = !!area && access === "view";
   return (
-    <section className={`set-group2 ${className ?? ""}`}>
+    <section className={`set-group2 ${locked ? "locked" : ""} ${className ?? ""}`}>
       <div className="set-group2-head">
         <h2>{title}</h2>
         <div className="set-group2-side">
-          {dirty && <span className="dirty-badge" title="มีการแก้ไขที่ยังไม่บันทึก">ยังไม่บันทึก</span>}
+          {dirty && !locked && <span className="dirty-badge" title="มีการแก้ไขที่ยังไม่บันทึก">ยังไม่บันทึก</span>}
           {side}
+          {locked && <span className="lock-badge" title="ดูได้อย่างเดียว แก้ได้เฉพาะ admin"><Icon name="lock" size={13} />เฉพาะ admin</span>}
           {info && <InfoTip text={info} />}
         </div>
       </div>
-      {children}
+      {locked ? <fieldset disabled className="set-locked">{children}</fieldset> : children}
     </section>
   );
 }

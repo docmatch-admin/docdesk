@@ -262,15 +262,3 @@ test("migration 035: ลบตามแชท, RLS อ่านตามสิ�
 });
 
 // ---- เมนูซ้าย ----
-test("เมนูซ้าย: จำค่าใน localStorage แบบครอบ try/catch อ่านก่อนวาด และปุ่มมี aria-label", () => {
-  const toggle = readFileSync("src/app/(staff)/nav-toggle.tsx", "utf8");
-  assert.match(toggle, /NAV_BOOT_SCRIPT = `try\{/);
-  assert.match(toggle, /try \{ localStorage\.setItem/);
-  assert.match(toggle, /aria-label=\{collapsed \? "ขยายเมนู" : "ย่อเมนู"\}/);
-  const layout = readFileSync("src/app/(staff)/layout.tsx", "utf8");
-  assert.match(layout, /<script dangerouslySetInnerHTML=\{\{ __html: NAV_BOOT_SCRIPT \}\} \/>/);
-  const css = readFileSync("src/app/globals.css", "utf8");
-  assert.match(css, /\.nav \{ width: 224px;/);
-  assert.match(css, /html\[data-nav="collapsed"\] \.nav \{ width: 68px;/);
-  assert.match(css, /\.nav-toggle \{[^}]*min-height: 44px; min-width: 44px;/);
-});

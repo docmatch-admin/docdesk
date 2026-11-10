@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "./supabase/admin";
 import { supabaseServer } from "./supabase/server";
 
-/** pharmacy = พยาบาล/ห้องยา เข้าได้เฉพาะหน้านัดหมาย */
-export type StaffRole = "admin" | "agent" | "pharmacy";
+import type { StaffRole } from "./auth-types";
+export type { StaffRole } from "./auth-types";
 export interface StaffContext { id: string; email: string | null; role: StaffRole; displayName: string; mustChangePassword: boolean; canViewSensitive: boolean; sensitiveAcked: boolean }
 
 /** เจ้าหน้าที่ที่ล็อกอินอยู่ คืน null ถ้าไม่ได้ล็อกอิน ไม่มีแถวใน staff หรือถูกปิดบัญชี */

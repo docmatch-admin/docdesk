@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { thaiShortDate } from "@/lib/appointment-rules";
-import { PROVIDER_STALE_DAYS, providerVisible, type Provider } from "@/lib/providers";
+import { cleanProviderName, PROVIDER_STALE_DAYS, providerVisible, type Provider } from "@/lib/providers";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { SetGroup, Switch } from "./settings-save";
 import { ListSection, RowMenu } from "./settings-list";
@@ -29,10 +29,20 @@ export function ProviderSettings({ initial }: { initial?: Provider[] } = {}) {
     if (error) load();
   }
 
+  async function rename(p: Provider, name: string): Promise<boolean> {
+    const clean = cleanProviderName(name);
+    if (!clean || clean === p.name) return true;
+    const { error } = await sb.from("providers").update({ name: clean }).eq("name", p.name);
+    if (error) { setMsg(error.code === "23505" ? "มีชื่อนี้แล้ว" : `เปลี่ยนชื่อไม่สำเร็จ: ${error.message}`); return false; }
+    setMsg("");
+    load();
+    return true;
+  }
+
   const shown = rows.filter((p) => providerVisible(p)).length;
   return (
-    <SetGroup title="ผู้นัด (แพทย์)" side={<span className="chip">แสดง {shown}/{rows.length}</span>}
-      info={`รายชื่อมาจากชื่อแพทย์ใน visit ของ iService ที่ระบบดึงมา และชื่อที่เคยใช้ในนัด อัปเดตทุกครั้งที่ดึง visit · ไม่พบเกิน ${PROVIDER_STALE_DAYS} วันจะซ่อนเอง ปิด/เปิดเองได้ (มีผลทันที)`}>
+    <SetGroup title="ผู้นัด (แพทย์)" area="providers" side={<span className="chip">แสดง {shown}/{rows.length}</span>}
+      info={`แก้ชื่อได้ (นัดเดิมยังเก็บชื่อเดิม) · รายชื่อมาจากชื่อแพทย์ใน visit ของ iService ที่ระบบดึงมา และชื่อที่เคยใช้ในนัด อัปเดตทุกครั้งที่ดึง visit · ไม่พบเกิน ${PROVIDER_STALE_DAYS} วันจะซ่อนเอง ปิด/เปิดเองได้ (มีผลทันที)`}>
       {msg && <p className="error small slist-msg" role="alert">{msg}</p>}
       <ListSection columns={<span>แสดงในฟอร์ม</span>}>
         {rows.length === 0 && <p className="muted small slist-msg">ยังไม่มีรายชื่อ — จะเพิ่มเองเมื่อระบบดึง visit วันนี้จาก iService</p>}
@@ -41,7 +51,7 @@ export function ProviderSettings({ initial }: { initial?: Provider[] } = {}) {
           const auto = p.active === null;
           return (
             <div key={p.name} className={`slist-row ${visible ? "" : "off"}`} role="listitem">
-              <span className="slist-main provider-row-name">{p.name}</span>
+              <ProviderNameInput key={p.name} provider={p} onRename={rename} />
               <span className="slist-spacer" />
               <span className="provider-row-seen">
                 พบล่าสุด {thaiShortDate(new Date(p.last_seen_at).toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" }))}
@@ -54,5 +64,15 @@ export function ProviderSettings({ initial }: { initial?: Provider[] } = {}) {
         })}
       </ListSection>
     </SetGroup>
+  );
+}
+
+function ProviderNameInput({ provider, onRename }: { provider: Provider; onRename: (p: Provider, name: string) => Promise<boolean> }) {
+  const [v, setV] = useState(provider.name);
+  const commit = async () => { if (!(await onRename(provider, v))) setV(provider.name); };
+  return (
+    <input className="slist-input provider-row-name" value={v} maxLength={120} aria-label={`ชื่อผู้นัด ${provider.name}`}
+      onChange={(e) => setV(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } if (e.key === "Escape") { setV(provider.name); (e.target as HTMLInputElement).blur(); } }} />
   );
 }

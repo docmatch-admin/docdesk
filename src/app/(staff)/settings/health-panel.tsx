@@ -23,7 +23,7 @@ export function HealthPanel({ initial }: { initial?: HealthRow[] } = {}) {
   useTabAlert("health", "overview", bad.length > 0);
 
   return (
-    <SetGroup title="สุขภาพระบบ" className={bad.length ? "has-bad" : ""} info="ระบบตรวจการเชื่อมต่อทุก 5 นาที (ฐานข้อมูล OpenAI LINE Meta เว็บไซต์)"
+    <SetGroup title="สุขภาพระบบ" area="health" className={bad.length ? "has-bad" : ""} info="ระบบตรวจการเชื่อมต่อทุก 5 นาที (ฐานข้อมูล OpenAI LINE Meta เว็บไซต์)"
       side={ordered.length > 0 && (
         <span className={`health-summary ${bad.length ? "bad" : "ok"}`}>
           <b>{bad.length ? `ผิดปกติ ${bad.length} รายการ` : "ทุกอย่างปกติ"}</b>

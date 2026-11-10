@@ -107,7 +107,7 @@ export function PurposePresets({ initial = [] }: { initial?: Preset[] } = {}) {
   }
 
   return (
-    <SetGroup title="เหตุผลนัด" dirty={dirty} side={<span className="chip">{rows.length} รายการ</span>}
+    <SetGroup title="เหตุผลนัด" area="purposes" dirty={dirty} side={<span className="chip">{rows.length} รายการ</span>}
       info={'ลาก ⋮⋮ หรือกด ↑/↓ เพื่อเรียงลำดับ (มีผลทันที) · "นัดอีก (วัน)" = เลือกวันนัดให้อัตโนมัติ · "การปฏิบัติตัว" = ค่าเริ่มต้นที่ส่งในข้อความนัดเสมอ · แก้ชื่อ/วัน/การปฏิบัติตัว/ใช้ แล้วกดบันทึกการตั้งค่า'}>
       <ListSection aligned columns={<><span className="c-handle" /><span className="c-name">เหตุผลนัด</span><span className="c-days">นัดอีก (วัน)</span><span className="c-extra">การปฏิบัติตัว</span><span className="c-switch">ใช้</span><span className="c-menu" /></>}>
         {rows.map((r, i) => (
@@ -213,7 +213,7 @@ export function ClinicHoursSettings({ initialSlots = [] }: { initialSlots?: Slot
 
   return (
     <>
-      <SetGroup title="เวลาเปิดคลินิก" dirty={dirty} info="ปุ่มช่วงเวลาในฟอร์มนัดมาจากตารางนี้ · วันที่ไม่มีช่วง = ปิดทั้งวัน · ช่วงเช้า (morning) เป็นค่าเริ่มต้น">
+      <SetGroup title="เวลาเปิดคลินิก" area="clinicHours" dirty={dirty} info="ปุ่มช่วงเวลาในฟอร์มนัดมาจากตารางนี้ · วันที่ไม่มีช่วง = ปิดทั้งวัน · ช่วงเช้า (morning) เป็นค่าเริ่มต้น">
         <SetLine label="แยกตั้งรายวัน" desc={perDay && !uniform ? "จันทร์–ศุกร์ตั้งไม่เท่ากัน ต้องแสดงรายวันเพื่อไม่ให้ค่าถูกทับ" : "ปิด = ตั้งจันทร์–ศุกร์ทีเดียว"}>
           <Switch checked={perDay} disabled={perDay && !uniform} onChange={setPerDay} label={perDay ? "แสดง 7 วัน" : "แสดง 3 แถว"} />
         </SetLine>
@@ -252,7 +252,7 @@ export function ClinicHoursSettings({ initialSlots = [] }: { initialSlots?: Slot
         </SetLine>
       </SetGroup>
 
-      <SetGroup title="วันหยุดพิเศษ" info="วันที่ปิดทั้งวัน ฟอร์มนัดจะไม่ให้เลือก · เพิ่ม/ลบแล้วมีผลทันที">
+      <SetGroup title="วันหยุดพิเศษ" area="closures" info="วันที่ปิดทั้งวัน ฟอร์มนัดจะไม่ให้เลือก · เพิ่ม/ลบแล้วมีผลทันที">
         <SetLine label="เพิ่มวันหยุด" desc="วันและเหตุผล (ไม่ใส่ก็ได้)">
           <form className="row set-closure" onSubmit={addClosure}>
             <input type="date" aria-label="วันหยุด" min={today} value={newClosure.date} onChange={(e) => setNewClosure({ ...newClosure, date: e.target.value })} />

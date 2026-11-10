@@ -24,7 +24,7 @@ export function LineUsagePanel({ initial }: { initial?: Usage } = {}) {
   const pct = u?.quota.limit ? Math.min(100, ((u.quota.used ?? 0) / Math.max(1, u.quota.limit)) * 100) : 0;
   useTabAlert("quota", "overview", pct >= 80);
   return (
-    <SetGroup title="โควตาข้อความ LINE เดือนนี้" className="line-usage" info="ตัวเลขโควตาจาก LINE รวมการส่งจากระบบอื่นและ LINE OA Manager · reply ฟรีไม่นับโควตา"
+    <SetGroup title="โควตาข้อความ LINE เดือนนี้" area="lineQuota" className="line-usage" info="ตัวเลขโควตาจาก LINE รวมการส่งจากระบบอื่นและ LINE OA Manager · reply ฟรีไม่นับโควตา"
       side={u?.quota.limit != null && <span className={`chip ${pct >= 80 ? "red" : ""}`}>{Math.round(pct)}%</span>}>
       {!u ? <p className="muted small">{err || "กำลังโหลด…"}</p> : (
         <>

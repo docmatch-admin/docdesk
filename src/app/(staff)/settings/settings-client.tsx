@@ -12,9 +12,12 @@ import { HealthPanel } from "./health-panel";
 import { AiModelsPanel } from "./ai-models-panel";
 import { LineUsagePanel, type Usage } from "./line-usage-panel";
 import { PriceAlerts } from "./price-alerts";
-import { SetGroup, SetLine, SettingsContext, Switch, type SaveUnit, type SettingsCtx, type SettingsTab } from "./settings-save";
+import { SetGroup, SetLine, SettingsContext, SettingsRoleContext, Switch, type SaveUnit, type SettingsCtx, type SettingsTab } from "./settings-save";
+import { areaAccess, visibleSections } from "@/lib/settings-access";
+import type { StaffRole } from "@/lib/auth-types";
+import { AuditLog } from "./audit-log";
+import { DisplaySettings } from "./display-settings";
 import { TagSettings } from "./tag-settings";
-import { ThemeSettings } from "./theme-settings";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
 
 interface Channel { id: string; type: ChannelType; name: string; ai_mode: AiMode | null; enabled: boolean }
@@ -28,7 +31,6 @@ const MODES = Object.keys(AI_MODE_LABEL) as AiMode[];
 export const TABS: [SettingsTab, string][] = [
   ["overview", "ภาพรวม"], ["ai", "AI"], ["chat", "แชทและแท็ก"], ["appointments", "นัดหมาย"], ["team", "ทีมและระบบ"], ["display", "การแสดงผล"],
 ];
-const isTab = (v: unknown): v is SettingsTab => TABS.some(([k]) => k === v);
 
 /** ค่าที่การ์ดของหน้านี้แก้ (บันทึกพร้อมกันใน settings) แยกตามการ์ดเพื่อบอกว่าการ์ดไหนยังไม่บันทึก */
 const CORE_CARDS: Record<string, { label: string; tab: SettingsTab; keys: string[] }> = {
@@ -53,12 +55,19 @@ export interface SettingsPreview {
   channels?: Channel[];
   hours?: Hours;
   tags?: Parameters<typeof TagSettings>[0] extends infer P ? P extends { initialTags?: infer T } ? T : never : never;
+  audit?: Parameters<typeof AuditLog>[0] extends infer P ? P extends { initial?: infer A } ? A : never : never;
   tagRules?: Parameters<typeof TagSettings>[0] extends infer P ? P extends { initialRules?: infer R } ? R : never : never;
 }
 
-export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) {
+export function SettingsClient({ preview, role = "admin" }: { preview?: SettingsPreview; role?: StaffRole } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [tab, setTab] = useState<SettingsTab>(preview?.tab ?? "overview");
+  // หมวดย่อยที่ role นี้เห็น (agent ไม่เห็น AI และทีมและระบบ) · สิทธิ์จริงบังคับที่ฐานข้อมูลและ API
+  const sections = visibleSections(role);
+  const tabs = TABS.filter(([k]) => sections.includes(k));
+  const isTab = (v: unknown): v is SettingsTab => tabs.some(([k]) => k === v);
+  const can = (area: Parameters<typeof areaAccess>[1]) => areaAccess(role, area);
+  const isAdmin = role === "admin";
+  const [tab, setTab] = useState<SettingsTab>(preview?.tab && sections.includes(preview.tab) ? preview.tab : sections[0] ?? "display");
   const [mode, setMode] = useState<AiMode>("assist");
   const [minutes, setMinutes] = useState(5);
   const [hours, setHours] = useState<Hours>(preview?.hours ?? { tz: "Asia/Bangkok", days: {} });
@@ -99,7 +108,8 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
   }, []);
 
   useEffect(() => {
-    sb.from("llm_usage_daily").select("*").gte("day", `${bangkokDate().slice(0, 7)}-01`)
+    // ค่าใช้จ่าย AI เฉพาะ admin (ฐานข้อมูลก็ไม่ให้ agent อ่าน)
+    if (isAdmin) sb.from("llm_usage_daily").select("*").gte("day", `${bangkokDate().slice(0, 7)}-01`)
       .then(({ data }) => setUsage((data ?? []) as LlmUsageRow[]));
     Promise.all([
       sb.from("settings").select("key, value"),
@@ -167,7 +177,8 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
   async function saveAll() {
     setSaving(true);
     const errors: string[] = [];
-    if (coreDirty) {
+    // ค่าทั่วไปในตาราง settings แก้ได้เฉพาะ admin (agent เห็นแบบอ่านอย่างเดียว)
+    if (coreDirty && isAdmin) {
       const e = await saveCore();
       if (e) errors.push(`ตั้งค่าทั่วไป: ${e}`);
     }
@@ -190,25 +201,27 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
 
   const tabDirty = (t: SettingsTab) => Object.entries(CORE_CARDS).some(([id, c]) => c.tab === t && cardDirty(id)) || dirtyUnits.some((u) => u.unit.tab === t);
   const tabAlert = (t: SettingsTab) => Object.values(alerts).some((a) => a.tab === t && a.on);
-  const dirtySections = TABS.filter(([k]) => tabDirty(k));
+  const dirtySections = tabs.filter(([k]) => tabDirty(k));
   const setDay = (d: number, v: [string, string] | null) => setHours({ ...hours, days: { ...hours.days, [d]: v } });
   const stats = summarizeUsage(usage);
   const baht = (n: number) => n.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const panel = (t: SettingsTab, children: React.ReactNode) => (
+  // หมวดที่ไม่มีสิทธิ์ไม่ถูก render เลย (ไม่โหลดข้อมูลของหมวดนั้น)
+  const panel = (t: SettingsTab, children: React.ReactNode) => !sections.includes(t) ? null : (
     <div className="settings-panel" role="tabpanel" id={`section-${t}`} aria-labelledby={`sectionbtn-${t}`} hidden={tab !== t}>
-      <h1 className="settings-section-title">{TABS.find(([k]) => k === t)?.[1]}</h1>
+      <h1 className="settings-section-title">{tabs.find(([k]) => k === t)?.[1]}</h1>
       {children}
     </div>
   );
 
   return (
+    <SettingsRoleContext.Provider value={role}>
     <SettingsContext.Provider value={ctx}>
       <div className="page settings-page">
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="หมวดการตั้งค่า">
             <div className="settings-nav-title">ตั้งค่า</div>
             <div role="tablist" aria-orientation="vertical" className="settings-nav-list">
-              {TABS.map(([k, label]) => (
+              {tabs.map(([k, label]) => (
                 <button key={k} id={`sectionbtn-${k}`} type="button" role="tab" aria-selected={tab === k} aria-controls={`section-${k}`}
                   className={tab === k ? "on" : ""} onClick={() => pickTab(k)}>
                   <span className="settings-nav-label">{label}</span>
@@ -224,7 +237,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
               <>
                 <HealthPanel initial={preview?.health} />
                 <LineUsagePanel initial={preview?.usage} />
-                <SetGroup title="การใช้ AI" info={`ค่าใช้จ่ายโดยประมาณ รวม embedding คิดที่ 1 USD = ${USD_TO_THB} บาท ยอดจริงดูที่หน้า billing ของ OpenAI${stats.unpricedModels.length ? ` · ไม่รวมโมเดลที่ไม่รู้ราคา: ${stats.unpricedModels.join(", ")}` : ""}`}>
+                <SetGroup title="การใช้ AI" area="aiUsage" info={`ค่าใช้จ่ายโดยประมาณ รวม embedding คิดที่ 1 USD = ${USD_TO_THB} บาท ยอดจริงดูที่หน้า billing ของ OpenAI${stats.unpricedModels.length ? ` · ไม่รวมโมเดลที่ไม่รู้ราคา: ${stats.unpricedModels.join(", ")}` : ""}`}>
                   <SetLine label="วันนี้" desc="จำนวนครั้งที่เรียก LLM · ค่าใช้จ่ายโดยประมาณ">
                     <b>{stats.todayCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.todayCostThb)} บาท</b>
                   </SetLine>
@@ -232,14 +245,14 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
                     <b>{stats.monthCalls.toLocaleString("th-TH")} ครั้ง · ~{baht(stats.monthCostThb)} บาท</b>
                   </SetLine>
                 </SetGroup>
-                <PriceAlerts />
+                {can("priceAlerts") && <PriceAlerts />}
               </>
             ))}
 
             {panel("ai", (
               <>
-                <AiModelsPanel initial={preview?.models} />
-                <SetGroup title="โหมด AI ทั้งระบบ" dirty={cardDirty("mode")} info="ตั้งแยกรายช่องทาง (ด้านล่าง) และรายแชท (ในหน้าแชท) ได้ — รายแชทสำคัญที่สุด">
+                {can("aiModels") && <AiModelsPanel initial={preview?.models} />}
+                <SetGroup title="โหมด AI ทั้งระบบ" area="aiMode" dirty={cardDirty("mode")} info="ตั้งแยกรายช่องทาง (ด้านล่าง) และรายแชท (ในหน้าแชท) ได้ — รายแชทสำคัญที่สุด">
                   <SetLine label="โหมด" desc="ใช้กับทุกช่องทางที่ไม่ได้ตั้งแยก">
                     <div className="mode-cards" role="radiogroup" aria-label="โหมด AI ทั้งระบบ">
                       {MODES.map((m) => (
@@ -254,7 +267,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
                     <span className="inline-field"><input id="set-minutes" className="w-num" type="number" min={1} max={120} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} /> นาที</span>
                   </SetLine>
                 </SetGroup>
-                <SetGroup title="รายช่องทาง" dirty={cardDirty("channels")} info="โหมด AI ของแต่ละช่องทาง ว่าง = ตามโหมดทั้งระบบ">
+                <SetGroup title="รายช่องทาง" area="channels" dirty={cardDirty("channels")} info="โหมด AI ของแต่ละช่องทาง ว่าง = ตามโหมดทั้งระบบ">
                   {channels.length === 0 && <p className="muted small">ยังไม่มีช่องทาง</p>}
                   {channels.map((c, i) => (
                     <SetLine key={c.id} label={c.name} desc={CHANNEL_LABEL[c.type]}>
@@ -272,7 +285,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
                     </SetLine>
                   ))}
                 </SetGroup>
-                <SetGroup title="บุคลิกการตอบ" dirty={cardDirty("persona")}>
+                <SetGroup title="บุคลิกการตอบ" area="persona" dirty={cardDirty("persona")}>
                   <SetLine label="ชื่อคลินิก" desc="AI ใช้เรียกตัวเองและในข้อความนัด" htmlFor="set-clinic-name">
                     <input id="set-clinic-name" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} />
                   </SetLine>
@@ -285,7 +298,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
 
             {panel("chat", (
               <>
-                <SetGroup title="เวลาทำการ" dirty={cardDirty("hours")} info="นอกเวลาทำการ โหมด “คนตอบก่อน” จะให้ AI ตอบทันที และเกณฑ์คะแนนนับเวลาเฉพาะช่วงนี้">
+                <SetGroup title="เวลาทำการ" area="businessHours" dirty={cardDirty("hours")} info="นอกเวลาทำการ โหมด “คนตอบก่อน” จะให้ AI ตอบทันที และเกณฑ์คะแนนนับเวลาเฉพาะช่วงนี้">
                   {DAY_ORDER.map((d) => {
                     const r = hours.days[d];
                     return (
@@ -304,13 +317,13 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
                   })}
                   <p className="set-other-note">ใช้กับ AI ตอบแชทและเกณฑ์คะแนนเท่านั้น — ช่วงเวลาให้คนไข้เลือกตอนนัดตั้งแยกที่ “เวลาเปิดคลินิก” (หมวดนัดหมาย) เป็นข้อมูลคนละชุด</p>
                 </SetGroup>
-                <SetGroup title="ย้ายไปเสร็จแล้วอัตโนมัติ" dirty={cardDirty("autoclose")}>
+                <SetGroup title="ย้ายไปเสร็จแล้วอัตโนมัติ" area="autoClose" dirty={cardDirty("autoclose")}>
                   <SetLine label="ลูกค้าเงียบเกิน" desc={`เราตอบล่าสุดแล้วลูกค้าไม่ตอบ · 0 = ปิด · ไม่ย้ายแชทที่มีแท็ก ${AUTO_CLOSE_EXEMPT_TAGS.join(" หรือ ")} หรือป้าย “ต้องให้คนตอบ”`} htmlFor="set-autoclose">
                     <span className="inline-field"><input id="set-autoclose" className="w-num" type="number" min={0} max={8760} value={autoCloseHours} onChange={(e) => setAutoCloseHours(Number(e.target.value))} /> ชั่วโมง</span>
                   </SetLine>
                 </SetGroup>
                 <TagSettings initialTags={preview?.tags} initialRules={preview?.tagRules} />
-                <SetGroup title="แชทลับ" dirty={cardDirty("sensitive")} info="ติดแล้วไม่หายเอง เอาออกได้เฉพาะ admin ในห้องแชท">
+                <SetGroup title="แชทลับ" area="sensitive" dirty={cardDirty("sensitive")} info="ติดแล้วไม่หายเอง เอาออกได้เฉพาะ admin ในห้องแชท">
                   <SetLine label="คำสำคัญ" desc="บรรทัดละคำ ข้อความลูกค้าที่มีคำเหล่านี้จะถูกตั้งเป็นแชทลับ" htmlFor="set-sensitive">
                     <textarea id="set-sensitive" rows={6} value={sensitiveKeywords} onChange={(e) => setSensitiveKeywords(e.target.value)} />
                   </SetLine>
@@ -323,7 +336,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
 
             {panel("appointments", (
               <AppointmentSettings initial={preview?.appointments}>
-                <SetGroup title="ข้อความการจอง" dirty={cardDirty("booking")} info="ระบบแทนค่าในวงเล็บปีกกาให้ และแปลตามภาษาลูกค้าตอนส่ง เว้นว่างแล้วบันทึกจะกลับเป็นค่าเริ่มต้น">
+                <SetGroup title="ข้อความการจอง" area="bookingTemplates" dirty={cardDirty("booking")} info="ระบบแทนค่าในวงเล็บปีกกาให้ และแปลตามภาษาลูกค้าตอนส่ง เว้นว่างแล้วบันทึกจะกลับเป็นค่าเริ่มต้น">
                   {(Object.keys(BOOKING_TEMPLATE_LABEL) as (keyof BookingTemplates)[]).map((key) => {
                     const [name, vars] = splitBookingLabel(BOOKING_TEMPLATE_LABEL[key]);
                     return (
@@ -338,7 +351,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
 
             {panel("team", (
               <>
-                <SetGroup title="เกณฑ์คะแนนเจ้าหน้าที่" dirty={cardDirty("score")} info="นับเวลาเฉพาะเวลาทำการ ตอบช้ากว่าขั้นสุดท้ายได้ 0 คะแนน">
+                <SetGroup title="เกณฑ์คะแนนเจ้าหน้าที่" area="scoring" dirty={cardDirty("score")} info="นับเวลาเฉพาะเวลาทำการ ตอบช้ากว่าขั้นสุดท้ายได้ 0 คะแนน">
                   {scoreRules.speed.map((tier, i) => (
                     <SetLine key={i} label={`ความเร็ว ขั้นที่ ${i + 1}`} desc="ตอบภายใน (นาที) ได้กี่คะแนน">
                       <span className="inline-field">
@@ -366,14 +379,15 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
                     <span className="inline-field"><input id="set-close" className="w-num" type="number" min={0} step={0.5} value={scoreRules.closePoints} onChange={(e) => setScoreRules({ ...scoreRules, closePoints: Number(e.target.value) })} /> คะแนน</span>
                   </SetLine>
                 </SetGroup>
-                <SetGroup title="การเก็บรูปภาพ" dirty={cardDirty("retention")} info="ข้อความยังอยู่ แต่รูปจะขึ้นว่า “รูปถูกลบตามนโยบายเก็บข้อมูล” การลบกู้คืนไม่ได้ รูปที่ใช้บ่อยไม่ถูกลบ">
+                <SetGroup title="การเก็บรูปภาพ" area="retention" dirty={cardDirty("retention")} info="ข้อความยังอยู่ แต่รูปจะขึ้นว่า “รูปถูกลบตามนโยบายเก็บข้อมูล” การลบกู้คืนไม่ได้ รูปที่ใช้บ่อยไม่ถูกลบ">
                   <SetLine label="ลบรูปในแชทเมื่อเก่ากว่า" desc="ลบอัตโนมัติ กู้คืนไม่ได้" htmlFor="set-retention">
                     <span className="inline-field"><input id="set-retention" className="w-num" type="number" min={1} max={3650} value={retentionDays} onChange={(e) => setRetentionDays(Number(e.target.value))} /> วัน</span>
                   </SetLine>
                 </SetGroup>
+                {can("audit") && <AuditLog initial={preview?.audit} />}
               </>
             ))}
-            {panel("display", <ThemeSettings />)}
+            {panel("display", <DisplaySettings />)}
           </div>
         </div>
 
@@ -386,6 +400,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
         </div>
       </div>
     </SettingsContext.Provider>
+    </SettingsRoleContext.Provider>
   );
 }
 

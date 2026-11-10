@@ -3,16 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { tagLabel } from "@/lib/sensitive-rules";
-import { DEFAULT_TAG_COLOR, NON_THAI_MIN_MESSAGES, TAG_GROUP_LABEL, type Tag, type TagGroup, type TagRule } from "@/lib/tags";
+import { DEFAULT_TAG_COLOR, NON_THAI_MIN_MESSAGES, TAG_GROUP_LABEL, TAG_NAME_LOCKED, type Tag, type TagGroup, type TagRule } from "@/lib/tags";
 import { SetGroup, Switch } from "./settings-save";
 import { DragHandle, ListSection, RowMenu, useDragSort } from "./settings-list";
+import { tagChipStyle } from "@/lib/tag-colors";
 
 const GROUPS = Object.keys(TAG_GROUP_LABEL) as TagGroup[];
 type Rule = TagRule & { id: string };
 
 /**
- * แท็กและกฎติดแท็ก: แก้แล้วมีผลทันที (ไม่รอปุ่มบันทึกของหน้า)
- * ชื่อแท็กเปลี่ยนไม่ได้ เพราะแชทเก็บแท็กเป็นชื่อ (conversations.tags)
+ * แท็กและกฎติดแท็ก: แก้แล้วมีผลทันที (ไม่รอปุ่มบันทึกของหน้า) · admin และ agent แก้ได้
+ * เปลี่ยนชื่อแท็กผ่าน rename_tag ในฐานข้อมูล: เปลี่ยนทุกแชท/กฎ/ประวัติพร้อมกัน (แชทเก็บแท็กเป็นชื่อ)
+ * แท็กที่โค้ดใช้ตามชื่อ (TAG_NAME_LOCKED) เปลี่ยนชื่อไม่ได้
  */
 export function TagSettings({ initialTags, initialRules }: { initialTags?: Tag[]; initialRules?: Rule[] } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
@@ -47,6 +49,16 @@ export function TagSettings({ initialTags, initialRules }: { initialTags?: Tag[]
   async function patchTag(t: Tag, patch: Partial<Tag>) {
     setTags((prev) => prev.map((x) => (x.id === t.id ? { ...x, ...patch } : x)));
     report((await sb.from("tags").update(patch).eq("id", t.id)).error);
+  }
+
+  async function renameTag(t: Tag, name: string): Promise<boolean> {
+    const clean = name.replace(/\s+/g, " ").trim();
+    if (!clean || clean === t.name) return true;
+    const { error } = await sb.rpc("rename_tag", { p_id: t.id, p_name: clean });
+    if (error) { setMsg(error.code === "23505" ? "มีแท็กชื่อนี้แล้ว" : `เปลี่ยนชื่อไม่สำเร็จ: ${error.message}`); return false; }
+    setMsg("");
+    load();
+    return true;
   }
 
   /** ย้ายแท็กในกลุ่มเดียวกัน แล้วให้เลข sort ใหม่ทั้งกลุ่ม */
@@ -92,16 +104,16 @@ export function TagSettings({ initialTags, initialRules }: { initialTags?: Tag[]
 
   return (
     <>
-      <SetGroup title="แท็ก" side={<span className="chip">{tags.length} แท็ก</span>}
-        info="คลิกจุดสีเพื่อเปลี่ยนสี · ลาก ⋮⋮ หรือกด ↑/↓ เพื่อเรียงลำดับ · เปลี่ยนชื่อแท็กไม่ได้ เพราะแชทและรายงานอ้างอิงตามชื่อ ถ้าไม่ใช้แล้วให้ปิดใช้ แชทเดิมยังเห็นแท็กนี้ · ทุกอย่างมีผลทันที">
+      <SetGroup title="แท็ก" area="tags" side={<span className="chip">{tags.length} แท็ก</span>}
+        info="คลิกจุดสีเพื่อเปลี่ยนสี · คลิกชื่อเพื่อเปลี่ยนชื่อ (แชทเดิมเปลี่ยนตามทั้งหมด) · ลาก ⋮⋮ หรือกด ↑/↓ เพื่อเรียงลำดับ · แท็กที่มีกุญแจระบบใช้ตามชื่อ เปลี่ยนชื่อไม่ได้ · ทุกอย่างมีผลทันที">
         {msg && <p className="error small slist-msg" role="alert">{msg}</p>}
         {GROUPS.map((g) => (
           <TagGroupList key={g} group={g} tags={tags.filter((t) => t.group === g)}
-            onMove={(from, to) => moveTag(g, from, to)} onPatch={patchTag} onRemove={removeTag} onAdd={(name, color) => addTag(g, name, color)} />
+            onMove={(from, to) => moveTag(g, from, to)} onPatch={patchTag} onRename={renameTag} onRemove={removeTag} onAdd={(name, color) => addTag(g, name, color)} />
         ))}
       </SetGroup>
 
-      <SetGroup title="กฎติดแท็กอัตโนมัติ" side={<span className="chip">{rules.length} กฎ</span>}
+      <SetGroup title="กฎติดแท็กอัตโนมัติ" area="tagRules" side={<span className="chip">{rules.length} กฎ</span>}
         info="ไม่ใช้ AI คั่นหลายคำด้วย | เช่น พนักงาน|โรงงาน ถ้าข้อความมีคำยกเว้นจะไม่ติดแท็ก ถ้าเอาแท็กออกจากแชทเอง กฎจะไม่ติดกลับให้แชทนั้น · แก้แล้วมีผลทันที">
         <ListSection aligned columns={<><span className="c-grow">คำสำคัญ</span><span className="c-grow">คำยกเว้น</span><span className="c-arrow" /><span className="c-tag">แท็กที่ติด</span><span className="c-menu" /></>}>
           {rules.map((r) => (
@@ -136,9 +148,10 @@ export function TagSettings({ initialTags, initialRules }: { initialTags?: Tag[]
   );
 }
 
-function TagGroupList({ group, tags, onMove, onPatch, onRemove, onAdd }: {
+function TagGroupList({ group, tags, onMove, onPatch, onRename, onRemove, onAdd }: {
   group: TagGroup; tags: Tag[]; onMove: (from: number, to: number) => void;
-  onPatch: (t: Tag, patch: Partial<Tag>) => void; onRemove: (t: Tag) => void; onAdd: (name: string, color: string) => Promise<boolean>;
+  onPatch: (t: Tag, patch: Partial<Tag>) => void; onRename: (t: Tag, name: string) => Promise<boolean>;
+  onRemove: (t: Tag) => void; onAdd: (name: string, color: string) => Promise<boolean>;
 }) {
   const sort = useDragSort(tags.length, onMove);
   return (
@@ -146,12 +159,14 @@ function TagGroupList({ group, tags, onMove, onPatch, onRemove, onAdd }: {
       {tags.map((t, i) => (
         <div key={t.id} className={`slist-row ${t.active ? "" : "off"}`} role="listitem" {...sort.row(i)}>
           <DragHandle {...sort.handle(i, t.name)} />
-          <span className="tag-chip settings-tag-chip" style={{ borderColor: t.color }}>
+          <span className="tag-chip settings-tag-chip" style={tagChipStyle(t.color) as React.CSSProperties}>
             <label className="tag-dot-btn" title={`เปลี่ยนสีแท็ก ${t.name}`}>
-              <i style={{ background: t.color }} aria-hidden />
+              <i aria-hidden />
               <input type="color" className="sr-only" value={t.color} aria-label={`สีของแท็ก ${t.name}`} onChange={(e) => onPatch(t, { color: e.target.value })} />
             </label>
-            {tagLabel(t.name)}
+            {TAG_NAME_LOCKED.includes(t.name)
+              ? <span className="tag-name-locked" title="ระบบใช้แท็กนี้ตามชื่อ เปลี่ยนชื่อไม่ได้">{tagLabel(t.name)} <span aria-label="เปลี่ยนชื่อไม่ได้">🔒</span></span>
+              : <TagNameInput key={t.name} tag={t} onRename={onRename} />}
           </span>
           <span className="slist-spacer" />
           <Switch checked={t.active} hideLabel label={`เปิดใช้แท็ก ${t.name}`} onChange={(v) => onPatch(t, { active: v })} />
@@ -161,6 +176,17 @@ function TagGroupList({ group, tags, onMove, onPatch, onRemove, onAdd }: {
       <AddTagRow group={group} onAdd={onAdd} />
       <span className="sr-only" aria-live="polite">{sort.announce}</span>
     </ListSection>
+  );
+}
+
+/** ชื่อแท็กแก้ inline: Enter/ออกจากช่อง = บันทึก · Esc = ยกเลิก */
+function TagNameInput({ tag, onRename }: { tag: Tag; onRename: (t: Tag, name: string) => Promise<boolean> }) {
+  const [v, setV] = useState(tag.name);
+  const commit = async () => { if (!(await onRename(tag, v))) setV(tag.name); };
+  return (
+    <input className="tag-name-input" value={v} maxLength={40} aria-label={`ชื่อแท็ก ${tag.name}`} size={Math.max(4, v.length + 1)}
+      onChange={(e) => setV(e.target.value)} onBlur={commit}
+      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } if (e.key === "Escape") { setV(tag.name); (e.target as HTMLInputElement).blur(); } }} />
   );
 }
 
@@ -175,9 +201,9 @@ function AddTagRow({ group, onAdd }: { group: TagGroup; onAdd: (name: string, co
     <form className="slist-row slist-add-form" onSubmit={async (e) => { e.preventDefault(); if (await onAdd(name, color)) close(); }}
       onKeyDown={(e) => { if (e.key === "Escape") close(); }}>
       <span className="drag-handle placeholder" aria-hidden="true" />
-      <span className="tag-chip settings-tag-chip editing" style={{ borderColor: color }}>
+      <span className="tag-chip settings-tag-chip editing" style={tagChipStyle(color) as React.CSSProperties}>
         <label className="tag-dot-btn" title="เลือกสีแท็กใหม่">
-          <i style={{ background: color }} aria-hidden />
+          <i aria-hidden />
           <input type="color" className="sr-only" value={color} aria-label="สีของแท็กใหม่" onChange={(e) => setColor(e.target.value)} />
         </label>
         <input autoFocus value={name} maxLength={40} placeholder={`แท็กใหม่ใน${TAG_GROUP_LABEL[group]}`} aria-label={`ชื่อแท็กใหม่ใน${TAG_GROUP_LABEL[group]}`} onChange={(e) => setName(e.target.value)} />

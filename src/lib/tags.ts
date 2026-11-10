@@ -14,6 +14,12 @@ export interface TagRule { id?: string; kind: "keyword" | "non_thai"; keyword: s
 
 export const DEFAULT_TAG_COLOR = "#475569";
 
+/**
+ * แท็กที่โค้ดใช้ตามชื่อ เปลี่ยนชื่อไม่ได้ (ตรงกับรายการในฟังก์ชัน rename_tag ของฐานข้อมูล migration 054)
+ * = CLEARED_ON_REOPEN_TAG, AUTO_CLOSE_EXEMPT_TAGS (case-flow) และ SENSITIVE_TAG (sensitive-rules)
+ */
+export const TAG_NAME_LOCKED = ["นัดแล้ว", "ตามต่อ", "รอนัด", "STD"];
+
 /** ต้องใช้ภาษาอื่นอย่างน้อยเท่านี้ข้อความ คนไทยที่พิมพ์ "HPV vaccine price" ครั้งเดียวจะได้ไม่ติดแท็กต่างชาติ */
 export const NON_THAI_MIN_MESSAGES = 2;
 

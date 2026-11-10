@@ -6,6 +6,7 @@ import { getSetting, isWithinBusinessHours, type BusinessHours } from "./mode";
 import { supabaseAdmin } from "./supabase/admin";
 import { HIDDEN_LINE_PREFIX, UNAVAILABLE_TITLE } from "./website-sync";
 import type { SuggestionOption } from "./types";
+import { pushDisabledStaff } from "./preferences-store";
 
 /** หมวดนี้ไม่ใช่บริการ เช่น เวลาทำการหรือนโยบาย จึงไม่นำมาจับชื่อบริการ */
 const NON_SERVICE_CATEGORIES = ["ข้อมูลคลินิก", "นโยบายการตอบ", "แนวทางซักอาการ"];
@@ -155,9 +156,10 @@ export async function sendPushToStaff(staffIds: string[] | null, message: { titl
   const db = supabaseAdmin();
   const send = sender ?? (await defaultSender());
   if (!send) return 0;
-  const { data: subs } = await db.from("push_subscriptions").select("endpoint, staff_id, p256dh, auth");
+  const [{ data: subs }, muted] = await Promise.all([db.from("push_subscriptions").select("endpoint, staff_id, p256dh, auth"), pushDisabledStaff()]);
+  // ผู้ใช้ที่ปิดแจ้งเตือนในหมวด "การแสดงผล" ไม่ได้รับทุกเครื่อง
   const rows = ((subs ?? []) as { endpoint: string; staff_id: string; p256dh: string; auth: string }[])
-    .filter((s) => !staffIds || staffIds.includes(s.staff_id));
+    .filter((s) => (!staffIds || staffIds.includes(s.staff_id)) && !muted.has(s.staff_id));
   const payload = JSON.stringify(message);
   let sent = 0;
   for (const s of rows) {
