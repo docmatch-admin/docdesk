@@ -81,12 +81,12 @@ export function SetLine({ label, desc, htmlFor, full, children }: {
 }
 
 /** สวิตช์เปิด/ปิด (checkbox role=switch) */
-export function Switch({ checked, onChange, label, disabled, id }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; id?: string }) {
+export function Switch({ checked, onChange, label, disabled, id, hideLabel }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; id?: string; hideLabel?: boolean }) {
   return (
     <label className="switch">
       <input id={id} type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
       <span className="switch-track" aria-hidden="true"><span className="switch-thumb" /></span>
-      <span className="switch-text">{label}</span>
+      <span className={hideLabel ? "sr-only" : "switch-text"}>{label}</span>
     </label>
   );
 }

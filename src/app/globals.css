@@ -1297,3 +1297,80 @@ body > .appt-slip { display: none; }
 :root:not([data-theme="light"]) .appt-side-role.relative { background: #2e2045; color: #c9a6f5; }
 :root:not([data-theme="light"]) .switch-track { background: #3a4152; }
 }
+/* แถบบันทึกอยู่ล่างจอทุกหมวด แม้เนื้อหาสั้นกว่าจอ: หน้าสูงอย่างน้อยเท่าพื้นที่เนื้อหา เนื้อหายืดดันแถบลงล่าง */
+.page.settings-page { min-height: 100%; display: flex; flex-direction: column; }
+.page.settings-page > .settings-layout { flex: 1 0 auto; width: 100%; }
+.page.settings-page > .settings-savebar { flex-shrink: 0; }
+
+/* ===== รายการแถวกะทัดรัด (แท็ก · เหตุผลนัด · กฎติดแท็ก) ===== */
+.slist-group { max-width: 720px; padding-top: 16px; }
+.slist-head { display: flex; align-items: baseline; gap: 8px; padding: 0 0 6px; border-bottom: 1px solid var(--line); }
+.slist-title { font-size: var(--fs-body); font-weight: 600; }
+.slist-count { font-size: var(--fs-help); color: var(--muted-strong); }
+.slist-cols { margin-left: auto; display: flex; gap: 16px; font-size: var(--fs-help); color: var(--muted-strong); }
+.slist { display: flex; flex-direction: column; }
+.slist-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.slist-row.off > :not(.switch):not(.row-menu):not(.drag-handle) { opacity: .5; }
+.slist-row[data-dragging] { opacity: .4; }
+.slist-row[data-over] { box-shadow: inset 0 2px 0 var(--blue); }
+.slist-spacer { flex: 1; }
+.slist-main { min-width: 0; }
+.slist-msg { margin: 10px 0 0; }
+.drag-handle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 32px; flex-shrink: 0; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: grab; letter-spacing: -2px; font-size: var(--fs-body); }
+.drag-handle:hover { background: var(--hover); color: var(--ink); }
+.drag-handle:active { cursor: grabbing; }
+.drag-handle:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+.drag-handle.placeholder { cursor: default; }
+.drag-handle.placeholder:hover { background: none; }
+.settings-page .settings-tag-chip { font-size: var(--fs-body); padding: 3px 12px 3px 6px; gap: 6px; }
+.tag-dot-btn { display: inline-flex !important; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; cursor: pointer; flex-direction: row !important; }
+.tag-dot-btn:hover { background: var(--hover); }
+.tag-dot-btn:focus-within { outline: 2px solid var(--blue); outline-offset: 1px; }
+.settings-tag-chip .tag-dot-btn i { width: 10px; height: 10px; border-radius: 50%; display: block; }
+.settings-tag-chip.editing input { border: 0; padding: 0; min-height: 28px; height: 28px; width: 220px; background: transparent; outline: none; }
+.settings-page .settings-tag-chip.editing input { min-height: 28px; height: 28px; padding: 0; font-size: var(--fs-body); }
+.slist-add { align-self: flex-start; min-height: 40px; padding: 0 8px 0 34px; border: 0; background: none; color: var(--blue); font: inherit; font-size: var(--fs-body); cursor: pointer; border-radius: 6px; }
+.slist-add:hover { text-decoration: underline; }
+.slist-add-form { background: var(--hover); padding-left: 0; }
+.slist-add-actions { display: inline-flex; gap: 6px; margin-left: auto; }
+.row-menu { position: relative; flex-shrink: 0; }
+.row-menu-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.row-menu-btn:hover, .row-menu-btn[aria-expanded=true] { background: var(--hover); color: var(--ink); }
+.row-menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 160px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 8px 24px var(--shadow); display: flex; flex-direction: column; }
+.row-menu-pop > button { text-align: left; min-height: 36px; padding: 0 12px; border: 0; border-radius: 6px; background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.row-menu-pop > button:hover { background: var(--hover); }
+.row-menu-pop > button.danger { color: var(--red-ink); }
+.row-menu-confirm { display: flex; flex-direction: column; gap: 8px; padding: 8px; width: 240px; font-size: var(--fs-help); }
+/* กฎติดแท็ก */
+.rule-row .slist-input { flex: 1 1 0; min-width: 0; }
+.rule-row .rule-span { flex: 2 1 0; }
+.settings-page .slist-input { min-height: 34px; height: 34px; }
+.rule-arrow { color: var(--muted); flex-shrink: 0; }
+.rule-tag { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 170px; min-width: 0; }
+.rule-tag-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.settings-page .rule-tag select { min-height: 34px; height: 34px; width: 100%; min-width: 0; }
+.slist-head .slist-cols:only-child { margin-left: 0; width: 100%; }
+/* เหตุผลนัด */
+.preset-row .slist-input.name { flex: 1.3 1 0; min-width: 0; }
+.preset-row .slist-input.days { flex: 0 0 76px; }
+.preset-row .slist-input.extra { flex: 1.7 1 0; min-width: 0; }
+.preset-row .row-error { flex-basis: 100%; padding-left: 34px; margin-top: -4px; }
+.preset-row { flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .rule-row, .preset-row { flex-wrap: wrap; }
+  .rule-row .slist-input, .preset-row .slist-input.name, .preset-row .slist-input.extra { flex: 1 1 100%; }
+  .rule-tag { flex: 1 1 auto; }
+}
+/* หัวคอลัมน์ที่ตรงกับช่องในแถว (gap เท่าแถว) */
+.slist-head .slist-cols.aligned { margin-left: 0; width: 100%; gap: 10px; }
+.slist-cols.aligned > span { min-width: 0; }
+.slist-cols .c-handle { flex: 0 0 24px; }
+.slist-cols .c-grow { flex: 1 1 0; }
+.slist-cols .c-name { flex: 1.3 1 0; }
+.slist-cols .c-days { flex: 0 0 76px; }
+.slist-cols .c-extra { flex: 1.7 1 0; }
+.slist-cols .c-switch { flex: 0 0 36px; text-align: center; }
+.slist-cols .c-menu { flex: 0 0 32px; }
+.slist-cols .c-arrow { flex: 0 0 14px; }
+.slist-cols .c-tag { flex: 0 0 170px; }
+@media (max-width: 640px) { .slist-cols.aligned { display: none; } }

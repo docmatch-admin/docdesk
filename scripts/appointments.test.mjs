@@ -1629,7 +1629,7 @@ test("หน้าตั้งค่ามาตรฐาน: เมนูหม
   for (const f of ["reminder_time", "clinic_phone", "clinic_mobile", "line_oa_id", "clinic_address", "clinic_name_en", "clinic_address_en", "send_purpose_in_message", "send_on_create", "template_th", "template_en"]) assert.match(appt, new RegExp(`s\\.${f}`), f);
 
   const presets = read("appointment-presets.tsx");
-  assert.match(presets, /<table className="set-table preset-table">/);
+  assert.match(presets, /className={`slist-row preset-row/);
   assert.match(presets, /<table className="set-table hours-grid">/);
   assert.match(presets, /useSaveUnit\("purpose-presets"/);
   assert.match(presets, /useSaveUnit\("clinic-hours"/);
@@ -1736,4 +1736,39 @@ test("ธีมสว่าง/มืด: ค่าเริ่มต้นต�
   for (const l of ["ตามเครื่อง", "สว่าง", "มืด"]) assert.ok(readFileSync("src/lib/theme.ts", "utf8").includes(`"${l}"`), l);
   assert.match(ts, /role="radiogroup"/);
   assert.doesNotMatch(ts, /useSaveUnit/, "มีผลทันที ไม่รอปุ่มบันทึก");
+});
+
+test("รายการแถวกะทัดรัด: แท็กเป็นชิปจริง คลิกจุดเปลี่ยนสี ลาก ⋮⋮ + ↑/↓ สวิตช์ไม่มีข้อความ เมนู ⋯ เพิ่มท้ายกลุ่ม · ใช้กับเหตุผลนัดและกฎ", () => {
+  const dir = "src/app/(staff)/settings/";
+  const list = readFileSync(dir + "settings-list.tsx", "utf8");
+  assert.match(list, /e\.key === "ArrowUp" \? i - 1 : e\.key === "ArrowDown" \? i \+ 1/);
+  assert.match(list, /draggable: true/);
+  assert.match(list, /aria-live|announce/);
+  assert.doesNotMatch(list, /window\.confirm\(|[^.\w]confirm\(/, "ยืนยันในเมนู ไม่ใช้ dialog ของเบราว์เซอร์");
+  const tags = readFileSync(dir + "tag-settings.tsx", "utf8");
+  assert.match(tags, /className="tag-chip settings-tag-chip"/);
+  assert.match(tags, /<input type="color" className="sr-only"/);
+  assert.match(tags, /<DragHandle/);
+  assert.doesNotMatch(tags, /aria-label=\{`เลื่อน .* (ขึ้น|ลง)`\}/, "ไม่มีปุ่มลูกศรขึ้น/ลง");
+  assert.match(tags, /<Switch checked=\{t\.active\} hideLabel/);
+  assert.match(tags, /columns=\{<span>เปิดใช้<\/span>\}/, "หัวคอลัมน์บอกครั้งเดียว");
+  assert.doesNotMatch(tags, /> เปิดใช้</);
+  assert.match(tags, /\+ เพิ่มแท็ก/);
+  assert.match(tags, /\+ เพิ่มกฎ/);
+  assert.match(tags, /<RowMenu/);
+  assert.doesNotMatch(tags, /SetLine/, "หัวกลุ่มอยู่เหนือรายการ ไม่ใช้คอลัมน์ซ้าย 35%");
+  // ลบแท็กได้เฉพาะที่ยังไม่มีแชท/กฎใช้ (แชทเก็บแท็กเป็นชื่อ)
+  assert.match(tags, /contains\("tags", \[t\.name\]\)/);
+  const presets = readFileSync(dir + "appointment-presets.tsx", "utf8");
+  assert.match(presets, /<DragHandle/);
+  assert.match(presets, /\+ เพิ่มเหตุผลนัด/);
+  assert.match(presets, /<Switch checked=\{r\.active\} hideLabel/);
+  assert.doesNotMatch(presets, /preset-table/);
+  const css = readFileSync("src/app/globals.css", "utf8");
+  assert.match(css, /\.slist-group \{ max-width: 720px;/);
+  assert.match(css, /\.slist-row \{ display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 4px 0; border-bottom: 1px solid var\(--line\); \}/);
+  assert.match(css, /\.switch-track \{ position: relative; width: 36px; height: 20px;/);
+  // แถบบันทึกอยู่ล่างจอทุกหมวด
+  assert.match(css, /\.page\.settings-page \{ min-height: 100%; display: flex; flex-direction: column; \}/);
+  assert.match(css, /\.page\.settings-page > \.settings-layout \{ flex: 1 0 auto;/);
 });

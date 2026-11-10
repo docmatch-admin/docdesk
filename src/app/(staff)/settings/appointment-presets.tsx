@@ -8,6 +8,7 @@ import {
 } from "@/lib/clinic-hours-group";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { SetGroup, SetLine, Switch, useSaveUnit } from "./settings-save";
+import { DragHandle, ListSection, RowMenu, useDragSort } from "./settings-list";
 
 export interface Preset { id: string; name: string; default_days: number | null; reminder_extra_text: string | null; sort_order: number; active: boolean }
 export type Slot = HourSlot;
@@ -16,8 +17,8 @@ interface Closure { closed_on: string; reason: string | null }
 const presetKey = (r: Preset) => JSON.stringify([r.name.trim(), r.default_days, r.reminder_extra_text?.trim() || null, r.active]);
 
 /**
- * preset เหตุผลนัด: ตารางเห็นทั้งหมด (ไม่พับ) · แก้แล้วบันทึกด้วยปุ่ม "บันทึกการตั้งค่า" ของหน้า (ไม่มีปุ่มบันทึกรายแถว)
- * เพิ่มรายการใหม่และเรียงลำดับ (ลาก ⋮⋮ หรือ ↑↓) มีผลทันที
+ * preset เหตุผลนัด: แถวกะทัดรัดแบบเดียวกับแท็ก · แก้แล้วบันทึกด้วยปุ่ม "บันทึกการตั้งค่า" ของหน้า (ไม่มีปุ่มบันทึกรายแถว)
+ * เพิ่ม ลบ (เมนู ⋯) และเรียงลำดับ (ลาก ⋮⋮ หรือโฟกัสแล้วกด ↑/↓) มีผลทันที
  */
 export function PurposePresets({ initial = [] }: { initial?: Preset[] } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
@@ -27,7 +28,7 @@ export function PurposePresets({ initial = [] }: { initial?: Preset[] } = {}) {
   const savedRef = useRef(saved);
   savedRef.current = saved;
   const [rowError, setRowError] = useState<Record<string, string>>({});
-  const [drag, setDrag] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState("");
   const [draft, setDraft] = useState({ name: "", default_days: "", reminder_extra_text: "" });
 
@@ -90,57 +91,53 @@ export function PurposePresets({ initial = [] }: { initial?: Preset[] } = {}) {
     });
     if (error) return flash(error.code === "23505" ? "มีชื่อนี้แล้ว" : `เพิ่มไม่สำเร็จ: ${error.message}`);
     setDraft({ name: "", default_days: "", reminder_extra_text: "" });
+    setAdding(false);
     load();
   }
 
   const setRow = (i: number, patch: Partial<Preset>) => setRows((list) => list.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const sort = useDragSort(rows.length, move);
+
+  async function remove(r: Preset) {
+    // นัดเดิมไม่หาย (purpose_id → null ข้อความเหตุผลที่บันทึกไว้ในนัดยังอยู่)
+    const { error } = await sb.from("appointment_purposes").delete().eq("id", r.id);
+    if (error) return flash(`ลบไม่สำเร็จ: ${error.message}`);
+    setRows((list) => list.filter((x) => x.id !== r.id));
+    load();
+  }
 
   return (
     <SetGroup title="เหตุผลนัด" dirty={dirty} side={<span className="chip">{rows.length} รายการ</span>}
-      info={'ลาก ⋮⋮ หรือกด ↑↓ เพื่อเรียงลำดับ (มีผลทันที) · "นัดอีก (วัน)" = เลือกวันนัดให้อัตโนมัติ · "การปฏิบัติตัว" = ค่าเริ่มต้นที่ส่งในข้อความนัดเสมอ'}>
-      <SetLine label="รายการเหตุผลนัด" desc="ตัวเลือกในฟอร์มนัด · แก้แล้วกดบันทึกการตั้งค่า" full>
-        <div className="set-table-wrap">
-          <table className="set-table preset-table">
-            <thead>
-              <tr><th aria-label="ลากเรียง" /><th>เหตุผลนัด</th><th>นัดอีก (วัน)</th><th>การปฏิบัติตัว</th><th>ใช้</th><th aria-label="เรียงลำดับ" /></tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.id} className={`${r.active ? "" : "off"} ${drag === i ? "dragging" : ""}`} draggable
-                  onDragStart={() => setDrag(i)} onDragOver={(e) => e.preventDefault()} onDragEnd={() => setDrag(null)}
-                  onDrop={(e) => { e.preventDefault(); if (drag !== null) move(drag, i); setDrag(null); }}>
-                  <td className="preset-handle" aria-hidden="true">⋮⋮</td>
-                  <td>
-                    <input aria-label="ชื่อเหตุผลนัด" value={r.name} aria-invalid={!r.name.trim() || !!rowError[r.id] || undefined} onChange={(e) => setRow(i, { name: e.target.value })} />
-                    {rowError[r.id] && <div className="error small">{rowError[r.id]}</div>}
-                  </td>
-                  <td className="num"><input aria-label="นัดอีกกี่วัน" type="number" min={1} placeholder="–"
-                    value={r.default_days ?? ""} onChange={(e) => setRow(i, { default_days: days(e.target.value) })} /></td>
-                  <td><input aria-label="การปฏิบัติตัว" placeholder="–"
-                    value={r.reminder_extra_text ?? ""} onChange={(e) => setRow(i, { reminder_extra_text: e.target.value })} /></td>
-                  <td className="center"><input type="checkbox" aria-label={`ใช้ ${r.name}`} checked={r.active} onChange={(e) => setRow(i, { active: e.target.checked })} /></td>
-                  <td className="actions">
-                    <button type="button" className="icon-btn ghost-icon" aria-label={`เลื่อน ${r.name} ขึ้น`} disabled={i === 0} onClick={() => move(i, i - 1)}>↑</button>
-                    <button type="button" className="icon-btn ghost-icon" aria-label={`เลื่อน ${r.name} ลง`} disabled={i === rows.length - 1} onClick={() => move(i, i + 1)}>↓</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td className="preset-handle" aria-hidden="true">＋</td>
-                <td><input form="preset-add" aria-label="ชื่อเหตุผลนัดใหม่" placeholder="เหตุผลนัดใหม่" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></td>
-                <td className="num"><input form="preset-add" aria-label="นัดอีกกี่วัน" type="number" min={1} placeholder="วัน" value={draft.default_days} onChange={(e) => setDraft({ ...draft, default_days: e.target.value })} /></td>
-                <td><input form="preset-add" aria-label="การปฏิบัติตัว" placeholder="การปฏิบัติตัว" value={draft.reminder_extra_text} onChange={(e) => setDraft({ ...draft, reminder_extra_text: e.target.value })} /></td>
-                <td />
-                <td className="actions"><button form="preset-add" className="btn primary small" disabled={!draft.name.trim()}>เพิ่ม</button></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        <form id="preset-add" onSubmit={add} hidden />
-        {msg && <div className="small">{msg}</div>}
-      </SetLine>
+      info={'ลาก ⋮⋮ หรือกด ↑/↓ เพื่อเรียงลำดับ (มีผลทันที) · "นัดอีก (วัน)" = เลือกวันนัดให้อัตโนมัติ · "การปฏิบัติตัว" = ค่าเริ่มต้นที่ส่งในข้อความนัดเสมอ · แก้ชื่อ/วัน/การปฏิบัติตัว/ใช้ แล้วกดบันทึกการตั้งค่า'}>
+      <ListSection aligned columns={<><span className="c-handle" /><span className="c-name">เหตุผลนัด</span><span className="c-days">นัดอีก (วัน)</span><span className="c-extra">การปฏิบัติตัว</span><span className="c-switch">ใช้</span><span className="c-menu" /></>}>
+        {rows.map((r, i) => (
+          <div key={r.id} className={`slist-row preset-row ${r.active ? "" : "off"}`} role="listitem" {...sort.row(i)}>
+            <DragHandle {...sort.handle(i, r.name || "เหตุผลนัด")} />
+            <input className="slist-input name" aria-label="ชื่อเหตุผลนัด" value={r.name} aria-invalid={!r.name.trim() || !!rowError[r.id] || undefined} onChange={(e) => setRow(i, { name: e.target.value })} />
+            <input className="slist-input days" aria-label={`นัดอีกกี่วัน (${r.name})`} type="number" min={1} placeholder="–"
+              value={r.default_days ?? ""} onChange={(e) => setRow(i, { default_days: days(e.target.value) })} />
+            <input className="slist-input extra" aria-label={`การปฏิบัติตัว (${r.name})`} placeholder="–"
+              value={r.reminder_extra_text ?? ""} onChange={(e) => setRow(i, { reminder_extra_text: e.target.value })} />
+            <Switch checked={r.active} hideLabel label={`ใช้ ${r.name}`} onChange={(v) => setRow(i, { active: v })} />
+            <RowMenu label={`เหตุผลนัด ${r.name}`} items={[{ label: "ลบเหตุผลนัด", danger: true, confirm: `ลบ “${r.name}”? นัดเดิมยังเก็บข้อความเหตุผลไว้ · กู้คืนไม่ได้`, onSelect: () => remove(r) }]} />
+            {rowError[r.id] && <div className="error small row-error">{rowError[r.id]}</div>}
+          </div>
+        ))}
+        {adding ? (
+          <form className="slist-row preset-row slist-add-form" onSubmit={add} onKeyDown={(e) => { if (e.key === "Escape") { setAdding(false); setDraft({ name: "", default_days: "", reminder_extra_text: "" }); } }}>
+            <span className="drag-handle placeholder" aria-hidden="true" />
+            <input autoFocus className="slist-input name" aria-label="ชื่อเหตุผลนัดใหม่" placeholder="เหตุผลนัดใหม่" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+            <input className="slist-input days" aria-label="นัดอีกกี่วัน" type="number" min={1} placeholder="วัน" value={draft.default_days} onChange={(e) => setDraft({ ...draft, default_days: e.target.value })} />
+            <input className="slist-input extra" aria-label="การปฏิบัติตัว" placeholder="การปฏิบัติตัว" value={draft.reminder_extra_text} onChange={(e) => setDraft({ ...draft, reminder_extra_text: e.target.value })} />
+            <span className="slist-add-actions">
+              <button className="btn primary small" disabled={!draft.name.trim()}>เพิ่ม</button>
+              <button type="button" className="btn ghost small" onClick={() => { setAdding(false); setDraft({ name: "", default_days: "", reminder_extra_text: "" }); }}>ยกเลิก</button>
+            </span>
+          </form>
+        ) : <button type="button" className="slist-add" onClick={() => setAdding(true)}>+ เพิ่มเหตุผลนัด</button>}
+        <span className="sr-only" aria-live="polite">{sort.announce}</span>
+      </ListSection>
+      {msg && <div className="small slist-msg">{msg}</div>}
     </SetGroup>
   );
 }

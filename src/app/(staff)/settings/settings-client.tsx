@@ -52,6 +52,8 @@ export interface SettingsPreview {
   appointments?: Parameters<typeof AppointmentSettings>[0] extends infer P ? P extends { initial?: infer A } ? A : never : never;
   channels?: Channel[];
   hours?: Hours;
+  tags?: Parameters<typeof TagSettings>[0] extends infer P ? P extends { initialTags?: infer T } ? T : never : never;
+  tagRules?: Parameters<typeof TagSettings>[0] extends infer P ? P extends { initialRules?: infer R } ? R : never : never;
 }
 
 export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) {
@@ -307,7 +309,7 @@ export function SettingsClient({ preview }: { preview?: SettingsPreview } = {}) 
                     <span className="inline-field"><input id="set-autoclose" className="w-num" type="number" min={0} max={8760} value={autoCloseHours} onChange={(e) => setAutoCloseHours(Number(e.target.value))} /> ชั่วโมง</span>
                   </SetLine>
                 </SetGroup>
-                <TagSettings />
+                <TagSettings initialTags={preview?.tags} initialRules={preview?.tagRules} />
                 <SetGroup title="แชทลับ" dirty={cardDirty("sensitive")} info="ติดแล้วไม่หายเอง เอาออกได้เฉพาะ admin ในห้องแชท">
                   <SetLine label="คำสำคัญ" desc="บรรทัดละคำ ข้อความลูกค้าที่มีคำเหล่านี้จะถูกตั้งเป็นแชทลับ" htmlFor="set-sensitive">
                     <textarea id="set-sensitive" rows={6} value={sensitiveKeywords} onChange={(e) => setSensitiveKeywords(e.target.value)} />
