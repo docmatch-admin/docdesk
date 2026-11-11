@@ -419,6 +419,8 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
 
   async function save(e: React.FormEvent | null, shiftFollowing = false) {
     e?.preventDefault();
+    // เหตุผลนัดบังคับเลือก (ใช้กรอง/สรุปรายงาน และเติมการปฏิบัติตัว) · "อื่นๆ" ต้องพิมพ์เอง
+    if (!form.purpose_text.trim()) return setErr(isOther ? "พิมพ์เหตุผลนัด" : "เลือกเหตุผลนัด");
     if (!form.appoint_date) return setErr("เลือกวันนัด");
     if (form.time_mode === "slot" && !slots.some((s) => s.slot_id === form.slot_id)) return setErr("วันนี้ไม่มีช่วงเวลาที่เลือก — ระบุเวลา หรือเลื่อนไปวันเปิด");
     if (form.time_mode === "exact" && !form.time_start) return setErr("ระบุเวลา");
@@ -474,7 +476,7 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
       )}
 
       <fieldset className="appt-field">
-        <legend>เหตุผลนัด</legend>
+        <legend>เหตุผลนัด <span className="req" aria-hidden="true">*</span></legend>
         <div className="appt-chips">
           {mainPresets.map((p) => (
             <button type="button" key={p.id} className={`appt-chip ${form.purpose_id === p.id ? "on" : ""}`} onClick={() => pickPurpose(p)}

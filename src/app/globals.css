@@ -1788,3 +1788,4 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
   html[data-typing] .health-banner, html[data-typing] .quota-banner { display: none; }
   html[data-typing] .composer { padding-bottom: 6px; }
 }
+.req { color: var(--danger-ink); font-weight: 600; }
