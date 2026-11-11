@@ -4,7 +4,7 @@
  */
 import type { StaffRole } from "./auth-types";
 
-export type SettingsSection = "overview" | "ai" | "chat" | "appointments" | "team" | "display";
+export type SettingsSection = "overview" | "ai" | "chat" | "appointments" | "staff" | "team" | "display";
 
 export type SettingsArea =
   // ภาพรวม
@@ -15,6 +15,8 @@ export type SettingsArea =
   | "businessHours" | "autoClose" | "tags" | "tagRules" | "sensitive"
   // นัดหมาย
   | "apptContact" | "apptMessaging" | "apptTemplate" | "purposes" | "providers" | "clinicHours" | "closures" | "seriesTemplates" | "bookingTemplates" | "testSend"
+  // เจ้าหน้าที่ (บัญชีพนักงาน · admin เท่านั้น)
+  | "staffAccounts"
   // ทีมและระบบ
   | "scoring" | "retention" | "dataRetention" | "audit"
   // การแสดงผล (ส่วนตัว)
@@ -42,6 +44,7 @@ export const SECTION_AREAS: Record<SettingsSection, SettingsArea[]> = {
   ai: ["aiModels", "aiMode", "channels", "persona"],
   chat: ["businessHours", "autoClose", "tags", "tagRules", "sensitive"],
   appointments: ["apptContact", "apptMessaging", "apptTemplate", "purposes", "providers", "clinicHours", "closures", "seriesTemplates", "bookingTemplates", "testSend"],
+  staff: ["staffAccounts"],
   team: ["scoring", "retention", "dataRetention", "audit"],
   display: ["display"],
 };

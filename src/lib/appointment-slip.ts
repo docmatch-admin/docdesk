@@ -60,17 +60,12 @@ export const fullHn = (hn: string) => (/^\d{1,9}$/.test(hn.trim()) ? hn.trim().p
 
 type TimeFields = Pick<Appointment, "time_mode" | "time_start" | "time_end">;
 const isSlot = (a: TimeFields) => a.time_mode === "slot" && !!a.time_end;
-/** ช่วงเช้า/บ่าย ตามเวลาเริ่ม */
-const period = (a: TimeFields, lang: SlipLang) => {
-  const morning = a.time_start.slice(0, 5) < "12:00";
-  return lang === "th" ? (morning ? "ช่วงเช้า" : "ช่วงบ่าย") : morning ? "Morning" : "Afternoon";
-};
 const clock = (t: string, lang: SlipLang) => (lang === "th" ? thaiClock(t) : t.slice(0, 5));
 const range = (a: TimeFields, lang: SlipLang) => `${clock(a.time_start, lang)}–${clock(a.time_end ?? a.time_start, lang)}${lang === "th" ? " น." : ""}`;
 
-/** "ช่วงเช้า 08.00–12.00 น." / "Morning 08:00–12:00" / "เวลา 14.30 น." / "Time 14:30" */
+/** แสดงแค่เวลา: "เวลา 08:00–12:00 น." / "Time 08:00–12:00" / "เวลา 14:30 น." / "Time 14:30" */
 export function slipTime(a: TimeFields, lang: SlipLang): string {
-  if (isSlot(a)) return `${period(a, lang)} ${range(a, lang)}`;
+  if (isSlot(a)) return `${lang === "th" ? "เวลา" : "Time"} ${range(a, lang)}`;
   return lang === "th" ? `เวลา ${thaiClock(a.time_start)} น.` : `Time ${a.time_start.slice(0, 5)}`;
 }
 
@@ -123,14 +118,11 @@ export function slipView(d: SlipData, lang: SlipLang, en: SlipTexts = {}): SlipV
       label: `${x.series_done ? "✓ " : ""}${doseLabel(x.series_label || "", lang)}`,
       when: x.series_done
         ? (th ? `ฉีดแล้ว ${thaiMediumDate(x.appoint_date)}` : `Given ${englishShortDate(x.appoint_date)}`)
-        : `${th ? thaiMediumDate(x.appoint_date) : englishMediumDate(x.appoint_date)} · ${isSlot(x) ? period(x, lang).replace("ช่วง", "") : clock(x.time_start, lang)}`,
+        : `${th ? thaiMediumDate(x.appoint_date) : englishMediumDate(x.appoint_date)} · ${isSlot(x) ? range(x, lang) : clock(x.time_start, lang)}`,
       done: !!x.series_done,
       current: x.id === a.id,
     }));
-    // ใต้ตาราง: ช่วงเวลาเต็มของช่วงที่ใช้ในตาราง 1 บรรทัด
-    const used = new Map<string, string>();
-    for (const x of series) if (!x.series_done && isSlot(x)) used.set(period(x, lang), range(x, lang));
-    seriesNote = used.size ? [...used].map(([p, r]) => `${p.replace("ช่วง", "")} ${r}`).join(" · ") : null;
+    // เวลาอยู่ในตารางแต่ละแถวแล้ว ไม่ต้องมีบรรทัดสรุปช่วงเวลาใต้ตาราง
   }
 
   const linked = d.linkedLine;
