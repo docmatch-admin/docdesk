@@ -1315,7 +1315,7 @@ test("ข้อความพนักงานส่งไม่ได้เ�
 // ---------------------------------------------------------------------------
 // หน้านัดหมาย: แท็บทั้งหมดไม่กรองวันโดยปริยาย badge ตรงกับรายการ
 // ---------------------------------------------------------------------------
-test("แท็บทั้งหมด: ไม่กรองวันโดยปริยาย แสดงนัดที่ผ่านมาแล้ว (ยกเลิกซ่อน เว้นแต่ รวมยกเลิก) ใหม่สุดก่อน badge ตรงกับรายการทุกตัวกรอง", async () => {
+test("แท็บทั้งหมด: ไม่กรองวันโดยปริยาย แสดงนัดที่ผ่านมาแล้ว (ยกเลิกซ่อน เว้นแต่ รวมยกเลิก) ใกล้ถึงก่อน badge ตรงกับรายการทุกตัวกรอง", async () => {
   const past = addAppointment({ appoint_date: inDays(-10), status: "attended", link_code: "LST001" });
   const noShow = addAppointment({ appoint_date: inDays(-3), status: "no_show", link_code: "LST002" });
   const cancelled = addAppointment({ appoint_date: inDays(-1), status: "cancelled", link_code: "LST003" });
@@ -1325,9 +1325,9 @@ test("แท็บทั้งหมด: ไม่กรองวันโดย
   addAppointment({ appoint_date: inDays(-20), status: "attended", series_done: true, link_code: "LST007" });
 
   const all = await store.listAppointments({ tab: "all" });
-  assert.deepEqual(all.map((a) => a.id), [future.id, tomorrowA.id, todayA.id, noShow.id, past.id], "ใหม่สุดก่อน รวมผ่านมาแล้ว ไม่รวมเข็มที่ฉีดแล้ว ไม่รวมยกเลิก");
+  assert.deepEqual(all.map((a) => a.id), [todayA.id, tomorrowA.id, future.id, noShow.id, past.id], "ใกล้ถึงก่อน (วันนี้→ไกล) แล้วนัดที่ผ่านแล้วล่าสุด→เก่า รวมผ่านมาแล้ว ไม่รวมเข็มที่ฉีดแล้ว ไม่รวมยกเลิก");
   const withCancelled = await store.listAppointments({ tab: "all", includeCancelled: true });
-  assert.deepEqual(withCancelled.map((a) => a.id), [future.id, tomorrowA.id, todayA.id, cancelled.id, noShow.id, past.id], "รวมยกเลิก");
+  assert.deepEqual(withCancelled.map((a) => a.id), [todayA.id, tomorrowA.id, future.id, cancelled.id, noShow.id, past.id], "รวมยกเลิก");
   assert.deepEqual((await store.listAppointments({ tab: "all", status: "cancelled" })).map((a) => a.id), [cancelled.id], "กรองสถานะยกเลิก");
   const cases = [
     {},
