@@ -554,7 +554,13 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .appt-picked.warn { color: var(--warn-ink); }
 .appt-link-state { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn-ink); }
 .appt-link-state.ok { background: var(--mint-soft); color: var(--green-ink); }
-.appt-table td { vertical-align: top; }
+.appt-table td { vertical-align: middle; height: 48px; }
+/* ทุกนัดอยู่บรรทัดเดียว: ข้อความชิดซ้าย ยาวเกินตัดด้วย … (ชื่อเต็มอยู่ใน tooltip) */
+.appt-table th, .appt-table td { text-align: left; white-space: nowrap; }
+.appt-table .appt-name-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.appt-table .appt-purpose-cell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.appt-table .appt-time-cell { font-variant-numeric: tabular-nums; }
+.appt-table td:last-child, .appt-table th:last-child { text-align: center; }
 /* นัดที่ปิดแล้ว (มา/ไม่มา/ยกเลิก): ตัวอักษรสีรอง ไม่ลด opacity (คอนทราสต์ ≥ 4.5:1 ทั้งสองโหมด) */
 .appt-table tr.appt-closed td, .appt-table tr.appt-closed td .muted { color: var(--muted-strong); }
 .appt-actions { white-space: nowrap; }
