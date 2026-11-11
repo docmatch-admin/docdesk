@@ -48,7 +48,10 @@ export function BookingsClient() {
 
   return (
     <div className="page">
-      <h1>นัดหมาย</h1>
+      <div className="page-toolbar">
+        <Link className="btn ghost" href="/appointments"><span aria-hidden="true">←</span> นัดหมาย</Link>
+        <h1>นัดที่ AI รับไว้</h1>
+      </div>
       {SECTIONS.map(({ status, title }) => {
         const list = rows.filter((r) => r.status === status);
         return (
