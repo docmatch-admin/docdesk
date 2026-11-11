@@ -23,6 +23,8 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  // Android: คีย์บอร์ดขึ้นแล้วย่อหน้าเว็บ ช่องพิมพ์ไม่ถูกบัง (iOS จัดการใน useMobileTyping)
+  interactiveWidget: "resizes-content",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#f4f6fa" },
     { media: "(prefers-color-scheme: dark)", color: "#12151c" },

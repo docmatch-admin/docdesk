@@ -22,7 +22,7 @@ import { LabPanel } from "./lab-panel";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import { TeamPanel } from "./team-panel";
-import { MobileChatTabs, NextAppointmentStrip, type ApptSummary, type MobileTab } from "./mobile-chat";
+import { MobileChatTabs, NextAppointmentStrip, useMobileTyping, type ApptSummary, type MobileTab } from "./mobile-chat";
 import {
   AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL,
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
@@ -83,7 +83,6 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const [mtab, setMtab] = useState<MobileTab>("chat");
   const [apptSummary, setApptSummary] = useState<ApptSummary | null>(null);
   const [noteCount, setNoteCount] = useState(0);
-  const customerPanelRef = useRef<HTMLDetailsElement>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -608,7 +607,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   const shown = lists[filter];
   useEffect(() => { setMtab("chat"); setApptSummary(null); setNoteCount(0); }, [selectedId]);
-  useEffect(() => { if (mtab === "info" && customerPanelRef.current) customerPanelRef.current.open = true; }, [mtab]);
+  useMobileTyping(!!selectedId);
   const openTasks = selected?.open_tasks ?? 0;
   // กดเสร็จแล้วไม่ได้เมื่อยังมีนัดรอลง หรืองานของทีมยังไม่ครบ server ตรวจซ้ำอีกชั้น
   const doneHint = selected?.booking_pending ? "ลงนัดก่อน" : openTasks > 0 ? `เหลือ ${openTasks} งานที่ยังไม่เสร็จ` : "";
@@ -797,7 +796,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               <NextAppointmentStrip next={apptSummary.next} blurred={blurred} onOpen={() => setMtab("appt")} />
             )}
 
-            <details className="customer-panel" ref={customerPanelRef}>
+            <details className="customer-panel">
               <summary>ข้อมูลลูกค้า</summary>
               <div className="small">ช่องทาง: {selected.channels?.name} · ภาษา: {LANGUAGE_NAME[customerLang] ?? customerLang}</div>
               <div className="small"><b>ประวัติผู้ดูแล</b></div>
@@ -942,6 +941,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                   <button className="btn ghost small" onClick={() => { setAttachment(null); setCaption(""); }}>ยกเลิก</button>
                 </div>
               )}
+              <div className="composer-input">
               <textarea
                 value={text}
                 onChange={(e) => { setText(e.target.value); if (!e.target.value.trim()) setCancelBookingId(null); }}
@@ -949,6 +949,14 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 onPaste={onPaste}
                 placeholder={customerLang !== "th" && !rawMode ? "พิมพ์ภาษาไทย ระบบจะแปลให้ลูกค้า… (Ctrl+Enter ส่ง)" : "พิมพ์ข้อความ… (Ctrl+Enter ส่ง)"}
               />
+              {/* มือถือ: ปุ่มส่งข้างช่องพิมพ์ (จอใหญ่ใช้ปุ่มส่งด้านล่างเหมือนเดิม) */}
+              <button type="button" className="m-send" aria-label={customerLang !== "th" && !rawMode ? "แปลและส่ง" : "ส่ง"}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={attachment ? sendAttachment : send}
+                disabled={sending || metaWindow === "closed" || (!attachment && !text.trim())}>
+                <Icon name="send" size={20} />
+              </button>
+              </div>
               {sendError && (
                 <div className="send-error" role="alert">⛔ {sendError} — ข้อความยังอยู่ในช่องพิมพ์ ยังไม่ถึงลูกค้า{/โควตา LINE/.test(sendError) ? " (ตอบได้อีกครั้งเมื่อลูกค้าทักมาใหม่ หรือโทรหาลูกค้า)" : ""}</div>
               )}
@@ -956,7 +964,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 <div className="muted small">
                   <button className="btn ghost small attach-btn" title="แนบรูปหรือ PDF (ลากวาง หรือ Ctrl+V ได้)" aria-label="แนบรูปหรือ PDF"
                     onClick={() => fileInput.current?.click()}>📎</button>
-                  <button className="btn ghost small attach-btn" aria-expanded={labOpen} onClick={() => setLabOpen(!labOpen)}>💰 ราคาแล็บ</button>
+                  <button className="btn ghost small attach-btn" aria-expanded={labOpen} onClick={() => setLabOpen(!labOpen)}>💰<span className="lab-label"> ราคาแล็บ</span></button>
                   <input ref={fileInput} type="file" accept="image/*,.heic,.heif,application/pdf,.pdf" hidden
                     onChange={(e) => { attachFile(e.target.files?.[0]); e.target.value = ""; }} />
                   {cancelBookingId && "📅 ส่งข้อความนี้แล้วนัดจะถูกยกเลิก "}
@@ -975,11 +983,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                   <span className="quota-hint maybe" title="ลูกค้าทักมาเกิน 1 นาที ระบบจะลองตอบแบบ reply (ฟรี) ถ้า LINE ไม่รับจะส่งแบบ push นับโควตา">📊 อาจนับโควตา</span>
                 )}
                 {attachment ? (
-                  <button className="btn primary" onClick={sendAttachment} disabled={sending || metaWindow === "closed"}>
+                  <button className="btn primary foot-send" onClick={sendAttachment} disabled={sending || metaWindow === "closed"}>
                     {sending ? "กำลังส่ง…" : attachment.kind === "file" ? "ส่งไฟล์" : "ส่งรูป"}
                   </button>
                 ) : (
-                  <button className="btn primary" onClick={send} disabled={sending || !text.trim() || metaWindow === "closed"}>
+                  <button className="btn primary foot-send" onClick={send} disabled={sending || !text.trim() || metaWindow === "closed"}>
                     {sending ? "กำลังส่ง…" : customerLang !== "th" && !rawMode ? `แปล & ส่ง` : "ส่ง"}
                   </button>
                 )}

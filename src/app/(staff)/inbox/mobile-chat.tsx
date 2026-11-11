@@ -1,11 +1,12 @@
 "use client";
 
+import { useEffect } from "react";
 import { deliveryState, DELIVERY_LABEL, thaiShortDate, timeShort, type Appointment } from "@/lib/appointment-rules";
 import { Icon } from "../icons";
 import type { SideGroup } from "./appointments-side-view";
 
 /** แท็บห้องแชทบนมือถือ (จอใหญ่ไม่แสดง ใช้กล่องขวาเหมือนเดิม) */
-export type MobileTab = "chat" | "appt" | "tasks" | "notes" | "info";
+export type MobileTab = "chat" | "appt" | "tasks" | "notes";
 export interface ApptSummary { count: number; next: Appointment | null }
 
 /** นัดที่ยังไม่ถึงของทุก HN ที่ผูกกับแชทนี้ · นัดถัดไป = ใกล้สุด */
@@ -23,7 +24,6 @@ export function MobileChatTabs({ tab, onTab, appointments, tasks, notes }: {
     ["appt", "นัด", appointments],
     ["tasks", "งาน", tasks],
     ["notes", "คอมเมนต์", notes, "note"],
-    ["info", "ข้อมูลคนไข้", 0],
   ];
   return (
     <div className="mtabs" role="tablist" aria-label="ส่วนของแชท">
@@ -37,6 +37,46 @@ export function MobileChatTabs({ tab, onTab, appointments, tasks, notes }: {
       ))}
     </div>
   );
+}
+
+/**
+ * มือถือ: ตอนพิมพ์ (คีย์บอร์ดขึ้น) ล็อกหน้าแชทให้พอดีพื้นที่ที่เห็นจริง (visualViewport) และซ่อนส่วนเสริม
+ * <html data-typing> + --app-h / --vv-top ใช้ใน CSS · iOS ไม่ย่อหน้าเว็บเองเวลาคีย์บอร์ดขึ้น จึงต้องคำนวณเอง
+ */
+export function useMobileTyping(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+    const mq = window.matchMedia("(max-width: 899px)");
+    const typing = () => {
+      const el = document.activeElement;
+      return mq.matches && !!el && el.closest(".composer") !== null && (el.tagName === "TEXTAREA" || el.tagName === "INPUT");
+    };
+    const update = () => {
+      if (vv) {
+        root.style.setProperty("--app-h", `${Math.round(vv.height)}px`);
+        root.style.setProperty("--vv-top", `${Math.round(vv.offsetTop)}px`);
+      }
+      root.toggleAttribute("data-typing", typing());
+    };
+    // focusout เกิดก่อน focus ไปที่อื่น รอให้ activeElement เปลี่ยนก่อน
+    const later = () => setTimeout(update, 0);
+    update();
+    vv?.addEventListener("resize", update);
+    vv?.addEventListener("scroll", update);
+    document.addEventListener("focusin", update);
+    document.addEventListener("focusout", later);
+    return () => {
+      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("scroll", update);
+      document.removeEventListener("focusin", update);
+      document.removeEventListener("focusout", later);
+      root.removeAttribute("data-typing");
+      root.style.removeProperty("--app-h");
+      root.style.removeProperty("--vv-top");
+    };
+  }, [active]);
 }
 
 const STRIP_STATE: Record<string, string> = { confirmed: "ok", reschedule: "warn", failed: "bad", no_chat: "bad" };
