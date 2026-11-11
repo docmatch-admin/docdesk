@@ -30,6 +30,23 @@ export const shortHn = (hn: string) => hn.replace(/^0+(?=\d)/, "");
 /** ชื่อหมอจาก HIS มักมีช่องว่างซ้อน */
 const tidy = (s: string) => s.replace(/\s+/g, " ").trim();
 
+/** หัวแบบแอปมือถือ (จอใหญ่ซ่อน): ✕/← · ทำนัดใหม่ · 1/2 + แถบความคืบหน้า */
+function MobileHead({ step, onClose, onBack }: { step: 1 | 2; onClose: () => void; onBack?: () => void }) {
+  return (
+    <div className="appt-new-mhead">
+      <div className="mhead-row">
+        {step === 2 && onBack
+          ? <button type="button" className="mhead-btn" aria-label="กลับไปเลือกคนไข้" onClick={onBack}><Icon name="chevronLeft" size={24} /></button>
+          : <button type="button" className="mhead-btn" aria-label="ปิด" onClick={onClose}><Icon name="x" size={22} /></button>}
+        <h2>ทำนัดใหม่</h2>
+        <span className="mhead-step">{step}/2</span>
+      </div>
+      <div className="mhead-progress" aria-hidden="true"><span className="on" /><span className={step === 2 ? "on" : ""} /></div>
+      {step === 1 && <div className="mhead-title">เลือกคนไข้</div>}
+    </div>
+  );
+}
+
 function Steps({ step }: { step: 1 | 2 }) {
   return (
     <ol className="appt-steps" aria-label="ขั้นตอนทำนัด">
@@ -136,6 +153,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
   if (draft) {
     return (
       <section className="card appt-new">
+        <MobileHead step={2} onClose={onClose} onBack={() => setDraft(null)} />
         <div className="appt-new-head">
           <Steps step={2} />
           <button type="button" className="btn ghost small" onClick={onClose}>ปิด</button>
@@ -155,6 +173,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
 
   return (
     <section className="card appt-new">
+      <MobileHead step={1} onClose={onClose} />
       <div className="appt-new-head">
         <Steps step={1} />
         <button type="button" className="btn ghost small" onClick={onClose}>ปิด</button>
@@ -163,7 +182,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
       <div className="appt-pick-toolbar">
         <div className="segmented" role="tablist" aria-label="วิธีเลือกคนไข้">
           {SOURCES.map(([k, label]) => (
-            <button key={k} type="button" role="tab" aria-selected={source === k} className={source === k ? "on" : ""} onClick={() => chooseSource(k)}>{label}</button>
+            <button key={k} type="button" role="tab" aria-selected={source === k} className={source === k ? "on" : ""} onClick={() => chooseSource(k)}>{label}{k === "today" && visits ? ` · ${visits.length}` : ""}</button>
           ))}
         </div>
         {source === "today" && (

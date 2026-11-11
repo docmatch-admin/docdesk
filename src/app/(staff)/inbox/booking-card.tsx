@@ -91,7 +91,7 @@ export function BookingsBlock({ conversationId, contactName, bookings, blurred, 
   const pending = bookings.filter((b) => b.status === "ai_confirmed");
   if (!pending.length) return null;
   return (
-    <section className="side-block">
+    <section className="side-block tp-appt">
       <div className="side-head">
         <h3>นัดที่ AI รับไว้</h3>
         <span className="chip red tiny">ยังไม่ลงนัด</span>

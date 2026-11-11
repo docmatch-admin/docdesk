@@ -22,6 +22,7 @@ import { LabPanel } from "./lab-panel";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import { TeamPanel } from "./team-panel";
+import { MobileChatTabs, NextAppointmentStrip, type ApptSummary, type MobileTab } from "./mobile-chat";
 import {
   AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL,
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
@@ -78,6 +79,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   // ข้อความขอเลื่อนที่อยู่ในช่องพิมพ์: ส่งแล้วจึงยกเลิกนัดนี้
   const [cancelBookingId, setCancelBookingId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // มือถือ: ห้องแชทแบ่งเป็นแท็บ แชท · นัด · งาน · คอมเมนต์ · ข้อมูลคนไข้ (จอใหญ่แสดงทุกส่วนพร้อมกันเหมือนเดิม)
+  const [mtab, setMtab] = useState<MobileTab>("chat");
+  const [apptSummary, setApptSummary] = useState<ApptSummary | null>(null);
+  const [noteCount, setNoteCount] = useState(0);
+  const customerPanelRef = useRef<HTMLDetailsElement>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -601,6 +607,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
   const shown = lists[filter];
+  useEffect(() => { setMtab("chat"); setApptSummary(null); setNoteCount(0); }, [selectedId]);
+  useEffect(() => { if (mtab === "info" && customerPanelRef.current) customerPanelRef.current.open = true; }, [mtab]);
   const openTasks = selected?.open_tasks ?? 0;
   // กดเสร็จแล้วไม่ได้เมื่อยังมีนัดรอลง หรืองานของทีมยังไม่ครบ server ตรวจซ้ำอีกชั้น
   const doneHint = selected?.booking_pending ? "ลงนัดก่อน" : openTasks > 0 ? `เหลือ ${openTasks} งานที่ยังไม่เสร็จ` : "";
@@ -627,9 +635,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const edited = chosen != null && suggestion?.options[chosen] && suggestion.options[chosen].text !== text;
 
   return (
-    <div className={`inbox ${selected ? "has-chat" : ""}`}>
+    <div className={`inbox ${selected ? "has-chat" : ""}`} data-mtab={mtab}>
       {/* ---------- รายการแชท ---------- */}
       <aside className="conv-list">
+        <div className="m-inbox-head" aria-hidden="true">Doc<span>Desk</span></div>
         <div className="inbox-search">
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="ค้นหาชื่อ ข้อความ หรือแท็ก…" aria-label="ค้นหาแชท" />
@@ -639,9 +648,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             ทั้งหมด {counts.open > 0 && <b className="badge muted-badge">{counts.open}</b>}
           </button>
           <button role="tab" aria-selected={filter === "waiting"} className={filter === "waiting" ? "on" : ""} onClick={() => setFilter("waiting")}>
-            🔴 รอตอบ {counts.waiting + maskedWaiting.length > 0 && <b className="badge red">{counts.waiting + maskedWaiting.length}</b>}
+            <span className="tab-emoji" aria-hidden="true">🔴 </span>รอตอบ {counts.waiting + maskedWaiting.length > 0 && <b className="badge red">{counts.waiting + maskedWaiting.length}</b>}
           </button>
-          <button role="tab" aria-selected={filter === "closed"} className={filter === "closed" ? "on" : ""} onClick={() => setFilter("closed")}>✅ เสร็จแล้ว</button>
+          <button role="tab" aria-selected={filter === "closed"} className={filter === "closed" ? "on" : ""} onClick={() => setFilter("closed")}><span className="tab-emoji" aria-hidden="true">✅ </span>เสร็จแล้ว</button>
         </div>
         <div className="scope-filter" role="group" aria-label="ขอบเขตแชท">
           <button className={scope === "all" ? "on" : ""} aria-pressed={scope === "all"} onClick={() => changeScope("all")}>ทุกคน</button>
@@ -677,9 +686,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           <div className="empty">{filter === "closed" ? "ยังไม่มีแชทที่เสร็จแล้ว" : "ยังไม่มีแชท"}</div>
         ))}
         {shown.map((c) => (
-          <button key={c.id} className={`conv ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""}`}
+          <button key={c.id} className={`conv ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""} ${c.status !== "closed" && isWaitingForReply(c) ? "waiting" : ""}`}
             onClick={() => setSelectedId(c.id)}>
-            {c.sensitive ? <div className="avatar">🔒</div> : <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />}
+            <span className="conv-avatar">
+              {c.sensitive ? <div className="avatar">🔒</div> : <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />}
+              <span className={`ch-dot ch-${c.channels?.type ?? "other"}`} aria-hidden="true" />
+            </span>
             <div className="conv-body">
               <div className="conv-top">
                 <span className={`name ${c.sensitive ? "sensitive-text" : ""}`}>{contactName(c.contacts)}</span>
@@ -778,7 +790,14 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               )}
             </header>
 
-            <details className="customer-panel">
+            {!selected.archived && (
+              <MobileChatTabs tab={mtab} onTab={setMtab} appointments={apptSummary?.count ?? 0} tasks={openTasks} notes={noteCount} />
+            )}
+            {!selected.archived && apptSummary?.next && mtab === "chat" && (
+              <NextAppointmentStrip next={apptSummary.next} blurred={blurred} onOpen={() => setMtab("appt")} />
+            )}
+
+            <details className="customer-panel" ref={customerPanelRef}>
               <summary>ข้อมูลลูกค้า</summary>
               <div className="small">ช่องทาง: {selected.channels?.name} · ภาษา: {LANGUAGE_NAME[customerLang] ?? customerLang}</div>
               <div className="small"><b>ประวัติผู้ดูแล</b></div>
@@ -973,7 +992,13 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       </section>
       {selected && !locked && (
         <aside className="team-panel" aria-label="ข้อมูลแชทและงานของทีม">
-          <section className="side-block">
+          <section className="side-block tp-info">
+            {!selected.archived && (
+              <div className="m-only m-assignee">
+                <AssigneeControl me={me} assignedTo={selected.assigned_to} onChange={assign}
+                  staff={selected.sensitive ? staffList.filter((s) => s.role === "admin" || s.can_view_sensitive) : staffList} />
+              </div>
+            )}
             <div className="side-tags">
               {selected.tags.map((t) => (
                 <TagChip key={t} name={t} color={tagColor.get(t)} ai={tagSources[t] === "ai"}
@@ -1012,9 +1037,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             <>
               <BookingsBlock conversationId={selected.id} contactName={selected.contacts?.display_name ?? null} bookings={bookings} blurred={blurred}
                 onError={flash} onReschedule={draftReschedule} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
-              <AppointmentsBlock conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
+              <AppointmentsBlock onSummary={setApptSummary} conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
                 onMessage={flash} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
-              <TeamPanel conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
+              <TeamPanel onNoteCount={setNoteCount} conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
                 staff={staffList} onChanged={loadConvs} onError={flash} />
             </>
           )}

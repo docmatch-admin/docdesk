@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DocDesk · ไม่มีอินเทอร์เน็ต</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f4f6fa; --card: #fff; --ink: #1d2233; --muted: #646b7f; --accent: #4a63e0; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #12141b; --card: #1c1f2a; --ink: #e8eaf0; --muted: #a3a9b8; } }
+  html, body { margin: 0; height: 100%; }
+  body { display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); color: var(--ink);
+    font-family: "IBM Plex Sans Thai", system-ui, sans-serif; text-align: center; }
+  .box { max-width: 360px; }
+  img { width: 72px; height: 72px; border-radius: 18px; }
+  h1 { font-size: 20px; margin: 16px 0 6px; }
+  p { color: var(--muted); margin: 0 0 20px; line-height: 1.6; }
+  button { border: 0; border-radius: 10px; padding: 12px 22px; font: inherit; font-weight: 600; background: var(--accent); color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <img src="/icons/icon-192.png" alt="">
+    <h1>ไม่มีการเชื่อมต่ออินเทอร์เน็ต</h1>
+    <p>DocDesk ต้องออนไลน์เพื่อดูแชทและนัดหมาย<br>ข้อมูลคนไข้ไม่ถูกเก็บไว้ในเครื่องเพื่อความปลอดภัย</p>
+    <button onclick="location.reload()">ลองใหม่</button>
+  </div>
+</body>
+</html>

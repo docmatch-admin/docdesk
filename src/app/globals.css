@@ -42,6 +42,8 @@
   --ch-facebook: #1565d8; --ch-facebook-soft: #e9f0fe; --ch-facebook-ink: #1460c7;
   --ch-instagram: #c13584; --ch-instagram-soft: #fde9f3; --ch-instagram-ink: #a72a70;
   --ch-other: #646b7f;
+  /* จุดช่องทางบนรูปโปรไฟล์ (สีแบรนด์ ไม่มีตัวอักษรทับ) */
+  --ch-dot-line: #06c755; --ch-dot-facebook: #3b82f6; --ch-dot-instagram: #e1306c;
   /* bubble แชท: ลูกค้า / พนักงาน / AI / บันทึกภายใน */
   --bubble-in-bg: #fff; --bubble-in-ink: #1d2233; --bubble-in-border: #e4e7ef;
   --bubble-out-bg: #4a63e0; --bubble-out-ink: #fff;
@@ -391,10 +393,8 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .name-edit input { padding: 4px 8px; }
 
 @media (max-width: 899px) {
-  .conv-list { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
-  .inbox-tabs { position: fixed; top: auto; left: 0; right: 0; bottom: 0; z-index: 30; border-bottom: 0; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
-  .inbox-tabs button { border-bottom: 0; border-top: 3px solid transparent; }
-  .inbox-tabs button.on { border-top-color: var(--blue); }
+  /* แท็บ ทั้งหมด/รอตอบ/เสร็จแล้ว อยู่บนสุดของรายการ (แถบล่างเป็นเมนูหลักของแอป) */
+  .inbox-tabs { position: sticky; top: 0; }
   .inbox:not(.has-chat) .chat, .inbox:not(.has-chat) .chat-area { display: none; }
   .inbox.has-chat .conv-list { display: none; }
   .chat-back { display: inline-flex !important; }
@@ -413,7 +413,7 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 }
 
 /* ---------- สุขภาพระบบ ---------- */
-.staff-root { display: flex; flex-direction: column; height: 100vh; }
+.staff-root { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 .staff-root .shell { flex: 1; min-height: 0; height: auto; }
 .staff-root .inbox { height: 100%; }
 .health-banner { background: var(--danger-solid); color: var(--on-accent); padding: 6px 16px; font-weight: 600; flex-shrink: 0; }
@@ -1504,3 +1504,266 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .page-toolbar-note { flex: 1 1 320px; margin: 0; }
 .page-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
 .staff-embedded .card { margin-top: 12px; }
+
+
+/* ===========================================================================
+   แอปมือถือ (PWA) ≤ 900px: แถบเมนูล่าง แชท · นัดหมาย · เมนู · เมนูเต็มเป็นแผ่นเลื่อนขึ้น
+   ======================================================================== */
+.mobile-tabbar, .mnav-backdrop { display: none; }
+.install-help { margin: 4px 0 0; padding: 8px 10px 8px 26px; border-radius: 8px; background: var(--bg); color: var(--ink); line-height: 1.6; }
+@media (max-width: 900px) {
+  .mobile-tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    background: var(--card); border-top: 1px solid var(--line);
+    padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .mobile-tabbar a, .mobile-tabbar button {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    min-height: 56px; border: 0; background: none; color: var(--muted); text-decoration: none; font: inherit; font-size: 12px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .mobile-tabbar .on { color: var(--blue); font-weight: 600; }
+  .mobile-tabbar svg { display: block; }
+  .mnav-icon { position: relative; display: inline-flex; }
+  .mnav-icon .nav-count { position: absolute; top: -6px; right: -12px; margin: 0; font-size: 11px; min-width: 18px; padding: 0 5px; }
+
+  /* เนื้อหาไม่ถูกแถบล่างบัง */
+  .staff-root .main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
+
+  /* ในห้องแชทซ่อนแถบล่าง ให้ช่องพิมพ์ติดขอบล่าง (กลับออกด้วยปุ่ม ← ที่หัวแชท) */
+  .staff-root:has(.inbox.has-chat) .mobile-tabbar { display: none; }
+  .staff-root:has(.inbox.has-chat) .main { padding-bottom: env(safe-area-inset-bottom); }
+  .chat-area > .chat { height: 100dvh; }
+
+  /* เมนูเต็ม = เมนูซ้ายเดิมแสดงเป็นแผ่นเลื่อนขึ้น */
+  html[data-mnav-open] .nav {
+    display: flex !important; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; width: auto !important;
+    max-height: 85dvh; overflow-y: auto; border-right: 0; border-radius: 18px 18px 0 0;
+    padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 30px var(--shadow);
+    animation: mnav-up .18s ease-out;
+  }
+  html[data-mnav-open] .nav .nav-label, html[data-mnav-open] .nav .nav-extra { display: flex !important; }
+  html[data-mnav-open] .nav a { justify-content: flex-start !important; padding: 9px 12px !important; }
+  html[data-mnav-open] .nav .brand { display: none; }
+  html[data-mnav-open] .nav .nav-toggle { display: none; }
+  html[data-mnav-open] .nav-foot { padding: 8px 0 0; border-top: 1px solid var(--line); margin-top: 8px; }
+  .mnav-backdrop { display: block; position: fixed; inset: 0; z-index: 55; border: 0; background: rgba(0, 0, 0, .4); }
+  @keyframes mnav-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+
+  /* ปุ่ม/ช่องกรอกบนมือถือ: ตัวอักษร ≥16px กัน iPhone ซูมเอง และกดง่าย */
+  input, select, textarea { font-size: 16px; }
+  .btn { min-height: 44px; }
+  .btn.small { min-height: 36px; }
+}
+@media (display-mode: standalone) {
+  /* แอปที่ติดตั้ง: ไม่ให้หน้าดึงเด้งทั้งหน้า (เลื่อนเฉพาะในรายการ) */
+  html, body { overscroll-behavior-y: none; }
+}
+
+/* ===========================================================================
+   แอปมือถือ (≤ 899px) ตามแบบที่เลือก: เมนูลอย · รายการแชท · ห้องแชทแบบแท็บ · นัดหมายแบบแถบวัน · ทำนัดเต็มจอ
+   ใช้ token ทั้งหมด → สว่าง/มืดตามเครื่อง หรือตามที่เลือกใน ตั้งค่า → การแสดงผล
+   ======================================================================== */
+.m-inbox-head, .mtabs, .next-appt, .m-only, .appt-m, .appt-new-mhead, .ch-dot { display: none; }
+.conv-avatar { display: contents; }
+
+@media (max-width: 899px) {
+  /* ---------- เมนูลอย ---------- */
+  .mobile-tabbar {
+    left: 20px; right: 20px; bottom: calc(14px + env(safe-area-inset-bottom)); height: 60px; padding: 4px;
+    border: 1px solid var(--line); border-radius: 30px; background: var(--card); box-shadow: 0 10px 30px var(--shadow);
+  }
+  .mobile-tabbar a, .mobile-tabbar button { flex-direction: row; gap: 6px; min-height: 0; border-radius: 26px; font-size: 14px; color: var(--muted); }
+  .mobile-tabbar a:not(.on) > span:last-child, .mobile-tabbar button:not(.on) > span:last-child { display: none; }
+  .mobile-tabbar .on { background: var(--accent-solid); color: var(--on-accent); font-weight: 600; }
+  .mobile-tabbar .on .nav-count { display: none; }
+  .mnav-icon .nav-count { top: -4px; right: -10px; }
+  .staff-root .main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  /* รายการแชทเลื่อนลอดใต้เมนูลอยได้ */
+  .staff-root:has(.inbox:not(.has-chat)) .main { padding-bottom: 0; }
+  .inbox:not(.has-chat) .conv-list { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+
+  /* ---------- รายการแชท ---------- */
+  .conv-list { background: var(--card); }
+  .m-inbox-head { display: block; padding: calc(14px + env(safe-area-inset-top)) 16px 2px; font-size: 22px; font-weight: 700; }
+  .m-inbox-head span { color: var(--red); }
+  .inbox-search { padding: 8px 16px; }
+  .inbox-search input { height: 44px; border-radius: 12px; background: var(--bg); padding: 0 14px; }
+  .inbox-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 4px 16px 10px; border-bottom: 1px solid var(--line); }
+  .inbox-tabs button { height: 40px; font-size: 14px; border: 1px solid var(--line); border-radius: 20px; color: var(--muted-strong); }
+  .inbox-tabs button:nth-child(2) { order: -1; }
+  .inbox-tabs button.on { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+  .inbox-tabs button:hover { background: none; }
+  .inbox-tabs button.on:hover { background: var(--accent-solid); }
+  .inbox-tabs .badge, .inbox-tabs .badge.muted-badge, .inbox-tabs .badge.red { background: none; color: inherit; padding: 0; min-width: 0; font-size: 14px; }
+  .tab-emoji, .scope-filter { display: none; }
+  .tag-filter { margin: 8px 16px 0; }
+  .conv { padding: 12px 16px; gap: 12px; }
+  .conv.waiting { background: var(--hover); }
+  .conv.waiting .conv-top .muted { color: var(--danger-ink); font-weight: 600; }
+  .conv-avatar { display: block; position: relative; flex: none; }
+  .conv-avatar .avatar { border-radius: 12px; }
+  .ch-dot { display: block; position: absolute; right: -3px; top: -3px; width: 12px; height: 12px; border-radius: 6px; border: 2px solid var(--card); background: var(--ch-other); }
+  .ch-dot.ch-line { background: var(--ch-dot-line); }
+  .ch-dot.ch-facebook { background: var(--ch-dot-facebook); }
+  .ch-dot.ch-instagram { background: var(--ch-dot-instagram); }
+  .conv .chips > .chip[class*="ch-"], .conv .chips > .chip[class*="mode-"] { display: none; }
+  .conv-preview { font-size: 14px; }
+
+  /* ---------- ห้องแชท ---------- */
+  .chat-head { padding: calc(6px + env(safe-area-inset-top)) 8px 6px 2px; gap: 4px; flex-wrap: nowrap; align-items: center; }
+  .chat-head > .avatar, .chat-head .assignee { display: none; }
+  .chat-head-main { flex: 1 1 auto; }
+  .chat-head .head-line { flex-wrap: wrap; row-gap: 0; }
+  .chat-head .head-line .name { max-width: calc(100% - 30px); }
+  .chat-head .name { font-size: 16px; }
+  .chat-head .head-sub { display: block; flex-basis: 100%; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .head-done { min-height: 36px; padding: 0 12px; white-space: nowrap; }
+  .m-only { display: block; }
+
+  .mtabs { display: flex; flex: none; gap: 16px; padding: 0 12px; overflow-x: auto; scrollbar-width: none; background: var(--card); border-bottom: 1px solid var(--line); }
+  .mtabs::-webkit-scrollbar { display: none; }
+  .mtabs button { flex: none; height: 42px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font-size: 14px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .mtabs button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--blue); }
+  .mtab-badge.note { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--warning-soft); color: var(--warning-ink); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+
+  .next-appt { display: flex; flex: none; align-items: center; gap: 10px; margin: 10px 12px 0; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); text-align: left; font-size: 14px; cursor: pointer; }
+  .next-appt svg { flex: none; color: var(--blue); }
+  .next-appt-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted-strong); }
+  .next-appt-text b { color: var(--ink); font-weight: 600; }
+  .next-appt-state { flex: none; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--neutral-soft); color: var(--ink); }
+  .next-appt-state.ok { background: var(--success-soft); color: var(--success-ink); }
+  .next-appt-state.warn { background: var(--warning-soft); color: var(--warning-ink); }
+  .next-appt-state.bad { background: var(--danger-soft); color: var(--danger-ink); }
+
+  .status-strip { display: none; }
+  .messages { padding: 12px; gap: 6px; }
+  .bubble { border-radius: 16px; font-size: 15px; }
+
+  /* AI แนะนำ: การ์ดเลื่อนซ้ายขวา แตะเพื่อใส่ในช่องพิมพ์ */
+  .suggest { padding: 8px 12px 6px; }
+  .suggest-head { margin-bottom: 6px; font-size: 13px; gap: 6px; }
+  .suggest-head > span:first-child .muted { display: none; }
+  .suggest-head .btn { min-height: 32px; }
+  .sugg-list { display: flex; gap: 8px; max-height: none; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; scrollbar-width: none; padding-bottom: 2px; }
+  .sugg-list::-webkit-scrollbar { display: none; }
+  .sugg { flex: 0 0 auto; width: 78%; max-width: 300px; scroll-snap-align: start; border-radius: 12px; }
+  .sugg > div:nth-child(2) { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .ai-tags { overflow-x: auto; flex-wrap: nowrap; white-space: nowrap; scrollbar-width: none; }
+
+  .composer { padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+  .composer textarea { min-height: 44px; max-height: 120px; border-radius: 12px; }
+  .composer-foot { margin-top: 6px; flex-wrap: wrap; }
+  .composer-foot .attach-btn { margin-right: 2px; }
+
+  /* แท็บ: แชท = ข้อความ · แท็บอื่น = ส่วนนั้นของกล่องขวาเต็มจอ */
+  .inbox[data-mtab="chat"] .team-panel { display: none; }
+  .inbox[data-mtab]:not([data-mtab="info"]) .customer-panel { display: none; }
+  .inbox:not([data-mtab="chat"]) .chat-area > .chat { height: auto; flex: none; position: sticky; top: 0; z-index: 3; }
+  .inbox:not([data-mtab="chat"]) .chat > :not(.chat-head):not(.mtabs):not(.customer-panel):not(.sensitive-banner) { display: none; }
+  .inbox:not([data-mtab="chat"]) .team-panel { flex: 1; border-top: 0; font-size: 14px; padding-bottom: env(safe-area-inset-bottom); }
+  .inbox[data-mtab="appt"] .team-panel > :not(.tp-appt):not(.appt-side):not(.drawer-overlay) { display: none; }
+  .inbox[data-mtab="tasks"] .team-panel > :not(.tp-tasks) { display: none; }
+  .inbox[data-mtab="notes"] .team-panel > :not(.internal-notes) { display: none; }
+  .inbox[data-mtab="info"] .team-panel > :not(.tp-info) { display: none; }
+  .inbox:not([data-mtab="chat"]) .team-panel .side-block { padding: 14px 16px; border-bottom: 0; gap: 10px; }
+  .inbox[data-mtab="notes"] .internal-notes { background: none; }
+  .inbox[data-mtab="info"] .customer-panel { padding: 14px 16px 0; }
+  .inbox[data-mtab="info"] .customer-panel > summary { font-weight: 600; }
+  .m-assignee .assignee { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* ---------- นัดหมาย ---------- */
+  .appt-desktop { display: none !important; }
+  .page.appt-page { padding: 0; gap: 0; }
+  .appt-page > .appt-matches { margin: 0 16px 12px; }
+  .appt-m { display: flex; flex-direction: column; }
+  .appt-m-head { display: flex; align-items: center; gap: 8px; padding: calc(14px + env(safe-area-inset-top)) 16px 12px; }
+  .appt-m-head h1 { margin: 0; flex: 1; font-size: 24px; font-weight: 700; }
+  .appt-m-icon, .appt-m-add { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .appt-m-icon { border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  .appt-m-add { border: 0; background: var(--accent-solid); color: var(--on-accent); }
+  .appt-m-search { display: flex; align-items: center; gap: 8px; margin: 0 16px 12px; padding: 0 14px; height: 44px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); }
+  .appt-m-search input { border: 0; padding: 0; background: none; height: 100%; outline: none; }
+  .appt-m-days { display: flex; gap: 6px; padding: 0 16px 12px; scroll-padding-inline: 16px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
+  .appt-m-days::-webkit-scrollbar { display: none; }
+  .appt-m-days button { flex: 0 0 54px; height: 68px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--muted-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; scroll-snap-align: start; padding: 0; }
+  .appt-m-days button.on { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
+  .appt-m-days .d-dow { font-size: 12px; }
+  .appt-m-days .d-num { font-size: 18px; font-weight: 700; line-height: 1.2; }
+  .appt-m-days .d-count { font-size: 11px; }
+  .appt-m-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 16px 12px; }
+  .appt-m-sum .sum { padding: 10px 12px; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: column; }
+  .appt-m-sum .sum span { font-size: 12px; }
+  .appt-m-sum .sum b { font-size: 20px; line-height: 1.3; }
+  .appt-m-sum .call { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger-ink); }
+  .appt-m-sum .warn { background: var(--warning-soft); border-color: var(--warning-border); color: var(--warning-ink); }
+  .appt-m-sum .ok { background: var(--success-soft); border-color: var(--success-soft); color: var(--success-ink); }
+  .appt-m-list { display: flex; flex-direction: column; gap: 6px; padding: 0 16px 16px; }
+  .appt-m-slot { margin: 6px 0; font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .appt-m-list section { display: flex; flex-direction: column; gap: 6px; }
+  .appt-m-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .appt-m-row.faded { opacity: .6; }
+  .appt-m-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 6px 0 6px 12px; border: 0; background: none; color: var(--ink); text-align: left; cursor: pointer; }
+  .appt-m-name { font-weight: 600; font-size: 15px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .appt-m-sub { font-size: 13px; color: var(--muted); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .appt-m-state { flex: none; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 7px; background: var(--neutral-soft); color: var(--ink); white-space: nowrap; }
+  .appt-m-state.ok { background: var(--success-soft); color: var(--success-ink); }
+  .appt-m-state.warn { background: var(--warning-soft); color: var(--warning-ink); }
+  .appt-m-state.bad { background: var(--danger-soft); color: var(--danger-ink); }
+  .appt-m-call { flex: none; height: 36px; padding: 0 12px; border-radius: 10px; background: var(--danger-solid); color: var(--on-accent); text-decoration: none; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+  .appt-m-called { flex: none; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--muted-strong); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .appt-m-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 40px 0; color: var(--muted); }
+
+  /* รายละเอียดนัด: แผ่นเต็มจอ */
+  .drawer-overlay { z-index: 65; }
+  .drawer { width: 100vw; border-left: 0; padding-top: env(safe-area-inset-top); }
+
+  /* ---------- ทำนัดใหม่: เต็มจอ 2 ขั้น ---------- */
+  .appt-page > .appt-new, .appt-new {
+    position: fixed; inset: 0; z-index: 70; margin: 0; border: 0; border-radius: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 0 16px; background: var(--bg); gap: 12px;
+  }
+  .appt-new-head { display: none; }
+  .appt-new-mhead { display: block; position: sticky; top: 0; z-index: 3; margin: 0 -16px; padding: env(safe-area-inset-top) 16px 4px; background: var(--bg); }
+  .mhead-row { display: flex; align-items: center; gap: 4px; margin: 0 -8px; padding-top: 6px; }
+  .mhead-row h2 { margin: 0; flex: 1; text-align: center; font-size: 18px; font-weight: 700; }
+  .mhead-btn { width: 44px; height: 44px; border: 0; background: none; color: var(--muted-strong); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .mhead-step { width: 44px; text-align: center; font-size: 13px; color: var(--muted); }
+  .mhead-progress { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; height: 4px; margin: 4px 0 8px; }
+  .mhead-progress span { border-radius: 2px; background: var(--line); }
+  .mhead-progress span.on { background: var(--blue); }
+  .mhead-title { font-size: 20px; font-weight: 700; padding: 4px 0 2px; }
+  .appt-pick-toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .appt-pick-toolbar .segmented { display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 12px; }
+  .appt-pick-toolbar .segmented button { height: 38px; border-radius: 9px; }
+  .appt-pick-toolbar .search-box { flex: none; height: 44px; border-radius: 12px; }
+  .appt-pick-list { display: flex; flex-direction: column; gap: 6px; border: 0; max-height: none; overflow: visible; padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+  .appt-pick { border: 1px solid var(--line); border-left: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+  .appt-pick.selected { border-color: var(--blue); }
+  .appt-patient-bar { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+  .appt-new .appt-form { gap: 14px; }
+  .appt-new .appt-grid { grid-template-columns: minmax(0, 1fr); }
+  .appt-new .appt-grid > * { grid-column: 1 / -1; }
+  .appt-new .appt-chips { flex-wrap: wrap; gap: 6px; }
+  .appt-new .appt-chip { min-height: 36px; border-radius: 18px; }
+  .appt-new .appt-slot-btn { min-height: 44px; border-radius: 12px; }
+  .appt-new .appt-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .appt-new .appt-slots .appt-slot-btn { flex: none; justify-content: center; padding: 0 4px; }
+  .appt-new .appt-slots > :not(.appt-slot-btn) { grid-column: 1 / -1; }
+  /* นัดอีก วัน/สัปดาห์/เดือน: 3 ช่องเรียงแถวเดียว พิมพ์ตัวเลขได้เลย (ปุ่ม −/+ เฉพาะจอใหญ่) */
+  .appt-new .appt-date-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+  .appt-new .appt-date-row > .muted { grid-column: 1 / -1; }
+  .appt-new .offset-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; flex-wrap: nowrap; }
+  .appt-new .offset-field { height: 52px; justify-content: center; gap: 4px; padding: 0 6px; border-radius: 12px; }
+  .appt-new .offset-step { display: none; }
+  .appt-new .offset-field input { width: 32px; text-align: center; font-size: 18px; }
+  .appt-new .appt-date-row > .appt-chip { height: 52px; border-radius: 12px; }
+  .appt-new .appt-date-big { font-size: 18px; }
+  .appt-new .appt-form > .row:last-child {
+    position: sticky; bottom: 0; z-index: 2; margin: 4px -16px 0;
+    padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line);
+    display: flex; flex-direction: row-reverse; gap: 8px;
+  }
+  .appt-new .appt-form > .row:last-child .btn.primary { flex: 1; min-height: 52px; border-radius: 14px; font-size: 16px; font-weight: 700; }
+  .appt-new .appt-form > .row:last-child .btn.ghost { min-height: 52px; }
+}

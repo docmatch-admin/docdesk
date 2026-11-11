@@ -8,6 +8,8 @@ import { HealthBanner } from "./health-banner";
 import { QuotaBanner } from "./quota-banner";
 import { Icon } from "./icons";
 import { NavToggle } from "./nav-toggle";
+import { MobileNav } from "./mobile-nav";
+import { InstallApp } from "./install-app";
 import { PreferencesProvider, ThemeQuickToggle } from "./preferences";
 import { loadPreferences } from "@/lib/preferences-store";
 import { canOpenSettings } from "@/lib/settings-access";
@@ -63,6 +65,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           <div className="nav-extra">
             {chatStaff && <TodayScore meId={me.id} />}
             {chatStaff && <WaitingAlert meId={me.id} />}
+            <InstallApp />
             <PushToggle />
             <ThemeQuickToggle />
             <div className="muted small">{me.displayName}</div>
@@ -73,6 +76,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       </nav>
       <main className="main">{children}</main>
       </div>
+      <MobileNav chatStaff={chatStaff} calls={calls} />
     </div>
     </PreferencesProvider>
   );

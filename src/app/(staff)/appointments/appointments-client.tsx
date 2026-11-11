@@ -13,6 +13,7 @@ import { AppointmentDrawer } from "./appointment-drawer";
 import { channelName } from "./appointment-form";
 import { shortHn } from "./new-appointment";
 import { NewAppointment } from "./new-appointment";
+import { AppointmentsMobile } from "./appointments-mobile";
 
 type Row = Appointment & { channel: ChannelType | null; chat_name: string | null; series_total: number | null };
 type Tab = "tomorrow" | "today" | "all";
@@ -93,7 +94,10 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
 
   return (
     <div className="page appt-page">
-      <header className="appt-header">
+      {/* มือถือ: แถบวัน + รายการแยกช่วงเวลา (จอใหญ่ซ่อน) */}
+      <AppointmentsMobile counts={counts} onCreate={() => setCreating(true)} onOpen={setOpenId}
+        onCalled={(id, called) => patch(id, { called })} />
+      <header className="appt-header appt-desktop">
         <div className="appt-title">
           <h1>นัดหมาย</h1>
           {counts.mustCall > 0 && <span className="chip red">ต้องโทร {counts.mustCall}</span>}
@@ -108,7 +112,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
       {creating && <NewAppointment onClose={() => setCreating(false)} />}
       {isAdmin && <HnMatches onChanged={load} onMessage={flash} />}
 
-      <section className="card appt-list-card">
+      <section className="card appt-list-card appt-desktop">
         <div className="appt-toolbar">
           <div className="segmented" role="tablist" aria-label="ช่วงวันนัด">
             {TABS.map(([k, label]) => (

@@ -6,18 +6,21 @@ import { AppointmentDrawer } from "../appointments/appointment-drawer";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
 import type { LinkedAccountRow } from "../appointments/linked-accounts";
 import { AppointmentsSideView, type SideGroup } from "./appointments-side-view";
+import { summarize, type ApptSummary } from "./mobile-chat";
 
 /**
  * นัดครั้งต่อไปของแชทนี้ ใช้ฟอร์มเดียวกับหน้านัดหมาย
  * แชท (บัญชี) ผูกได้หลาย HN: แสดงนัดแยกตามคนไข้ ทำนัดให้ HN ไหนเติม HN ชื่อ เบอร์ของคนนั้น ยังไม่ผูกให้กรอกเอง
  */
-export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmin, onChanged, onMessage }: {
+export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmin, onChanged, onMessage, onSummary }: {
   conversationId: string;
   isAdmin: boolean;
   contactName: string | null;
   blurred: boolean;
   onChanged: () => void;
   onMessage: (msg: string) => void;
+  /** นัดที่ยังไม่ถึงทั้งหมด + นัดที่ใกล้สุด (แถบ "นัดถัดไป" และป้ายบนแท็บนัดในมือถือ) */
+  onSummary?: (s: ApptSummary) => void;
 }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [groups, setGroups] = useState<SideGroup[]>([]);
@@ -34,8 +37,10 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
     const res = await fetch(`/api/conversations/${conversationId}/appointments`);
     if (!res.ok) return;
     const j = await res.json();
-    setGroups((j.groups ?? []) as SideGroup[]);
-  }, [conversationId]);
+    const g = (j.groups ?? []) as SideGroup[];
+    setGroups(g);
+    onSummary?.(summarize(g));
+  }, [conversationId, onSummary]);
 
   useEffect(() => {
     setGroups([]); setCreatingFor(undefined); setOpen(null);

@@ -15,7 +15,7 @@ const timeTh = (iso: string) => thaiDateTime(iso);
  * งานของทีมและคอมเมนต์ภายใน: อ่านผ่าน RLS เขียนผ่าน API
  * ทุกอย่างในกล่องนี้ลูกค้าไม่เห็น เพราะเก็บแยกจาก messages
  */
-export function TeamPanel({ conversationId, staff, sensitive, closed = false, onChanged, onError }: {
+export function TeamPanel({ conversationId, staff, sensitive, closed = false, onChanged, onError, onNoteCount }: {
   conversationId: string;
   /** แชทปิดแล้ว (เสร็จแล้ว): ซ่อนงานที่เสร็จแล้วทันที (ลบถาวรเมื่อปิดครบระยะเก็บ) */
   closed?: boolean;
@@ -23,6 +23,8 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
   sensitive: boolean;
   onChanged: () => void;
   onError: (msg: string) => void;
+  /** จำนวนคอมเมนต์ภายในของแชท (ป้ายบนแท็บคอมเมนต์ในมือถือ) */
+  onNoteCount?: (n: number) => void;
 }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -94,6 +96,7 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
   const finished = tasks.filter((t) => t.done);
   const doneCount = finished.length;
   const chatNotes = notes.filter((n) => !n.task_id);
+  useEffect(() => { onNoteCount?.(chatNotes.length); }, [chatNotes.length, onNoteCount]);
   const threadOf = (id: string) => notes.filter((n) => n.task_id === id);
   const who = (id: string | null) => (id && name.get(id)) || "เจ้าหน้าที่";
 
@@ -137,7 +140,7 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
 
   return (
     <>
-      <section className="side-block">
+      <section className="side-block tp-tasks">
         <div className="side-head">
           <h3>งานของทีม</h3>
           {pending.length > 0 && <span className="chip tiny orange">ค้าง {pending.length}</span>}
