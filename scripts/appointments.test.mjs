@@ -1819,7 +1819,8 @@ test("ผู้นัด: บันทึกชื่อสะอาด ว่�
   assert.equal(edited.provider, null, "เลือก — ไม่ระบุ — แล้วนัดเดิมว่างได้");
 });
 
-test("หน้านัดหมาย: ปุ่มแท็บเรียง วันนี้ → พรุ่งนี้ → ทั้งหมด", () => {
+test("หน้านัดหมาย: ปุ่มแท็บเรียง วันนี้ → พรุ่งนี้ → ทั้งหมด และเปิดมาที่วันนี้", () => {
   const src = readFileSync("src/app/(staff)/appointments/appointments-client.tsx", "utf8");
   assert.match(src, /const TABS: \[Tab, string\]\[\] = \[\["today", "วันนี้"\], \["tomorrow", "พรุ่งนี้"\], \["all", "ทั้งหมด"\]\];/);
+  assert.match(src, /const \[tab, setTab\] = useState<Tab>\("today"\);/);
 });

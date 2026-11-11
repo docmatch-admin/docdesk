@@ -29,7 +29,8 @@ const STATE_CLASS: Record<DeliveryState, string> = {
 
 export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: boolean; isAdmin: boolean }) {
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [tab, setTab] = useState<Tab>("tomorrow");
+  // เปิดหน้ามาเห็นนัดวันนี้ก่อน (ปุ่มแรก)
+  const [tab, setTab] = useState<Tab>("today");
   const [q, setQ] = useState("");
   // ว่าง = ไม่กรองวันที่ (แท็บทั้งหมดแสดงทุกนัด ใหม่สุดก่อน)
   const [from, setFrom] = useState("");
