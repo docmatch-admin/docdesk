@@ -1578,9 +1578,12 @@ test("เบอร์มือถือคลินิก: ว่าง = ไม
   const noMobile = rules.normalizeAppointmentSettings({ template_th: "เรียน {name}\nมือถือ {mobile}\nจบ" });
   assert.equal(rules.appointmentText({ kind: "new", lang: "th", appointment: base, settings: noMobile, clinicName: "คลินิก", includePurpose: false }).includes("มือถือ"), false, "ว่างแล้วบรรทัด {mobile} หาย");
   const withM = slipBase({ clinic: { ...slipBase().clinic, mobile: "089-999-0000" } });
-  assert.equal(slipLib.slipView(withM, "th").clinicPhone, "โทร 02-000-4586 · มือถือ 089-999-0000");
-  assert.equal(slipLib.slipView(withM, "en").clinicPhone, "Tel 02-000-4586 · Mobile 089-999-0000");
+  // ใบนัด: ไม่มีคำว่า "มือถือ" หน้าเบอร์ — เบอร์ต่อกันหลัง "โทร" คำเดียว
+  assert.equal(slipLib.slipView(withM, "th").clinicPhone, "โทร 02-000-4586 · 089-999-0000");
+  assert.equal(slipLib.slipView(withM, "en").clinicPhone, "Tel 02-000-4586 · 089-999-0000");
   assert.equal(slipLib.slipView(slipBase(), "th").clinicPhone, "โทร 02-000-4586");
+  const onlyM = slipBase({ clinic: { ...slipBase().clinic, phone: "", mobile: "089-999-0000" } });
+  assert.equal(slipLib.slipView(onlyM, "th").clinicPhone, "โทร 089-999-0000");
   assert.ok(rules.TEMPLATE_VARIABLES.includes("{mobile}"));
 });
 

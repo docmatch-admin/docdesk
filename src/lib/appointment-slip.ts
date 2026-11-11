@@ -130,10 +130,10 @@ export function slipView(d: SlipData, lang: SlipLang, en: SlipTexts = {}): SlipV
     lang,
     clinicName: th ? d.clinic.name : d.clinic.nameEn || d.clinic.name,
     clinicAddress: th ? d.clinic.address : d.clinic.addressEn,
-    clinicPhone: [
-      d.clinic.phone ? `${th ? "โทร" : "Tel"} ${d.clinic.phone}` : "",
-      d.clinic.mobile?.trim() ? `${th ? "มือถือ" : "Mobile"} ${d.clinic.mobile.trim()}` : "",
-    ].filter(Boolean).join(" · "),
+    // เบอร์คลินิกและเบอร์มือถือต่อกันหลังคำว่า "โทร" คำเดียว ไม่มีคำว่า "มือถือ" หน้าเบอร์
+    clinicPhone: ((nums) => (nums.length ? `${th ? "โทร" : "Tel"} ${nums.join(" · ")}` : ""))(
+      [d.clinic.phone?.trim(), d.clinic.mobile?.trim()].filter((n): n is string => !!n),
+    ),
     title: series
       ? (src.title ? text("title")! : th ? "ใบนัดวัคซีน" : "Vaccination Appointment")
       : th ? "ใบนัด" : "Appointment",
