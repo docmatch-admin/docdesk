@@ -20,7 +20,8 @@ type Tab = "tomorrow" | "today" | "all";
 const SLOT_LABEL: Record<string, string> = { morning: "ช่วงเช้า", afternoon: "ช่วงบ่าย" };
 const slotLabel = (r: Row) => SLOT_LABEL[r.slot_id ?? ""] ?? "ช่วง";
 
-const TABS: [Tab, string][] = [["tomorrow", "พรุ่งนี้"], ["today", "วันนี้"], ["all", "ทั้งหมด"]];
+// เรียงตามเวลา: วันนี้ → พรุ่งนี้ → ทั้งหมด
+const TABS: [Tab, string][] = [["today", "วันนี้"], ["tomorrow", "พรุ่งนี้"], ["all", "ทั้งหมด"]];
 const STATE_CLASS: Record<DeliveryState, string> = {
   reschedule: "appt-state reschedule", confirmed: "appt-state confirmed", failed: "appt-state call", no_chat: "appt-state call",
   sent: "appt-state sent", pending: "appt-state", closed: "appt-state",

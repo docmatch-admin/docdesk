@@ -1818,3 +1818,8 @@ test("ผู้นัด: บันทึกชื่อสะอาด ว่�
   const { appointment: edited } = await store.updateAppointment(appointment.id, { provider: "" }, "agent");
   assert.equal(edited.provider, null, "เลือก — ไม่ระบุ — แล้วนัดเดิมว่างได้");
 });
+
+test("หน้านัดหมาย: ปุ่มแท็บเรียง วันนี้ → พรุ่งนี้ → ทั้งหมด", () => {
+  const src = readFileSync("src/app/(staff)/appointments/appointments-client.tsx", "utf8");
+  assert.match(src, /const TABS: \[Tab, string\]\[\] = \[\["today", "วันนี้"\], \["tomorrow", "พรุ่งนี้"\], \["all", "ทั้งหมด"\]\];/);
+});
