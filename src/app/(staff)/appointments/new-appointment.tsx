@@ -111,24 +111,15 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
     setLoading(false);
   }
 
-  /** เลือกแล้วเรียก list_patient ด้วย HN ทันที เติมชื่อ+เบอร์ (แก้ได้) · ผู้นัดเริ่มว่าง (หมอที่ตรวจวันนี้ขึ้นบนสุดในตัวเลือก แต่ไม่เลือกให้) */
-  async function pick(p: { hn: string; name: string; phone?: string; doctor?: string }) {
-    let phone = p.phone ?? "";
+  /**
+   * เลือกคนไข้: เปิดฟอร์มด้วยชื่อจากรายการ แล้วฟอร์มดึงชื่อ + เบอร์จาก iService เอง (ผ่าน /api/appointments/form-data ฝั่ง server)
+   * ทางเดียวกับทุกทางเข้า (คนไข้วันนี้ ค้นหา กล่องขวาของแชท แก้ไขนัด) · ผู้นัดเริ่มว่าง
+   * (เดิมเติมเบอร์ที่นี่หลังเปิดฟอร์มแล้ว แต่ฟอร์มรับค่า initial ครั้งเดียว เบอร์จึงไม่ขึ้น)
+   */
+  function pick(p: { hn: string; name: string; phone?: string; doctor?: string }) {
     setHisName(p.name);
     setSelectedHn(p.hn);
-    setDraft({ ...EMPTY_DRAFT, hn: p.hn, patient_name: p.name, phone, provider: "" });
-    if (p.hn) {
-      const d = await call<{ patient: Patient | null }>({ action: "patient", hn: p.hn });
-      const his = d?.patient;
-      phone = phone || his?.phone || "";
-      if (his) setHisName(his.name || p.name);
-      // ไม่ทับค่าที่พยาบาลแก้ไปแล้วระหว่างรอ
-      setDraft((cur) => (cur && cur.hn === p.hn ? {
-        ...cur,
-        phone: cur.phone || phone,
-        patient_name: cur.patient_name === p.name && his?.name ? his.name : cur.patient_name,
-      } : cur));
-    }
+    setDraft({ ...EMPTY_DRAFT, hn: p.hn, patient_name: p.name, phone: p.phone ?? "", provider: "" });
   }
 
   function chooseSource(k: Source) {
@@ -156,7 +147,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
           </div>
           <button type="button" className="btn ghost small" onClick={() => setDraft(null)}>← เปลี่ยนคนไข้</button>
         </div>
-        <AppointmentForm initial={draft} hisName={hisName || undefined} lockHn saveLabel="บันทึก & พิมพ์ใบนัด" onCancel={onClose}
+        <AppointmentForm key={draft.hn} initial={draft} hisName={hisName || undefined} lockHn saveLabel="บันทึก & พิมพ์ใบนัด" onCancel={onClose}
           onSaved={(r) => router.push(`/appointments/${r.appointment.id}/print?msg=${encodeURIComponent(deliveryText(r.delivery))}&sent=${r.delivery?.sent ? 1 : 0}`)} />
       </section>
     );

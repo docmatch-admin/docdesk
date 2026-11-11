@@ -17,6 +17,7 @@ import { slipSourceTexts, type SlipData } from "./appointment-slip";
 import { saveSlipTranslation, translateSlipTexts, type SlipField } from "./slip-translate";
 import { hnVariants, unlinkConversation, linkConversationToHn, linkedConversationsOf, linksOfConversation, rolesForHn, sameHn, upsertPatient, type PatientRelation } from "./patient-link-store";
 import { cleanProviderName, providerOptions, type Provider } from "./providers";
+import { patientContact } from "./patient-contact";
 import { contactName, type ContactNameFields } from "./patient-name";
 import { supabaseAdmin } from "./supabase/admin";
 import type { ChannelType } from "./types";
@@ -989,7 +990,7 @@ export async function appointmentCallCounts(now = Date.now()) {
 export async function appointmentFormData(hn: string | null, now = Date.now(), currentProvider?: string | null) {
   const db = supabaseAdmin();
   const today = bangkokToday(now);
-  const [{ data: recent }, linked, schedule, presets, { data: templates }, { data: providerRows }, { data: todayVisits }] = await Promise.all([
+  const [{ data: recent }, linked, schedule, presets, { data: templates }, { data: providerRows }, { data: todayVisits }, patient] = await Promise.all([
     db.from("appointments").select("purpose_id, purpose_text, created_at").order("created_at", { ascending: false }).limit(500),
     findLinkedConversation(hn),
     loadClinicSchedule(today, addDays(today, 400)),
@@ -998,6 +999,8 @@ export async function appointmentFormData(hn: string | null, now = Date.now(), c
     db.from("providers").select("name, last_seen_at, active"),
     // แพทย์ที่ตรวจคนไข้รายนี้ใน visit วันนี้ (ป้าย "ตรวจวันนี้" ไม่เลือกให้)
     hn ? db.from("his_visit_cache").select("doctor_name").eq("visit_date", today).in("hn", hnVariants(hn)) : Promise.resolve({ data: [] }),
+    // ชื่อ + เบอร์ของ HN นี้ (iService list_patient ฝั่ง server · สำรองจากตาราง patients)
+    hn ? patientContact(hn) : Promise.resolve(null),
   ]);
   const rows = (recent ?? []) as { purpose_id: string | null; purpose_text: string | null }[];
   const todayDoctors = ((todayVisits ?? []) as { doctor_name: string | null }[]).map((v) => cleanProviderName(v.doctor_name)).filter(Boolean);
@@ -1012,6 +1015,7 @@ export async function appointmentFormData(hn: string | null, now = Date.now(), c
     purposeHistory: frequentTexts(rows.filter((r) => !r.purpose_id || !presets.some((p) => p.id === r.purpose_id && p.name === r.purpose_text)).map((r) => r.purpose_text)),
     providers: providerOptions((providerRows ?? []) as Provider[], todayDoctors, currentProvider, now),
     linked: linked ? { conversation_id: linked, channel: linkedChannel } : null,
+    patient,
     schedule,
     templates: ((templates ?? []) as { id: string; name: string; purpose_id: string | null; items: unknown; sort_order: number }[])
       .sort((a, b) => a.sort_order - b.sort_order).map(({ sort_order: _s, ...t }) => t),

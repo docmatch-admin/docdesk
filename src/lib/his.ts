@@ -4,7 +4,7 @@
  */
 export type HisLookup = { status: "found"; hn: string; name: string; phone: string } | { status: "not_found" } | { status: "error" };
 
-export async function lookupHisPatient(hn: string): Promise<HisLookup> {
+export async function lookupHisPatient(hn: string, timeoutMs = 8_000): Promise<HisLookup> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key || !hn.trim()) return { status: "error" };
@@ -13,7 +13,7 @@ export async function lookupHisPatient(hn: string): Promise<HisLookup> {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, apikey: key, "Content-Type": "application/json" },
       body: JSON.stringify({ action: "patient", hn: hn.trim() }),
-      signal: AbortSignal.timeout(8_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return { status: "error" };
     const j = (await res.json()) as { patient?: { hn?: string; name?: string; phone?: string } | null };

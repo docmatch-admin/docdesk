@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { ProviderSelect } from "./provider-select";
 import type { ProviderOption } from "@/lib/providers";
 import {
@@ -54,7 +54,15 @@ interface FormData {
   linked: { conversation_id: string; channel: ChannelType | null } | null;
   schedule: ClinicSchedule;
   templates?: SeriesTemplate[];
+  /** ชื่อ + เบอร์ของ HN นี้ (iService ฝั่ง server · สำรองจากนัดครั้งก่อน) */
+  patient?: { hn: string; full_name: string | null; phone: string | null; phone_source: "iservice" | "patients" | null } | null;
 }
+
+const sameHnKey = (a: string, b: string) => {
+  const n = (h: string) => (/^\d+$/.test(h.trim()) ? h.trim().replace(/^0+/, "") : h.trim());
+  return !!a.trim() && n(a) === n(b);
+};
+export const PHONE_SOURCE_TEXT = { iservice: "ดึงจาก iService", patients: "จากนัดครั้งก่อน", none: "ไม่พบเบอร์ — กรุณากรอก" } as const;
 
 const CHANNEL_NAME: Record<string, string> = { line: "LINE", facebook: "Facebook", instagram: "Instagram", web: "แชทหน้าเว็บ" };
 export const channelName = (c: string | null | undefined) => (c ? CHANNEL_NAME[c] ?? c : "");
@@ -249,19 +257,49 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
   const today = bangkokToday();
   const set = (patch: Partial<AppointmentDraft>) => setForm((f) => ({ ...f, ...patch }));
   const creating = !appointmentId;
+  // ช่องที่พยาบาลแก้เองแล้ว ห้ามเติมทับเมื่อข้อมูลจาก iService มาถึงทีหลัง
+  const touched = useRef({ patient_name: false, phone: false });
+  const [phoneNote, setPhoneNote] = useState<{ hn: string; text: string; kind: "iservice" | "patients" | "none" | "loading" } | null>(null);
+  const [hisNameNow, setHisNameNow] = useState(hisName ?? "");
 
-  // HN เปลี่ยน → ดูว่ามีแชทแล้วหรือยัง (หน่วงไว้ไม่ให้ยิงทุกตัวอักษร)
+  // HN เปลี่ยน → ดูว่ามีแชทแล้วหรือยัง + ชื่อ/เบอร์จาก iService (หน่วงไว้ไม่ให้ยิงทุกตัวอักษร)
   useEffect(() => {
     const hn = form.hn.trim();
+    if (hn) setPhoneNote((n) => (n && sameHnKey(n.hn, hn) && n.kind !== "loading" ? n : { hn, text: "กำลังดึงเบอร์จาก iService…", kind: "loading" }));
+    else setPhoneNote(null);
     const t = setTimeout(() => {
       const q = new URLSearchParams();
       if (hn) q.set("hn", hn);
       if (initial.provider) q.set("provider", initial.provider);
       fetch(`/api/appointments/form-data${q.size ? `?${q}` : ""}`)
-        .then((r) => (r.ok ? r.json() : null)).then((d) => d && setData(d as FormData)).catch(() => {});
+        .then((r) => (r.ok ? r.json() : null)).then((d) => {
+          if (!d) return;
+          setData(d as FormData);
+          applyPatient((d as FormData).patient ?? null, hn);
+        }).catch(() => {});
     }, hn ? 300 : 0);
     return () => clearTimeout(t);
   }, [form.hn]);
+
+  /**
+   * เติมชื่อ + เบอร์ทันทีที่ได้ผล (ทุกทางเข้าใช้ฟอร์มนี้): เบอร์เติมเมื่อช่องยังว่างและยังไม่ได้แก้เอง
+   * ชื่อเติมเฉพาะตอนทำนัดใหม่และยังไม่ได้แก้เอง (แก้ไขนัดเดิมไม่เปลี่ยนชื่อที่บันทึกไว้)
+   */
+  function applyPatient(p: FormData["patient"], hn: string) {
+    if (!hn) return;
+    setForm((f) => {
+      if (!sameHnKey(f.hn, hn)) return f;
+      const next = { ...f };
+      if (p?.phone && !touched.current.phone && !f.phone.trim()) next.phone = p.phone;
+      if (p?.full_name && creating && !touched.current.patient_name) {
+        next.patient_name = p.full_name;
+        setHisNameNow(p.full_name);
+      }
+      return next;
+    });
+    const kind = p?.phone ? (p.phone_source ?? "none") : "none";
+    setPhoneNote({ hn, kind, text: PHONE_SOURCE_TEXT[kind] });
+  }
 
   // ตัวเลขวัน/สัปดาห์/เดือน → วันนัด (นับจากวันนี้ ทันทีที่พิมพ์)
   useEffect(() => {
@@ -399,7 +437,7 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
           ...form,
           purpose_id: form.purpose_id || null,
           ...(appointmentId ? { shift_following: shiftFollowing } : {
-            conversation_id: conversationId, booking_id: bookingId, name_from_his: !!hisName && form.patient_name.trim() === hisName.trim(),
+            conversation_id: conversationId, booking_id: bookingId, name_from_his: !!hisNameNow && form.patient_name.trim() === hisNameNow.trim(),
             ...(seriesMode ? {
               series_label: mainLabel,
               series_start_seq: doseToday + 1,
@@ -426,8 +464,12 @@ export function AppointmentForm({ initial, hisName, lockHn = false, conversation
       {showPatient && (
         <div className="appt-grid">
           <label>HN<input value={form.hn} onChange={(e) => set({ hn: e.target.value })} inputMode="numeric" autoComplete="off" readOnly={lockHn} /></label>
-          <label className="span2">ชื่อคนไข้<input required value={form.patient_name} onChange={(e) => set({ patient_name: e.target.value })} autoComplete="off" /></label>
-          <label>เบอร์โทร<input value={form.phone} onChange={(e) => set({ phone: e.target.value })} inputMode="tel" autoComplete="off" /></label>
+          <label className="span2">ชื่อคนไข้<input required value={form.patient_name} onChange={(e) => { touched.current.patient_name = true; set({ patient_name: e.target.value }); }} autoComplete="off" /></label>
+          <label>เบอร์โทร<input name="phone" value={form.phone} onChange={(e) => { touched.current.phone = true; set({ phone: e.target.value }); }} inputMode="tel" autoComplete="off" />
+            {phoneNote && sameHnKey(phoneNote.hn, form.hn) && (!form.phone.trim() || phoneNote.kind !== "none") && !touched.current.phone && (
+              <small className={`appt-phone-note ${phoneNote.kind}`} role="status">{phoneNote.text}</small>
+            )}
+          </label>
         </div>
       )}
 

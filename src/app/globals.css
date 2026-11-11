@@ -1475,3 +1475,7 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .monthly-grid h4 { margin: 0 0 6px; }
 .monthly-grid ul { list-style: none; margin: 0; padding: 0; }
 .monthly-grid li { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+/* ฟอร์มนัด: ที่มาของเบอร์โทร */
+.appt-phone-note { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--muted-strong); }
+.appt-phone-note.iservice { color: var(--success-ink); }
+.appt-phone-note.none { color: var(--warning-ink); }
