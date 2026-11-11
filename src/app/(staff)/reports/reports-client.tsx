@@ -57,7 +57,12 @@ export function ReportsClient() {
 
   return (
     <div className="page">
-      <h1>รายงานแท็ก</h1>
+      <div className="page-toolbar">
+        <h1>รายงานแท็ก</h1>
+        <div className="page-toolbar-actions">
+          <a className="btn ghost" href={exportUrl} download>⬇ ส่งออก CSV</a>
+        </div>
+      </div>
       {sensitiveCount && <p className="muted small">🔒 แชทลับทั้งหมด {sensitiveCount.total} แชท · ใหม่ในช่วงนี้ {sensitiveCount.period} แชท</p>}
       <p className="muted">จำนวนแชทที่ถูกติดแท็กในแต่ละช่วงเวลา ตามเวลาไทย ไม่นับแท็กที่เจ้าหน้าที่เอาออกเอง ลูกค้าเดิมที่กลับมาเรื่องใหม่นับด้วย</p>
 
@@ -74,7 +79,6 @@ export function ReportsClient() {
             {table.rows.map((r) => <option key={r.tag} value={r.tag}>{tagLabel(r.tag)}</option>)}
           </select>
         </label>
-        <a className="btn ghost" href={exportUrl} download>⬇ ส่งออก CSV</a>
       </div>
 
       {error && <div className="error">{error}</div>}
