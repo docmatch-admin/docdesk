@@ -17,9 +17,6 @@ import { NewAppointment } from "./new-appointment";
 type Row = Appointment & { channel: ChannelType | null; chat_name: string | null; series_total: number | null };
 type Tab = "tomorrow" | "today" | "all";
 
-const SLOT_LABEL: Record<string, string> = { morning: "ช่วงเช้า", afternoon: "ช่วงบ่าย" };
-const slotLabel = (r: Row) => SLOT_LABEL[r.slot_id ?? ""] ?? "ช่วง";
-
 // เรียงตามเวลา: วันนี้ → พรุ่งนี้ → ทั้งหมด
 const TABS: [Tab, string][] = [["today", "วันนี้"], ["tomorrow", "พรุ่งนี้"], ["all", "ทั้งหมด"]];
 const STATE_CLASS: Record<DeliveryState, string> = {
@@ -32,7 +29,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   // เปิดหน้ามาเห็นนัดวันนี้ก่อน (ปุ่มแรก)
   const [tab, setTab] = useState<Tab>("today");
   const [q, setQ] = useState("");
-  // ว่าง = ไม่กรองวันที่ (แท็บทั้งหมดแสดงทุกนัด ใหม่สุดก่อน)
+  // ว่าง = ไม่กรองวันที่ (แท็บทั้งหมดแสดงทุกนัด ใกล้ถึงก่อน แล้วต่อด้วยนัดที่ผ่านแล้ว)
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [purpose, setPurpose] = useState("");
@@ -172,7 +169,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                 <tr>
                   {tab === "all" && <th scope="col">วัน</th>}
                   <th scope="col">เวลา</th><th scope="col">ชื่อ</th><th scope="col">HN</th><th scope="col">เบอร์</th>
-                  <th scope="col">ช่องทาง</th><th scope="col">สถานะ</th><th scope="col">โทรแล้ว</th>
+                  <th scope="col">เหตุผลนัด</th><th scope="col">ช่องทาง</th><th scope="col">สถานะ</th><th scope="col">โทรแล้ว</th>
                 </tr>
               </thead>
               <tbody>
@@ -184,20 +181,23 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                       onClick={() => setOpenId(r.id)} tabIndex={0} aria-label={`ดูรายละเอียดนัด ${r.patient_name}`}
                       onKeyDown={(e) => { if (e.key === "Enter") setOpenId(r.id); }}>
                       {tab === "all" && <td>{thaiShortDate(r.appoint_date)}</td>}
-                      <td>{r.time_mode === "slot" ? <>{slotLabel(r)}<div className="muted small">{timeShort(r)}</div></> : timeShort(r)}</td>
-                      <td>
-                        {r.patient_name}
-                        {r.series_id && r.series_total && <span className="chip tiny appt-series-chip">{r.series_label ?? "นัด"} {r.series_seq}/{r.series_total}</span>}
-                        {r.purpose_text && <div className="muted small">{r.purpose_text}</div>}
-                      </td>
+                      <td className="appt-time-cell">{timeShort(r)}</td>
+                      <td className="appt-name-cell" title={r.patient_name}>{r.patient_name}</td>
                       <td className="appt-hn">{r.hn ? shortHn(r.hn) : "–"}</td>
-                      <td>{r.phone ? <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()}>{r.phone}</a> : "–"}</td>
-                      <td>
-                        {r.channel ? <span className={`chip ch-${r.channel}`}>{channelName(r.channel)}</span> : <span className="muted small">ไม่มีแชท</span>}
-                        {r.chat_name && <div className="name-platform">{r.chat_name}</div>}
+                      <td className="appt-hn">{r.phone ? <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()}>{r.phone}</a> : "–"}</td>
+                      <td className="appt-purpose-cell" title={r.purpose_text ?? undefined}>
+                        {r.purpose_text ?? <span className="muted">–</span>}
+                        {r.series_id && r.series_total && <span className="muted"> · {r.series_label ?? "นัด"} {r.series_seq}/{r.series_total}</span>}
                       </td>
                       <td>
-                        <span className={state === "closed" ? `appt-state closed status-${r.status}` : STATE_CLASS[state]} title={r.last_send_error ?? undefined}>{state === "closed" ? STATUS_LABEL[r.status] : DELIVERY_LABEL[state]}</span>
+                        {r.channel
+                          ? <span className={`chip ch-${r.channel}`} title={r.chat_name ? `แจ้งเตือนทาง ${channelName(r.channel)}: ${r.chat_name}` : undefined}>{channelName(r.channel)}</span>
+                          : <span className="muted small">ไม่มีแชท</span>}
+                      </td>
+                      <td>
+                        {r.status === "attended" && r.arrived_time
+                          ? <span className="appt-state confirmed">มาแล้ว {r.arrived_time}</span>
+                          : <span className={state === "closed" ? `appt-state closed status-${r.status}` : STATE_CLASS[state]} title={r.last_send_error ?? undefined}>{state === "closed" ? STATUS_LABEL[r.status] : DELIVERY_LABEL[state]}</span>}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" aria-label={`โทรหา ${r.patient_name} แล้ว`} checked={!!r.called_at} disabled={!open}
