@@ -1485,3 +1485,22 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .appt-phone-note { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; color: var(--muted-strong); }
 .appt-phone-note.iservice { color: var(--success-ink); }
 .appt-phone-note.none { color: var(--warning-ink); }
+
+/* หน้าพิมพ์ใบนัด: แถบเครื่องมือเดียวด้านบน ติดขอบบนเมื่อเลื่อน */
+.appt-print-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 0; margin-bottom: 12px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.appt-print-back { flex: none; }
+.appt-print-title { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.appt-print-title .muted { font-weight: 400; font-size: 16px; }
+.appt-print-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.appt-print-actions .btn.primary { min-width: 120px; }
+@media (max-width: 640px) {
+  .appt-print-title { order: -1; flex-basis: 100%; }
+  .appt-print-actions { margin-left: auto; }
+}
+
+/* แถบหัวหน้า: หัวข้อ + คำอธิบาย ซ้าย · ปุ่มทั้งหมดรวมชิดขวาแถวเดียว */
+.page-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.page-toolbar h1 { margin: 0; }
+.page-toolbar-note { flex: 1 1 320px; margin: 0; }
+.page-toolbar-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
+.staff-embedded .card { margin-top: 12px; }
