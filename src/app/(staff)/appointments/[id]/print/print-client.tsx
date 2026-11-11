@@ -110,14 +110,20 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
   return (
     <div className="page appt-print-page">
       <style>{PRINT_CSS}</style>
-      <div className="row between">
-        <h1>ใบนัด</h1>
-        <div className="row">
+      {/* แถบเครื่องมือเดียวด้านบน: กลับ · ชื่อ … ภาษา · พิมพ์ (ติดขอบบนเมื่อเลื่อน) */}
+      <div className="appt-print-bar">
+        <Link className="btn ghost appt-print-back" href="/appointments" aria-label="กลับหน้านัดหมาย">
+          <span aria-hidden="true">←</span> นัดหมาย
+        </Link>
+        <h1 className="appt-print-title">ใบนัด <span className="muted">· {slip.appointment.patient_name}</span></h1>
+        <div className="appt-print-actions">
           <div className="segmented appt-slip-lang" role="tablist" aria-label="ภาษาใบนัด">
-            <button type="button" role="tab" aria-selected={lang === "th"} className={lang === "th" ? "on" : ""} onClick={() => pickLang("th")}>TH</button>
-            <button type="button" role="tab" aria-selected={lang === "en"} className={lang === "en" ? "on" : ""} onClick={() => pickLang("en")}>EN</button>
+            <button type="button" role="tab" aria-selected={lang === "th"} className={lang === "th" ? "on" : ""} onClick={() => pickLang("th")}>ไทย</button>
+            <button type="button" role="tab" aria-selected={lang === "en"} className={lang === "en" ? "on" : ""} onClick={() => pickLang("en")}>English</button>
           </div>
-          <button className="btn primary" disabled={translating} onClick={() => window.print()}>พิมพ์ (80mm)</button>
+          <button className="btn primary" disabled={translating} onClick={() => window.print()}>
+            {translating ? "กำลังแปล…" : "พิมพ์ใบนัด"}
+          </button>
         </div>
       </div>
       {message && <div className={`appt-link-state ${sent ? "ok" : ""}`}>{message}</div>}
@@ -136,9 +142,6 @@ export function PrintClient({ id, message, sent, autoPrint }: { id: string; mess
       )}
       {saveErr && <div className="error small" role="alert">{saveErr}</div>}
       <div className={`appt-slip-preview ${translating ? "busy" : ""}`}>{preview}</div>
-      <div className="row">
-        <Link className="btn ghost" href="/appointments">กลับหน้านัดหมาย</Link>
-      </div>
       {createPortal(printCopy, document.body)}
     </div>
   );
