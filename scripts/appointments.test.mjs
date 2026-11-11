@@ -1099,7 +1099,7 @@ test("ใบนัดไทย: หัว ชื่อ HN 9 หลัก วั�
   assert.equal(v.title, "ใบนัด");
   assert.deepEqual(v.hn, { label: "HN", value: "000004714" });
   assert.equal(v.date, "วันจันทร์ที่ 23 พฤศจิกายน 2569");
-  assert.equal(v.time, "ช่วงเช้า 08:00–12:00 น.");
+  assert.equal(v.time, "เวลา 08:00–12:00 น.", "แสดงแค่เวลา ไม่มีคำว่าช่วงเช้า/บ่าย");
   assert.equal(v.queueNote, "(ตรวจตามลำดับคิว)");
   assert.deepEqual(v.rows.map((r) => r.label), ["ผู้นัด", "เหตุผล", "การปฏิบัติตัว"]);
   assert.equal(v.qr.sizeMm, 40);
@@ -1125,7 +1125,7 @@ test("ใบนัด EN: ส่วนตายตัวเขียนในโ
   assert.equal(v.clinicPhone, "Tel 02-000-4586");
   assert.equal(v.title, "Appointment");
   assert.equal(v.date, "Monday, 23 November 2026");
-  assert.equal(v.time, "Morning 08:00–12:00");
+  assert.equal(v.time, "Time 08:00–12:00");
   assert.equal(v.queueNote, "(Seen in queue order)");
   assert.deepEqual(v.rows, [
     { label: "Doctor", value: "นพ.ทดสอบ" },
@@ -1143,7 +1143,7 @@ test("ใบนัด EN: ส่วนตายตัวเขียนในโ
   assert.deepEqual(slipLib.slipSourceTexts(slipBase()), { purpose: "เจาะเลือด", instructions: "งดน้ำงดอาหาร 8–12 ชม. (ดื่มน้ำเปล่าได้)" });
 });
 
-test("ใบนัด series: ตารางเข็ม ✓ ฉีดแล้ว เข็มที่นัดตัวหนา บรรทัดช่วงเวลาใต้ตาราง ชื่อชุดแปลได้", () => {
+test("ใบนัด series: ตารางเข็ม ✓ ฉีดแล้ว เข็มที่นัดตัวหนา เวลาในแต่ละแถว (ไม่มีช่วงเช้า/บ่าย) ชื่อชุดแปลได้", () => {
   const dose = (seq, date, extra = {}) => ({ ...slipBase().appointment, id: `d${seq}`, series_seq: seq, series_label: `เข็ม ${seq}`, appoint_date: date, ...extra });
   const series = [dose(1, "2026-11-09", { series_done: true }), dose(2, "2026-12-09"), dose(3, "2027-05-09", { time_start: "13:00", time_end: "18:00" })];
   const data = slipBase({ appointment: series[1], series, seriesTitle: null });
@@ -1152,18 +1152,18 @@ test("ใบนัด series: ตารางเข็ม ✓ ฉีดแล้
   assert.equal(th.titleEditable, false);
   assert.deepEqual(th.series.map((r) => [r.label, r.when, r.current]), [
     ["✓ เข็ม 1", "ฉีดแล้ว จันทร์ 9 พ.ย. 2569", false],
-    ["เข็ม 2", "พุธ 9 ธ.ค. 2569 · เช้า", true],
-    ["เข็ม 3", "อาทิตย์ 9 พ.ค. 2570 · บ่าย", false],
+    ["เข็ม 2", "พุธ 9 ธ.ค. 2569 · 08:00–12:00 น.", true],
+    ["เข็ม 3", "อาทิตย์ 9 พ.ค. 2570 · 13:00–18:00 น.", false],
   ]);
-  assert.equal(th.seriesNote, "เช้า 08:00–12:00 น. · บ่าย 13:00–18:00 น.");
+  assert.equal(th.seriesNote, null);
   const en = slipLib.slipView(data, "en");
   assert.equal(en.title, "Vaccination Appointment");
   assert.deepEqual(en.series.map((r) => [r.label, r.when]), [
     ["✓ Dose 1", "Given 9 Nov 2026"],
-    ["Dose 2", "Wed 9 Dec 2026 · Morning"],
-    ["Dose 3", "Sun 9 May 2027 · Afternoon"],
+    ["Dose 2", "Wed 9 Dec 2026 · 08:00–12:00"],
+    ["Dose 3", "Sun 9 May 2027 · 13:00–18:00"],
   ]);
-  assert.equal(en.seriesNote, "Morning 08:00–12:00 · Afternoon 13:00–18:00");
+  assert.equal(en.seriesNote, null);
   const titled = { ...data, seriesTitle: "วัคซีนตับอักเสบบี" };
   assert.equal(slipLib.slipSourceTexts(titled).title, "วัคซีนตับอักเสบบี");
   assert.equal(slipLib.slipView(titled, "en", { title: "Hepatitis B vaccine" }).title, "Hepatitis B vaccine");

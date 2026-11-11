@@ -50,7 +50,7 @@ const req = (method, body) => new Request("https://app.test/api/x", {
 test("agent: แก้ได้ / เห็นอย่างเดียว / ไม่เห็น ตามสเปก · admin แก้ได้ทุกอย่าง · ห้องยาไม่มีหน้าตั้งค่า", () => {
   const edit = ["purposes", "closures", "seriesTemplates", "providers", "tags", "tagRules", "display"];
   const view = ["apptContact", "apptMessaging", "apptTemplate", "bookingTemplates", "clinicHours", "businessHours", "lineQuota", "health", "autoClose"];
-  const hidden = ["aiModels", "aiMode", "channels", "persona", "sensitive", "scoring", "retention", "dataRetention", "aiUsage", "priceAlerts", "audit", "testSend"];
+  const hidden = ["staffAccounts", "aiModels", "aiMode", "channels", "persona", "sensitive", "scoring", "retention", "dataRetention", "aiUsage", "priceAlerts", "audit", "testSend"];
   for (const a of edit) assert.equal(access.areaAccess("agent", a), "edit", a);
   for (const a of view) assert.equal(access.areaAccess("agent", a), "view", a);
   for (const a of hidden) assert.equal(access.areaAccess("agent", a), null, a);
@@ -61,7 +61,7 @@ test("agent: แก้ได้ / เห็นอย่างเดียว / �
     assert.equal(access.areaAccess("pharmacy", a), null, `pharmacy ${a}`);
   }
   assert.deepEqual(access.visibleSections("agent"), ["overview", "chat", "appointments", "display"]);
-  assert.deepEqual(access.visibleSections("admin"), ["overview", "ai", "chat", "appointments", "team", "display"]);
+  assert.deepEqual(access.visibleSections("admin"), ["overview", "ai", "chat", "appointments", "staff", "team", "display"], "เจ้าหน้าที่อยู่ในตั้งค่า (admin เท่านั้น)");
   assert.deepEqual(access.visibleSections("pharmacy"), []);
   assert.equal(access.canOpenSettings("agent"), true);
   assert.equal(access.canOpenSettings("pharmacy"), false);
@@ -70,11 +70,13 @@ test("agent: แก้ได้ / เห็นอย่างเดียว / �
 test("หน้าตั้งค่าและเมนู: agent เข้าได้ ชื่อเมนู ตั้งค่า · เมนูหมวดย่อยแสดงเฉพาะที่เห็น · ส่วนอ่านอย่างเดียวมีกุญแจ เฉพาะ admin", () => {
   const page = readFileSync("src/app/(staff)/settings/page.tsx", "utf8");
   assert.match(page, /canOpenSettings\(me\.role\)/);
-  assert.match(page, /<SettingsClient role=\{me\.role\} \/>/);
+  assert.match(page, /<SettingsClient role=\{me\.role\} meId=\{me\.id\} \/>/);
   const layout = readFileSync("src/app/(staff)/layout.tsx", "utf8");
   assert.match(layout, /\{canOpenSettings\(me\.role\) && <Link href="\/settings" title="ตั้งค่า">/);
   assert.match(layout, /<span className="nav-label">ตั้งค่า<\/span>/);
   assert.doesNotMatch(layout, /ตั้งค่า AI/);
+  assert.doesNotMatch(layout, /href="\/staff"/, "เมนูเจ้าหน้าที่ย้ายไปอยู่ใน ตั้งค่า → เจ้าหน้าที่");
+  assert.match(readFileSync("src/app/(staff)/staff/page.tsx", "utf8"), /redirect\("\/settings\?section=staff"\)/);
   const client = readFileSync("src/app/(staff)/settings/settings-client.tsx", "utf8");
   assert.match(client, /const tabs = TABS\.filter\(\(\[k\]\) => sections\.includes\(k\)\)/);
   assert.match(client, /\{tabs\.map\(\(\[k, label\]\) =>/);
