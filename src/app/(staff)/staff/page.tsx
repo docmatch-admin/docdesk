@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
-import { getStaffContext } from "@/lib/auth";
-import { StaffClient } from "./staff-client";
 
-export default async function StaffPage() {
-  const me = await getStaffContext();
-  if (me?.role !== "admin") redirect("/inbox");
-  return <StaffClient meId={me.id} />;
+/** หน้าเจ้าหน้าที่ย้ายไปอยู่ใน ตั้งค่า → เจ้าหน้าที่ (ลิงก์/บุ๊กมาร์กเดิมพาไปที่นั่น) */
+export default function StaffPage() {
+  redirect("/settings?section=staff");
 }

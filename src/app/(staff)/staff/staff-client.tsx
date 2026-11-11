@@ -21,7 +21,7 @@ interface Secret { name: string; login: string; password: string }
 
 const EMPTY_FORM = { display_name: "", username: "", role: "agent" };
 
-export function StaffClient({ meId }: { meId: string }) {
+export function StaffClient({ meId, embedded = false }: { meId: string; embedded?: boolean }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [hrEnabled, setHrEnabled] = useState(false);
   const [hrOptions, setHrOptions] = useState<HrOption[]>([]);
@@ -98,15 +98,16 @@ export function StaffClient({ meId }: { meId: string }) {
   };
 
   return (
-    <div className="page narrow">
-      <div className="row between">
-        <h1>เจ้าหน้าที่</h1>
-        <div className="row">
+    <div className={embedded ? "staff-embedded" : "page narrow"}>
+      {/* ปุ่มรวมอยู่บนสุดแถวเดียว (ในหน้าตั้งค่าหัวข้อมาจากหมวดแล้ว) */}
+      <div className="page-toolbar">
+        {!embedded && <h1>เจ้าหน้าที่</h1>}
+        <p className="muted small page-toolbar-note">admin ทำได้ทุกอย่าง · agent ตอบแชท ติดแท็ก กดดาว และรับเคส แต่แก้ฐานข้อมูล ตั้งค่า จัดการแท็ก ส่งออกข้อมูล และดูรายงานรายละเอียดไม่ได้ · ห้องยาใช้ได้เฉพาะนัดหมาย</p>
+        <div className="page-toolbar-actions">
           {hrEnabled && <button className="btn ghost small" disabled={syncing} onClick={syncHr}>{syncing ? "กำลังซิงก์…" : "🔄 ซิงก์จาก HR"}</button>}
           <button className="btn primary small" onClick={() => setAdding(!adding)}>เพิ่มพนักงาน</button>
         </div>
       </div>
-      <p className="muted small">admin ทำได้ทุกอย่าง · agent ตอบแชท ติดแท็ก กดดาว และรับเคส แต่แก้ฐานข้อมูล ตั้งค่า จัดการแท็ก ส่งออกข้อมูล และดูรายงานรายละเอียดไม่ได้</p>
 
       {secret && (
         <section className="card secret-card" role="status">
