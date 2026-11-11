@@ -20,6 +20,7 @@ import { RetentionRuns } from "./retention-runs";
 import { normalizeRetentionDays, RETENTION_DEFAULTS, RETENTION_MAX_DAYS, RETENTION_MIN_DAYS, RETENTION_SETTING_KEYS } from "@/lib/retention-rules";
 import { DisplaySettings } from "./display-settings";
 import { TagSettings } from "./tag-settings";
+import { StaffClient } from "../staff/staff-client";
 import { AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL, type AiMode, type ChannelType } from "@/lib/types";
 
 interface Channel { id: string; type: ChannelType; name: string; ai_mode: AiMode | null; enabled: boolean }
@@ -31,7 +32,7 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const MODES = Object.keys(AI_MODE_LABEL) as AiMode[];
 
 export const TABS: [SettingsTab, string][] = [
-  ["overview", "ภาพรวม"], ["ai", "AI"], ["chat", "แชทและแท็ก"], ["appointments", "นัดหมาย"], ["team", "ทีมและระบบ"], ["display", "การแสดงผล"],
+  ["overview", "ภาพรวม"], ["ai", "AI"], ["chat", "แชทและแท็ก"], ["appointments", "นัดหมาย"], ["staff", "เจ้าหน้าที่"], ["team", "ทีมและระบบ"], ["display", "การแสดงผล"],
 ];
 
 /** ค่าที่การ์ดของหน้านี้แก้ (บันทึกพร้อมกันใน settings) แยกตามการ์ดเพื่อบอกว่าการ์ดไหนยังไม่บันทึก */
@@ -63,7 +64,7 @@ export interface SettingsPreview {
   tagRules?: Parameters<typeof TagSettings>[0] extends infer P ? P extends { initialRules?: infer R } ? R : never : never;
 }
 
-export function SettingsClient({ preview, role = "admin" }: { preview?: SettingsPreview; role?: StaffRole } = {}) {
+export function SettingsClient({ preview, role = "admin", meId }: { preview?: SettingsPreview; role?: StaffRole; meId?: string } = {}) {
   const sb = useMemo(() => supabaseBrowser(), []);
   // หมวดย่อยที่ role นี้เห็น (agent ไม่เห็น AI และทีมและระบบ) · สิทธิ์จริงบังคับที่ฐานข้อมูลและ API
   const sections = visibleSections(role);
@@ -360,6 +361,7 @@ export function SettingsClient({ preview, role = "admin" }: { preview?: Settings
               </AppointmentSettings>
             ))}
 
+            {panel("staff", meId ? <StaffClient meId={meId} embedded /> : null)}
             {panel("team", (
               <>
                 <SetGroup title="เกณฑ์คะแนนเจ้าหน้าที่" area="scoring" dirty={cardDirty("score")} info="นับเวลาเฉพาะเวลาทำการ ตอบช้ากว่าขั้นสุดท้ายได้ 0 คะแนน">

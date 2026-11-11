@@ -7,5 +7,5 @@ import { SettingsClient } from "./settings-client";
 export default async function SettingsPage() {
   const me = await getStaffContext();
   if (!me || !canOpenSettings(me.role)) redirect(me?.role === "pharmacy" ? "/appointments" : "/inbox");
-  return <SettingsClient role={me.role} />;
+  return <SettingsClient role={me.role} meId={me.id} />;
 }

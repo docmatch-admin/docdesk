@@ -11,7 +11,7 @@ import type { StaffRole } from "@/lib/auth-types";
  * แต่ละกลุ่มลงทะเบียนสถานะ "มีการแก้ไขที่ยังไม่บันทึก" และฟังก์ชันบันทึกของตัวเองที่นี่
  * ทุกหมวดยังอยู่ใน DOM แม้เลือกหมวดอื่น ค่าที่แก้ไม่หายเมื่อสลับหมวด
  */
-export type SettingsTab = "overview" | "ai" | "chat" | "appointments" | "team" | "display";
+export type SettingsTab = "overview" | "ai" | "chat" | "appointments" | "staff" | "team" | "display";
 
 /** role ของผู้ใช้ที่เปิดหน้าตั้งค่า (หน้าเว็บใช้ซ่อน/ล็อก ฐานข้อมูลและ API บังคับสิทธิ์จริง) */
 export const SettingsRoleContext = createContext<StaffRole>("admin");
