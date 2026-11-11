@@ -28,7 +28,7 @@ import type { ChannelType } from "./types";
  */
 export const APPOINTMENT_SENDER_NAME = "ระบบนัด";
 
-export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, series_done, created_by, created_at, updated_at";
+export const APPOINTMENT_COLUMNS = "id, hn, patient_name, phone, conversation_id, booking_id, appoint_date, time_mode, slot_id, time_start, time_end, purpose_id, purpose_text, instructions, provider, note, status, link_code, confirm_sent_at, reminder_sent_at, reminder_attempted_at, name_from_his, arrived_time, last_send_error, called_at, called_by, cancel_reason, cancel_reason_code, cancelled_by, cancelled_at, series_id, series_seq, series_label, series_from, series_offset_value, series_offset_unit, series_done, created_by, created_at, updated_at";
 
 export const loadAppointmentSettings = async (): Promise<AppointmentSettings> =>
   normalizeAppointmentSettings(await getSetting<unknown>("appointment_settings", {}));
@@ -953,15 +953,33 @@ export async function appointmentTabCounts(opts: ListFilters = {}, now = Date.no
   return { today: t, tomorrow: tm, all };
 }
 
-/** purpose: id ของ preset หรือ "none" = ไม่ได้เลือก preset แท็บทั้งหมดเรียงวันนัดใหม่สุดก่อน */
+/** purpose: id ของ preset หรือ "none" = ไม่ได้เลือก preset ทุกแท็บเรียงนัดที่ใกล้ถึงก่อน (แท็บทั้งหมด: อนาคตใกล้→ไกล แล้วอดีตล่าสุด→เก่า) */
 export async function listAppointments(opts: { tab: ListTab } & ListFilters, now = Date.now()): Promise<AppointmentListRow[]> {
   const today = bangkokToday(now);
   const base = supabaseAdmin().from("appointments")
     // ระบุ FK: appointment_recipients ทำให้ appointments↔conversations มีได้หลายเส้นทาง PostgREST จะตอบ error (PGRST201) ถ้าไม่ระบุ
     .select(`${APPOINTMENT_COLUMNS}, conversations!appointments_conversation_id_fkey(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation, name_locked))`);
-  const desc = opts.tab === "all";
-  const { data } = await applyListFilters(base, opts.tab, opts, today)
-    .order("appoint_date", { ascending: !desc }).order("time_start", { ascending: !desc }).limit(LIST_LIMIT);
+  // ใกล้ถึงก่อนเสมอ: นัดตั้งแต่วันนี้เรียงใกล้→ไกล แล้วต่อด้วยนัดที่ผ่านแล้ว ล่าสุด→เก่า
+  let data: unknown[] | null;
+  if (opts.tab === "all") {
+    const sel = () => supabaseAdmin().from("appointments")
+      .select(`${APPOINTMENT_COLUMNS}, conversations!appointments_conversation_id_fkey(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation, name_locked))`);
+    const [{ data: up }, { data: past }] = await Promise.all([
+      applyListFilters(sel(), "all", opts, today).gte("appoint_date", today)
+        .order("appoint_date", { ascending: true }).order("time_start", { ascending: true }).limit(LIST_LIMIT),
+      applyListFilters(sel(), "all", opts, today).lt("appoint_date", today)
+        .order("appoint_date", { ascending: false }).order("time_start", { ascending: false }).limit(LIST_LIMIT),
+    ]);
+    data = [...(up ?? []), ...(past ?? [])].slice(0, LIST_LIMIT);
+  } else {
+    ({ data } = await applyListFilters(base, opts.tab, opts, today)
+      .order("appoint_date", { ascending: true }).order("time_start", { ascending: true }).limit(LIST_LIMIT));
+  }
+  // วันนี้: คนไข้ที่มาแล้วย้ายไปท้าย (ยังรอ = ที่ต้องดู)
+  if (opts.tab === "today" && data) {
+    const arrived = (r: unknown) => ((r as { status: string }).status === "attended" ? 1 : 0);
+    data = [...data].sort((a, b) => arrived(a) - arrived(b));
+  }
   const seriesIds = [...new Set(((data ?? []) as { series_id?: string | null }[]).map((r) => r.series_id).filter((x): x is string => !!x))];
   const seriesTotal = new Map<string, number>();
   if (seriesIds.length) {

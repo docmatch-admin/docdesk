@@ -18,6 +18,8 @@ export interface Appointment {
   conversation_id: string | null;
   booking_id?: string | null;
   name_from_his?: boolean;
+  /** เวลาลงทะเบียน visit ใน iService วันนัด (HH:MM) — ระบบขีดว่ามาแล้วอัตโนมัติ */
+  arrived_time?: string | null;
   appoint_date: string;
   /** slot = มาได้ในช่วง (ตรวจตามลำดับคิว), exact = เวลาตรง */
   time_mode: TimeMode;
