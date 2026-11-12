@@ -1827,3 +1827,29 @@ test("หน้านัดหมาย: ปุ่มแท็บเรียง
   assert.match(src, /const TABS: \[Tab, string\]\[\] = \[\["today", "วันนี้"\], \["tomorrow", "พรุ่งนี้"\], \["all", "ทั้งหมด"\]\];/);
   assert.match(src, /const \[tab, setTab\] = useState<Tab>\("today"\);/);
 });
+
+test("จับคู่ HN อัตโนมัติ: เฉพาะชื่อตรง 100% และไม่กำกวม", () => {
+  const pick = rules.pickExactNameMatches;
+  const visits = [
+    { hn: "000004812", patient_name: "นางสาว ปัณณธร ใจดี" },
+    { hn: "355", patient_name: "นาย สมชาย ทองดี" },
+    { hn: "356", patient_name: "นาย สมชาย ทองดี" },
+    { hn: "900", patient_name: "วิไล ศรีสุข" },
+  ];
+  const none = new Set(), noPhone = new Map();
+  // คำนำหน้า/เว้นวรรคต่างได้ ตัวอักษรต้องตรงทุกตัว
+  assert.deepEqual(pick([{ id: "a", patient_name: "ปัณณธร  ใจดี", phone: null }], visits, none, noPhone),
+    [{ appointmentId: "a", hn: "000004812", hisName: "นางสาว ปัณณธร ใจดี" }]);
+  assert.deepEqual(pick([{ id: "a", patient_name: "ปัณณธร ใจดีย์", phone: null }], visits, none, noPhone), []);
+  // visit ชื่อซ้ำสอง HN → ไม่จับ
+  assert.deepEqual(pick([{ id: "b", patient_name: "สมชาย ทองดี", phone: null }], visits, none, noPhone), []);
+  // นัดไม่มี HN ชื่อเดียวกันสองนัด → ไม่จับ
+  assert.deepEqual(pick([{ id: "c", patient_name: "วิไล ศรีสุข", phone: null }, { id: "d", patient_name: "วิไล ศรีสุข", phone: null }], visits, none, noPhone), []);
+  // HN นี้มีนัดวันนี้อยู่แล้ว → ไม่ใช่คนไข้ใหม่
+  assert.deepEqual(pick([{ id: "e", patient_name: "วิไล ศรีสุข", phone: null }], visits, new Set(["0900"]), noPhone), []);
+  // เบอร์รู้ทั้งสองฝั่งแต่ไม่ตรง → ไม่จับ · ตรง → จับ
+  assert.deepEqual(pick([{ id: "f", patient_name: "วิไล ศรีสุข", phone: "081-111-1111" }], visits, none, new Map([["900", "0822222222"]])), []);
+  assert.equal(pick([{ id: "f", patient_name: "วิไล ศรีสุข", phone: "081-111-1111" }], visits, none, new Map([["900", "0811111111"]])).length, 1);
+  // ชื่อสั้นเกิน → ไม่จับ
+  assert.deepEqual(pick([{ id: "g", patient_name: "นาย อ", phone: null }], [{ hn: "1", patient_name: "อ" }], none, noPhone), []);
+});

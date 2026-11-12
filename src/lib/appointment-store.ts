@@ -1,9 +1,9 @@
 import {
   addDays, appointmentFlex, callQueue, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
-  metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT,
+  metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, pickExactNameMatches, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT,
   reminderDecision, TEST_APPOINTMENT_ID, thaiShortDate, timeShort, weekdayOf,
   canRestore, CANCEL_REASON_LABEL, DELIVERY_SKIP_TEXT, type DeliverySkip, defaultSeriesLabel, notifiesOnCancel, shiftFollowing,
-  type Appointment, type AppointmentSettings, type CancelReason, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
+  type Appointment, type AppointmentSettings, type AppointmentStatus, type CancelReason, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
 } from "./appointment-rules";
 import { sendPushToStaff } from "./booking-store";
 import { lineSendMessages } from "./channels/line";
@@ -956,6 +956,8 @@ export async function appointmentTabCounts(opts: ListFilters = {}, now = Date.no
 /** purpose: id ของ preset หรือ "none" = ไม่ได้เลือก preset ทุกแท็บเรียงนัดที่ใกล้ถึงก่อน (แท็บทั้งหมด: อนาคตใกล้→ไกล แล้วอดีตล่าสุด→เก่า) */
 export async function listAppointments(opts: { tab: ListTab } & ListFilters, now = Date.now()): Promise<AppointmentListRow[]> {
   const today = bangkokToday(now);
+  // คนไข้ใหม่ที่มาตรวจแล้ว ชื่อตรง 100% → ใส่ HN + มาแล้ว ก่อนแสดงรายการ (ไม่ให้รายการช้าถ้าพลาด)
+  await autoMatchNewPatients(now).catch((e) => console.error("auto hn match", e instanceof Error ? e.message : e));
   const base = supabaseAdmin().from("appointments")
     // ระบุ FK: appointment_recipients ทำให้ appointments↔conversations มีได้หลายเส้นทาง PostgREST จะตอบ error (PGRST201) ถ้าไม่ระบุ
     .select(`${APPOINTMENT_COLUMNS}, conversations!appointments_conversation_id_fkey(channels(type), contacts(display_name, platform_name, hn, patient_full_name, patient_relation, name_locked))`);
@@ -1202,20 +1204,69 @@ export async function decideHnMatch(matchId: string, accept: boolean, staffId: s
     return { status: appt.status };
   }
 
-  let name = (match.his_name as string | null)?.trim() || appt.patient_name;
-  if (appt.conversation_id) {
-    const linked = await linkConversationToHn(appt.conversation_id, hn, { via: "staff", staffId, fallbackName: name, fallbackFromHis: true, phone: appt.phone });
-    if (linked?.name) name = linked.name;
-  }
-  await db.from("appointments").update({
-    hn, patient_name: name, name_from_his: true,
-    ...(OPEN_STATUSES.includes(appt.status) ? { status: "attended" } : {}),
-    updated_at: at,
-  }).eq("id", appt.id);
+  await applyHnMatch(appt, hn, match.his_name as string | null, staffId);
   await db.from("appointment_hn_matches").update({ status: "accepted", decided_by: staffId, decided_at: at }).eq("id", matchId);
   await db.from("appointment_hn_matches").update({ status: "rejected", decided_by: staffId, decided_at: at }).eq("appointment_id", appt.id).eq("status", "pending");
   await logAppointmentEvent(appt.id, "hn_match_accepted", "staff", { staffId, detail: { hn } });
   return { status: "attended" };
+}
+
+/** ใส่ HN + ชื่อจาก HIS ให้นัด ผูกแชทกับ HN และนัดที่ยังเปิดอยู่เป็น "มาแล้ว" (ใช้ทั้งแอดมินยืนยัน และจับคู่อัตโนมัติ) */
+async function applyHnMatch(appt: Appointment, hn: string, hisName: string | null, staffId: string | null, arrivedTime?: string | null) {
+  let name = hisName?.trim() || appt.patient_name;
+  if (appt.conversation_id) {
+    const linked = await linkConversationToHn(appt.conversation_id, hn, { via: "staff", staffId, fallbackName: name, fallbackFromHis: true, phone: appt.phone });
+    if (linked?.name) name = linked.name;
+  }
+  await supabaseAdmin().from("appointments").update({
+    hn, patient_name: name, name_from_his: true,
+    ...(OPEN_STATUSES.includes(appt.status) ? { status: "attended", ...(arrivedTime ? { arrived_time: appt.arrived_time ?? arrivedTime } : {}) } : {}),
+    updated_at: nowIso(),
+  }).eq("id", appt.id);
+}
+
+let lastAutoMatch = 0;
+/**
+ * คนไข้ใหม่ที่นัดจากแชท (ไม่มี HN) และมาตรวจวันนี้แล้ว: ชื่อตรง 100% กับ visit ใน his_visit_cache → ใส่ HN + "มาแล้ว" ทันที
+ * กรณีกำกวม (ชื่อซ้ำ เบอร์ไม่ตรง ชื่อไม่ตรงเป๊ะ) ไม่แตะ ให้ mark-attendance เสนอแอดมินตอน 21:00 เหมือนเดิม
+ * เรียกตอนเปิดรายการนัด (เว้นอย่างน้อย 60 วินาทีต่อเครื่อง) · cache visit อัปเดตทุก 5 นาทีโดย cron
+ */
+export async function autoMatchNewPatients(now = Date.now()): Promise<number> {
+  if (now - lastAutoMatch < 60_000) return 0;
+  lastAutoMatch = now;
+  const db = supabaseAdmin();
+  const today = bangkokToday(now);
+  const { data: rows } = await db.from("appointments").select("id, hn, patient_name, phone, status")
+    .eq("appoint_date", today).neq("status", "cancelled");
+  const all = (rows ?? []) as { id: string; hn: string | null; patient_name: string; phone: string | null; status: AppointmentStatus }[];
+  const pending = all.filter((a) => !a.hn?.trim() && OPEN_STATUSES.includes(a.status));
+  if (!pending.length) return 0;
+  const { data: visits } = await db.from("his_visit_cache").select("hn, patient_name, visit_time").eq("visit_date", today);
+  const vs = (visits ?? []) as { hn: string; patient_name: string | null; visit_time: string | null }[];
+  if (!vs.length) return 0;
+  const known = new Set(all.map((a) => a.hn?.trim() ?? "").filter(Boolean));
+  const candidateHns = [...new Set(vs.map((v) => v.hn.trim()))];
+  const { data: phones } = await db.from("his_patient_cache").select("hn, phone").in("hn", candidateHns);
+  const phoneMap = new Map(((phones ?? []) as { hn: string; phone: string | null }[])
+    .filter((p) => p.phone).map((p) => [p.hn.trim().replace(/^0+/, ""), p.phone as string]));
+  const matches = pickExactNameMatches(pending, vs, known, phoneMap);
+  let done = 0;
+  for (const m of matches) {
+    const appt = await loadAppointment(m.appointmentId);
+    if (!appt || appt.hn?.trim() || !OPEN_STATUSES.includes(appt.status)) continue;
+    const visitTime = vs.find((v) => v.hn.trim() === m.hn)?.visit_time?.match(/^\d{1,2}:\d{2}/)?.[0] ?? null;
+    try {
+      await applyHnMatch(appt, m.hn, m.hisName, null, visitTime);
+      await db.from("appointment_hn_matches").upsert(
+        { appointment_id: appt.id, hn: m.hn, his_name: m.hisName, matched_by: "name", status: "accepted", decided_at: nowIso() },
+        { onConflict: "appointment_id,hn" });
+      await logAppointmentEvent(appt.id, "hn_auto_matched", "system", { detail: { hn: m.hn, by: "exact_name", visit_time: visitTime } });
+      done++;
+    } catch (e) {
+      console.error("auto hn match failed", e instanceof Error ? e.message : e);
+    }
+  }
+  return done;
 }
 
 /** LINE follow/unfollow: บันทึกที่รายชื่อ ใช้ตัดสินว่าส่งข้อความนัดได้ไหม */

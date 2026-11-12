@@ -758,3 +758,46 @@ export function callQueue(rows: Pick<Appointment, "status" | "conversation_id" |
   }
   return { mustCall, reschedule, total: mustCall + reschedule };
 }
+
+// ---------------------------------------------------------------------------
+// คนไข้ใหม่ (นัดจากแชท ยังไม่มี HN) มาตรวจแล้ว: จับคู่ HN อัตโนมัติเมื่อชื่อตรง 100%
+// ---------------------------------------------------------------------------
+const NAME_TITLES = /^(นาย|นางสาว|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.|เด็กชาย|เด็กหญิง|mr\.?|mrs\.?|ms\.?|miss)\s*/i;
+/** ชื่อสำหรับเทียบ: ตัดคำนำหน้า เว้นวรรค จุด ตัวพิมพ์เล็ก (ตรงกับ normalizeName ของ mark-attendance) */
+export const normalizePersonName = (name: string) => name.trim().replace(NAME_TITLES, "").replace(/[\s.]+/g, "").toLowerCase();
+const phoneDigits = (p: string) => p.replace(/\D/g, "").slice(-9);
+
+export interface AutoMatchAppt { id: string; patient_name: string; phone: string | null }
+export interface AutoMatchVisit { hn: string; patient_name: string | null }
+export interface AutoMatch { appointmentId: string; hn: string; hisName: string }
+
+/**
+ * จับคู่อัตโนมัติเฉพาะกรณีไม่กำกวม:
+ * - ชื่อ (หลังตัดคำนำหน้า/เว้นวรรค) ตรงกันทุกตัวอักษร ยาวอย่างน้อย 4 ตัว
+ * - visit วันนั้นที่ชื่อนี้มี HN เดียว · ไม่ใช่ HN ที่มีนัดวันนั้นอยู่แล้ว · นัดไม่มี HN ชื่อนี้มีนัดเดียว
+ * - ถ้ารู้เบอร์ทั้งสองฝั่งแล้วไม่ตรงกัน → ไม่จับคู่ (ให้แอดมินตัดสินตอน 21:00)
+ */
+export function pickExactNameMatches(
+  appts: AutoMatchAppt[], visits: AutoMatchVisit[], knownHns: Set<string>, hisPhones: Map<string, string>,
+): AutoMatch[] {
+  const norm = (hn: string) => hn.trim().replace(/^0+/, "");
+  const known = new Set([...knownHns].map(norm));
+  const apptsByName = new Map<string, AutoMatchAppt[]>();
+  for (const a of appts) {
+    const k = normalizePersonName(a.patient_name);
+    apptsByName.set(k, [...(apptsByName.get(k) ?? []), a]);
+  }
+  const out: AutoMatch[] = [];
+  for (const [name, list] of apptsByName) {
+    if (name.length < 4 || list.length !== 1) continue;
+    const a = list[0];
+    const hits = visits.filter((v) => v.patient_name && normalizePersonName(v.patient_name) === name && !known.has(norm(v.hn)));
+    const hns = [...new Set(hits.map((v) => norm(v.hn)))];
+    if (hns.length !== 1) continue;
+    const hit = hits[0];
+    const hisPhone = hisPhones.get(norm(hit.hn));
+    if (a.phone && hisPhone && phoneDigits(a.phone) && phoneDigits(hisPhone) && phoneDigits(a.phone) !== phoneDigits(hisPhone)) continue;
+    out.push({ appointmentId: a.id, hn: hit.hn.trim(), hisName: hit.patient_name!.trim() });
+  }
+  return out;
+}
