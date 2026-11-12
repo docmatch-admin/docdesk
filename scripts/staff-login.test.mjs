@@ -33,6 +33,8 @@ beforeEach(() => {
   state.currentUser = ADMIN;
   delete process.env.HR_SYNC_URL;
   delete process.env.HR_SYNC_SECRET;
+  delete process.env.HR_KPI_URL;
+  delete process.env.HR_KPI_KEY;
 });
 afterEach(() => { globalThis.fetch = realFetch; });
 

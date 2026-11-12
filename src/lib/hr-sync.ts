@@ -11,19 +11,26 @@ export interface HrEmployee {
   nickname: string | null;
   position: string | null;
   employment_status: string | null;
+  /** มีเฉพาะ endpoint kpi-ingest (?action=employees) */
+  full_name?: string | null;
+  email?: string | null;
 }
 
 const clean = (v: string | null | undefined) => v?.trim() || null;
 const LEFT_STATUSES = ["resigned", "terminated"];
 
+const legacySyncEnabled = () => !!process.env.HR_SYNC_URL && !!process.env.HR_SYNC_SECRET;
+/** HR_KPI_URL + HR_KPI_KEY: endpoint เดียวกับที่ส่งคะแนน ใช้อ่านรายชื่อได้ด้วย (?action=employees) */
+export const hrKpiEnabled = () => !!process.env.HR_KPI_URL && !!process.env.HR_KPI_KEY;
+
 export function hrSyncEnabled(): boolean {
-  return !!process.env.HR_SYNC_URL && !!process.env.HR_SYNC_SECRET;
+  return legacySyncEnabled() || hrKpiEnabled();
 }
 
 export const hrHasLeft = (e: HrEmployee) => LEFT_STATUSES.includes(clean(e.employment_status)?.toLowerCase() ?? "");
 
 export function hrFullName(e: HrEmployee): string | null {
-  return [clean(e.title), clean(e.first_name), clean(e.last_name)].filter(Boolean).join(" ") || null;
+  return [clean(e.title), clean(e.first_name), clean(e.last_name)].filter(Boolean).join(" ") || clean(e.full_name);
 }
 
 /** ไม่มีชื่อเล่นใช้ชื่อจริง ถ้าไม่มีทั้งคู่คืน null เพื่อคงชื่อเดิม */
@@ -31,15 +38,21 @@ export const hrDisplayName = (e: HrEmployee) => clean(e.nickname) ?? clean(e.fir
 
 /** อ่านรายชื่อจาก HR ถ้าข้อมูลผิดรูปแบบให้ throw ทั้งชุด ไม่ซิงก์ข้อมูลครึ่งเดียว */
 export async function fetchHrEmployees(): Promise<HrEmployee[]> {
-  const res = await fetch(process.env.HR_SYNC_URL as string, {
-    headers: { Authorization: `Bearer ${process.env.HR_SYNC_SECRET}` },
-    signal: AbortSignal.timeout(10000),
-  });
+  const [url, headers]: [string, Record<string, string>] = legacySyncEnabled()
+    ? [process.env.HR_SYNC_URL as string, { Authorization: `Bearer ${process.env.HR_SYNC_SECRET}` }]
+    : [hrKpiUrl("employees"), { "x-api-key": process.env.HR_KPI_KEY as string }];
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
   if (!res.ok) throw new Error(`HR ตอบกลับ ${res.status}`);
   const body = (await res.json()) as HrEmployee[] | { employees?: HrEmployee[] };
   const list = Array.isArray(body) ? body : body.employees;
   if (!Array.isArray(list) || list.some((e) => typeof e?.id !== "string" || !e.id)) throw new Error("รูปแบบข้อมูล HR ไม่ถูกต้อง");
   return list;
+}
+
+export function hrKpiUrl(action?: string): string {
+  const url = new URL(process.env.HR_KPI_URL as string);
+  if (action) url.searchParams.set("action", action);
+  return url.toString();
 }
 
 export interface HrSyncResult { updated: number; deactivated: number; unmatched: number; skipped: string[] }
