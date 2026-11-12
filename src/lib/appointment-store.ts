@@ -977,11 +977,7 @@ export async function listAppointments(opts: { tab: ListTab } & ListFilters, now
     ({ data } = await applyListFilters(base, opts.tab, opts, today)
       .order("appoint_date", { ascending: true }).order("time_start", { ascending: true }).limit(LIST_LIMIT));
   }
-  // วันนี้: คนไข้ที่มาแล้วย้ายไปท้าย (ยังรอ = ที่ต้องดู)
-  if (opts.tab === "today" && data) {
-    const arrived = (r: unknown) => ((r as { status: string }).status === "attended" ? 1 : 0);
-    data = [...data].sort((a, b) => arrived(a) - arrived(b));
-  }
+  // วันนี้: เรียงตามเวลาอย่างเดียว คนที่มาแล้วอยู่ที่เดิม (แถวพื้นเทา + ✓ ที่หน้ารายการ)
   const seriesIds = [...new Set(((data ?? []) as { series_id?: string | null }[]).map((r) => r.series_id).filter((x): x is string => !!x))];
   const seriesTotal = new Map<string, number>();
   if (seriesIds.length) {

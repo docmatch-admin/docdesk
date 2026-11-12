@@ -186,7 +186,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                       onKeyDown={(e) => { if (e.key === "Enter") setOpenId(r.id); }}>
                       {tab === "all" && <td>{thaiShortDate(r.appoint_date)}</td>}
                       <td className="appt-time-cell">{timeShort(r)}</td>
-                      <td className="appt-name-cell" title={r.patient_name}>{r.patient_name}</td>
+                      <td className="appt-name-cell" title={r.patient_name}>{r.status === "attended" && <span className="appt-done-mark" aria-hidden="true">✓ </span>}{r.patient_name}</td>
                       <td className="appt-hn">{r.hn ? shortHn(r.hn) : "–"}</td>
                       <td className="appt-hn">{r.phone ? <a href={`tel:${r.phone.replace(/[^\d+]/g, "")}`} onClick={(e) => e.stopPropagation()}>{r.phone}</a> : "–"}</td>
                       <td className="appt-purpose-cell" title={r.purpose_text ?? undefined}>

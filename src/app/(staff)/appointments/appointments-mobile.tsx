@@ -157,9 +157,9 @@ function MRow({ r, showDate, onOpen, onCalled }: { r: Row; showDate?: boolean; o
   ].filter(Boolean).join(" · ");
 
   return (
-    <div className={`appt-m-row ${r.status === "attended" || r.status === "cancelled" ? "faded done" : ""}`}>
+    <div className={`appt-m-row ${r.status === "attended" || r.status === "cancelled" ? (r.status === "attended" ? "arrived" : "faded done") : ""}`}>
       <button type="button" className="appt-m-main" onClick={() => onOpen(r.id)} aria-label={`ดูรายละเอียดนัด ${r.patient_name}`}>
-        <span className="appt-m-name">{r.patient_name}</span>
+        <span className="appt-m-name">{r.status === "attended" && <span className="appt-done-mark" aria-hidden="true">✓ </span>}{r.patient_name}</span>
         <span className="appt-m-sub">{sub}</span>
       </button>
       {mustCall && tel ? (
