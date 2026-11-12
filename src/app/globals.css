@@ -415,7 +415,8 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 /* ---------- สุขภาพระบบ ---------- */
 .staff-root { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 /* แอปเลื่อนเฉพาะในพื้นที่เนื้อหา (.main) ตัวหน้าเว็บไม่เลื่อน กันของซ่อน (absolute) ยืดหน้าเว็บจนมีพื้นว่างด้านล่าง */
-@media screen { .staff-root { overflow: hidden; } }
+/* ต้อง relative ด้วย: ของ absolute ที่ไม่มีกรอบ relative (เช่น .sr-only ในรายการตั้งค่า) จะยึดกรอบนี้แล้วถูกตัด แทนที่จะยืดหน้าเว็บ */
+@media screen { .staff-root { position: relative; overflow: hidden; } }
 .staff-root .shell { flex: 1; min-height: 0; height: auto; }
 .staff-root .inbox { height: 100%; }
 .health-banner { background: var(--danger-solid); color: var(--on-accent); padding: 6px 16px; font-weight: 600; flex-shrink: 0; }
