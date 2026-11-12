@@ -739,8 +739,9 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .appt-row:hover td { background: var(--bg); }
 .appt-row.selected td { background: var(--blue-soft); }
 /* ยกเลิก: ขีดฆ่าอย่างเดียว · ป้ายสถานะและช่องโทรไม่ขีด */
-.appt-row.appt-cancelled td { text-decoration: line-through; }
-.appt-row.appt-cancelled td:nth-last-child(-n+2) { text-decoration: none; }
+/* มาแล้ว / ยกเลิก: ขีดฆ่า + สีจาง แยกจากนัดที่ยังรออยู่ชัดๆ (ช่องสถานะ + โทรแล้ว ไม่ขีด อ่านเวลามาได้) */
+.appt-row.appt-cancelled td, .appt-row.appt-attended td { text-decoration: line-through; color: var(--muted-strong); }
+.appt-row.appt-cancelled td:nth-last-child(-n+2), .appt-row.appt-attended td:nth-last-child(-n+2) { text-decoration: none; }
 .appt-side-card { cursor: pointer; }
 .appt-side-card:hover { border-color: var(--blue); }
 @media (max-width: 640px) { .drawer-dl { grid-template-columns: 1fr; } .drawer-dl dt { margin-top: 4px; } }
@@ -1714,6 +1715,7 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
   .appt-m-list section { display: flex; flex-direction: column; gap: 6px; }
   .appt-m-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
   .appt-m-row.faded { opacity: .6; }
+  .appt-m-row.done .appt-m-name, .appt-m-row.done .appt-m-sub { text-decoration: line-through; }
   .appt-m-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 6px 0 6px 12px; border: 0; background: none; color: var(--ink); text-align: left; cursor: pointer; }
   .appt-m-name { font-weight: 600; font-size: 15px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .appt-m-sub { font-size: 13px; color: var(--muted); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

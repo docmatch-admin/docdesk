@@ -181,7 +181,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                   const state = deliveryState(r);
                   const open = state !== "closed";
                   return (
-                    <tr key={r.id} className={`appt-row ${open ? "" : "appt-closed"} ${r.status === "cancelled" ? "appt-cancelled" : ""} ${openId === r.id ? "selected" : ""}`}
+                    <tr key={r.id} className={`appt-row ${open ? "" : "appt-closed"} ${r.status === "cancelled" ? "appt-cancelled" : ""} ${r.status === "attended" ? "appt-attended" : ""} ${openId === r.id ? "selected" : ""}`}
                       onClick={() => setOpenId(r.id)} tabIndex={0} aria-label={`ดูรายละเอียดนัด ${r.patient_name}`}
                       onKeyDown={(e) => { if (e.key === "Enter") setOpenId(r.id); }}>
                       {tab === "all" && <td>{thaiShortDate(r.appoint_date)}</td>}

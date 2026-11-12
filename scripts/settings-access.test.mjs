@@ -336,12 +336,14 @@ test("ชิปแท็กโหมดมืด: พื้นเข้ม ต�
   assert.match(css, /:root\[data-theme="dark"\] \.tag-chip\[style\] \{ background: var\(--tag-dark-bg\); color: var\(--tag-dark-ink\);/);
 });
 
-test("นัดที่ปิดแล้ว: ไม่ลด opacity · ยกเลิก = ขีดฆ่าอย่างเดียวบนสีรอง + ป้ายสถานะอ่านชัด · มา/ไม่มามีป้ายของตัวเอง", () => {
+const client0 = () => readFileSync("src/app/(staff)/appointments/appointments-client.tsx", "utf8");
+test("นัดที่ปิดแล้ว: ไม่ลด opacity · ยกเลิก/มาแล้ว = ขีดฆ่าบนสีรอง + ป้ายสถานะอ่านชัด · มา/ไม่มามีป้ายของตัวเอง", () => {
   assert.doesNotMatch(css, /\.appt-table tr\.appt-closed \{ opacity/);
   assert.doesNotMatch(css, /\.appt-row\.appt-cancelled td \{[^}]*opacity/);
   assert.match(css, /\.appt-table tr\.appt-closed td, \.appt-table tr\.appt-closed td \.muted \{ color: var\(--muted-strong\); \}/);
-  assert.match(css, /\.appt-row\.appt-cancelled td \{ text-decoration: line-through; \}/);
-  assert.match(css, /\.appt-row\.appt-cancelled td:nth-last-child\(-n\+2\) \{ text-decoration: none; \}/);
+  assert.match(css, /\.appt-row\.appt-cancelled td, \.appt-row\.appt-attended td \{ text-decoration: line-through; color: var\(--muted-strong\); \}/);
+  assert.match(css, /\.appt-row\.appt-cancelled td:nth-last-child\(-n\+2\), \.appt-row\.appt-attended td:nth-last-child\(-n\+2\) \{ text-decoration: none; \}/);
+  assert.match(client0(), /r\.status === "attended" \? "appt-attended" : ""/, "มาแล้ว = ขีดฆ่าเหมือนยกเลิก");
   for (const s of ["cancelled", "attended", "no_show"]) assert.match(css, new RegExp(`\.appt-state\.status-${s} \{`), s);
   const client = readFileSync("src/app/(staff)/appointments/appointments-client.tsx", "utf8");
   assert.match(client, /state === "closed" \? `appt-state closed status-\$\{r\.status\}`/);
