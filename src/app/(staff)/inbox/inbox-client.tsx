@@ -22,6 +22,7 @@ import { LabPanel } from "./lab-panel";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import { TeamPanel } from "./team-panel";
+import { WebBookingCard } from "./web-booking-card";
 import { MobileChatTabs, NextAppointmentStrip, useMobileTyping, type ApptSummary, type MobileTab } from "./mobile-chat";
 import {
   AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL,
@@ -1046,6 +1047,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             <>
               <BookingsBlock conversationId={selected.id} contactName={selected.contacts?.display_name ?? null} bookings={bookings} blurred={blurred}
                 onError={flash} onReschedule={draftReschedule} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
+              <WebBookingCard messages={messages} conversationId={selected.id} bookedDates={apptSummary?.dates ?? []} blurred={blurred}
+                onError={flash} onSaved={() => { loadBookings(selected.id); loadConvs(); }} />
               <AppointmentsBlock onSummary={setApptSummary} conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
                 onMessage={flash} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
               <TeamPanel onNoteCount={setNoteCount} conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
