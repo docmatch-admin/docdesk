@@ -103,9 +103,9 @@ export interface AppointmentSettings {
 
 export const TEMPLATE_VARIABLES = ["{name}", "{date}", "{time}", "{clinic}", "{phone}", "{mobile}"];
 
-/** ข้อความแนะนำ: บรรทัดติดต่อมีทั้งเบอร์คลินิกและเบอร์มือถือ (มือถือว่าง ส่วน " · มือถือ ..." หายเอง) */
-export const SUGGESTED_TEMPLATE_TH = "เรียน คุณ{name}\nนัดหมายครั้งต่อไปที่ {clinic}\n{date}\n{time}\nสอบถามโทร {phone} · มือถือ {mobile}";
-export const SUGGESTED_TEMPLATE_EN = "Dear {name},\nYour next appointment at {clinic}\n{date}\n{time}\nQuestions? Call {phone} · Mobile {mobile}";
+/** ข้อความแนะนำ: บรรทัดติดต่อมีเบอร์คลินิกและเบอร์มือถือต่อกัน (มือถือว่าง ส่วน ", {mobile}" หายเอง) */
+export const SUGGESTED_TEMPLATE_TH = "เรียน คุณ{name}\nนัดหมายครั้งต่อไปที่ {clinic}\n{date}\n{time}\nสอบถามโทร {phone}, {mobile}";
+export const SUGGESTED_TEMPLATE_EN = "Dear {name},\nYour next appointment at {clinic}\n{date}\n{time}\nQuestions? Call {phone}, {mobile}";
 
 export const DEFAULT_APPOINTMENT_SETTINGS: AppointmentSettings = {
   reminder_time: "10:00",
@@ -548,7 +548,8 @@ function previousText(input: MessageInput): string {
 
 /**
  * แทนตัวแปรใน template บรรทัดที่มี {mobile} แต่ไม่ได้ตั้งเบอร์มือถือ ตัดทั้งบรรทัด
- * ตั้งเบอร์มือถือแล้วแต่ template ไม่มี {mobile} ต่อท้ายบรรทัด "โทร/มือถือ ..." ให้เอง
+ * ตั้งเบอร์มือถือแล้วแต่ template ไม่มี {mobile}: ต่อเบอร์มือถือหลัง {phone} ในบรรทัดเดียวกัน ("โทร 02-..., 088-...")
+ * ถ้า template ไม่มี {phone} เลย ต่อท้ายเป็นบรรทัด "โทร ..." แยก
  */
 export function fillVariables(template: string, values: Record<string, string>): string {
   const mobile = values.mobile?.trim() ?? "";
@@ -558,7 +559,7 @@ export function fillVariables(template: string, values: Record<string, string>):
     t = t.replace(/[ \t]*[·•,/|][ \t]*(?:โทร\/)?(?:มือถือ|Mobile|mobile)?[ \t]*\{mobile\}/g, "");
     t = t.split("\n").filter((line) => !line.includes("{mobile}")).join("\n");
   }
-  else if (!t.includes("{mobile}")) t = `${t}\n${values.mobileLabel ?? "โทร/มือถือ"} {mobile}`;
+  else if (!t.includes("{mobile}")) t = t.includes("{phone}") ? t.replace("{phone}", "{phone}, {mobile}") : `${t}\n${values.mobileLabel ?? "โทร"} {mobile}`;
   if (!values.phone?.trim()) {
     // ไม่มีเบอร์คลินิก: "โทร {phone} · มือถือ {mobile}" → "โทร {mobile}" แล้วตัดบรรทัดที่เหลือแต่ {phone}
     t = t.replace(/\{phone\}[ \t]*[·•,/|][ \t]*(?:มือถือ|Mobile|mobile)?[ \t]*/g, "");
@@ -576,7 +577,7 @@ function variables(input: MessageInput): Record<string, string> {
     clinic: input.clinicName,
     phone: input.settings.clinic_phone,
     mobile: input.settings.clinic_mobile ?? "",
-    mobileLabel: input.lang === "en" ? "Mobile" : "โทร/มือถือ",
+    mobileLabel: input.lang === "en" ? "Tel" : "โทร",
   };
 }
 
@@ -590,8 +591,8 @@ export function appointmentText(input: MessageInput): string {
   const header = `${HEADER[input.lang][input.kind]}${forWho ? `\n${forWho}` : ""}`;
   if (input.kind === "cancelled") {
     const body = input.lang === "en"
-      ? `Your appointment on ${v.date} (${timeShort(input.appointment)}) at ${v.clinic} has been cancelled.\nTo book again, call ${v.phone}${v.mobile ? ` / ${v.mobile}` : ""}`
-      : `นัด${v.date} (${timeShort(input.appointment)} น.) ที่ ${v.clinic} ถูกยกเลิกแล้วค่ะ\nหากต้องการนัดใหม่ โทร ${v.phone}${v.mobile ? `\nโทร/มือถือ ${v.mobile}` : ""}`;
+      ? `Your appointment on ${v.date} (${timeShort(input.appointment)}) at ${v.clinic} has been cancelled.\nTo book again, call ${[v.phone, v.mobile].filter(Boolean).join(", ")}`
+      : `นัด${v.date} (${timeShort(input.appointment)} น.) ที่ ${v.clinic} ถูกยกเลิกแล้วค่ะ\nหากต้องการนัดใหม่ โทร ${[v.phone, v.mobile].filter(Boolean).join(", ")}`;
     const cancelledLines = seriesLines(input);
     const list = cancelledLines.length ? `\n${input.lang === "en" ? "Cancelled appointments:" : "นัดที่ยกเลิก:"}\n${cancelledLines.join("\n")}` : "";
     return `${header}\n${body}${list}`;
@@ -659,8 +660,7 @@ export function appointmentFlex(input: MessageInput): Json {
       contents: [
         { type: "text", text: v.clinic, size: "sm", weight: "bold", wrap: true },
         ...(input.settings.clinic_address ? [{ type: "text", text: input.settings.clinic_address, size: "xs", color: "#8a8f9c", wrap: true }] : []),
-        { type: "text", text: `${th ? "โทร" : "Tel"} ${v.phone}`, size: "xs", color: "#8a8f9c" },
-        ...(v.mobile ? [{ type: "text", text: `${th ? "โทร/มือถือ" : "Mobile"} ${v.mobile}`, size: "xs", color: "#8a8f9c" }] : []),
+        ...([v.phone, v.mobile].some(Boolean) ? [{ type: "text", text: `${th ? "โทร" : "Tel"} ${[v.phone, v.mobile].filter(Boolean).join(", ")}`, size: "xs", color: "#8a8f9c", wrap: true }] : []),
       ],
     },
   ];

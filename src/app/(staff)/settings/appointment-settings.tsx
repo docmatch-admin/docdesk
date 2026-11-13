@@ -164,7 +164,7 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
         <button type="button" className="btn ghost small" aria-expanded={!!previewLang} onClick={() => setPreviewLang(previewLang ? null : "th")}>
           {previewLang ? "ซ่อนตัวอย่าง" : "ดูตัวอย่างข้อความ"}
         </button>
-      } info={'{time} = "เวลา 08:00–12:00 น. (ตรวจตามลำดับคิว)" หรือ "เวลา 09:30 น." · {mobile} = เบอร์มือถือ (ว่างแล้วส่วน " · มือถือ ..." หายเอง) · การปฏิบัติตัวต่อท้ายข้อความให้เสมอ · ไม่ผ่าน AI'}>
+      } info={'{time} = "เวลา 08:00–12:00 น. (ตรวจตามลำดับคิว)" หรือ "เวลา 09:30 น." · {mobile} = เบอร์มือถือ ต่อหลังเบอร์คลินิก (ว่างแล้วส่วน ", {mobile}" หายเอง) · การปฏิบัติตัวต่อท้ายข้อความให้เสมอ · ไม่ผ่าน AI'}>
         <SetLine label="ตัวแปร" desc="คลิกเพื่อแทรกในช่องที่เลือกล่าสุด">
           <div className="set-vars" aria-label="ตัวแปร คลิกเพื่อแทรก">
             {TEMPLATE_VARIABLES.map((v) => (
@@ -174,7 +174,7 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
         </SetLine>
         {missingMobile && (
           <div className="set-suggest" role="note">
-            <span>ข้อความยังไม่มี {"{mobile}"} — ตอนนี้ระบบต่อท้าย “โทร/มือถือ …” เป็นบรรทัดแยกเมื่อตั้งเบอร์มือถือ ข้อความแนะนำรวมเบอร์คลินิกและมือถือไว้บรรทัดเดียว</span>
+            <span>ข้อความยังไม่มี {"{mobile}"} — ตอนนี้ระบบต่อเบอร์มือถือหลังเบอร์คลินิกให้เอง (โทร 02-..., 08...) กดใช้ข้อความแนะนำเพื่อให้เห็นในช่องแก้ไขด้วย</span>
             <button type="button" className="btn ghost small" onClick={applySuggested}>ใช้ข้อความแนะนำ</button>
           </div>
         )}

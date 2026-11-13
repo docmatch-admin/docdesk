@@ -1556,7 +1556,7 @@ test("ข้อความ LINE/FB และใบนัดไม่มีเ�
   const th = rules.appointmentText({ kind: "new", lang: "th", appointment: base, settings, clinicName: "คลินิก", includePurpose: false });
   assert.match(th, /เวลา 08:00–12:00 น\. \(ตรวจตามลำดับคิว\)/);
   // บรรทัดติดต่อเดียวมีทั้งเบอร์คลินิกและมือถือ
-  assert.match(th, /สอบถามโทร 02-000-4586 · มือถือ 081-234-5678/);
+  assert.match(th, /สอบถามโทร 02-000-4586, 081-234-5678/);
   assert.doesNotMatch(th, /·\s*$|โทร\s+·/m);
   const en = rules.appointmentText({ kind: "new", lang: "en", appointment: base, settings, clinicName: "Clinic", includePurpose: false });
   assert.match(en, /Time 08:00–12:00 \(Seen in queue order\)/);
@@ -1693,15 +1693,18 @@ test("เวลาเปิดคลินิกแบบยุบแถว: จ
 
 test("ข้อความนัด: บรรทัดติดต่อมีทั้งโทรและมือถือ ไม่มีมือถือ/ไม่มีเบอร์คลินิก ตัดเฉพาะส่วนนั้น (TH/EN)", () => {
   const f = rules.fillVariables;
-  assert.equal(f("สอบถามโทร {phone} · มือถือ {mobile}", { phone: "02-111", mobile: "081-2" }), "สอบถามโทร 02-111 · มือถือ 081-2");
+  assert.equal(f("สอบถามโทร {phone}, {mobile}", { phone: "02-111", mobile: "081-2" }), "สอบถามโทร 02-111, 081-2");
+  assert.equal(f("สอบถามโทร {phone}, {mobile}", { phone: "02-111", mobile: "" }), "สอบถามโทร 02-111");
+  assert.equal(f("Questions? Call {phone}, {mobile}", { phone: "02-111", mobile: "" }), "Questions? Call 02-111");
+  assert.equal(f("สอบถามโทร {phone}, {mobile}", { phone: "", mobile: "081-2" }), "สอบถามโทร 081-2");
+  assert.equal(f("Questions? Call {phone}, {mobile}", { phone: "", mobile: "081-2" }), "Questions? Call 081-2");
+  // แบบเก่า " · มือถือ {mobile}" ยังตัดได้
   assert.equal(f("สอบถามโทร {phone} · มือถือ {mobile}", { phone: "02-111", mobile: "" }), "สอบถามโทร 02-111");
-  assert.equal(f("Questions? Call {phone} · Mobile {mobile}", { phone: "02-111", mobile: "" }), "Questions? Call 02-111");
-  assert.equal(f("สอบถามโทร {phone} · มือถือ {mobile}", { phone: "", mobile: "081-2" }), "สอบถามโทร 081-2");
-  assert.equal(f("Questions? Call {phone} · Mobile {mobile}", { phone: "", mobile: "081-2" }), "Questions? Call 081-2");
-  // template เก่าที่ไม่มี {mobile}: ยังต่อท้ายเบอร์มือถือให้เหมือนเดิม
-  assert.equal(f("สอบถามโทร {phone}", { phone: "02-111", mobile: "081-2", mobileLabel: "โทร/มือถือ" }), "สอบถามโทร 02-111\nโทร/มือถือ 081-2");
-  assert.ok(rules.SUGGESTED_TEMPLATE_TH.includes("สอบถามโทร {phone} · มือถือ {mobile}"));
-  assert.ok(rules.SUGGESTED_TEMPLATE_EN.includes("Call {phone} · Mobile {mobile}"));
+  // template เก่าที่ไม่มี {mobile}: ต่อเบอร์มือถือหลังเบอร์คลินิกในบรรทัดเดียวกัน ไม่มีคำว่า "โทร/มือถือ"
+  assert.equal(f("สอบถามโทร {phone}", { phone: "02-111", mobile: "081-2", mobileLabel: "โทร" }), "สอบถามโทร 02-111, 081-2");
+  assert.equal(f("เรียน {name}", { name: "ก", phone: "02-111", mobile: "081-2", mobileLabel: "โทร" }), "เรียน ก\nโทร 081-2");
+  assert.ok(rules.SUGGESTED_TEMPLATE_TH.includes("สอบถามโทร {phone}, {mobile}"));
+  assert.ok(rules.SUGGESTED_TEMPLATE_EN.includes("Call {phone}, {mobile}"));
   assert.equal(rules.DEFAULT_APPOINTMENT_SETTINGS.template_th, rules.SUGGESTED_TEMPLATE_TH);
   // ค่าที่ admin แก้เองไม่ถูกเปลี่ยนตอน normalize
   assert.equal(rules.normalizeAppointmentSettings({ template_th: "ข้อความเอง {name}" }).template_th, "ข้อความเอง {name}");
