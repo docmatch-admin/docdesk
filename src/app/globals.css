@@ -1802,3 +1802,10 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
   html[data-typing] .composer { padding-bottom: 6px; }
 }
 .req { color: var(--danger-ink); font-weight: 600; }
+
+/* นัดที่ AI รับไว้ รอเจ้าหน้าที่ยืนยัน: แถบเตือนบนหน้านัดหมาย + ฟอร์มลงนัดใต้แถวในหน้านัดที่ AI รับไว้ */
+.appt-ai-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 12px 16px; border: 1px solid var(--warning-border); border-radius: 12px; background: var(--warning-soft); color: var(--warning-ink); text-decoration: none; font-size: 14px; }
+.appt-ai-banner span { font-weight: 600; }
+.booking-convert-row td { background: var(--bg); padding: 12px; white-space: normal; }
+@media (max-width: 899px) { .appt-ai-banner { margin: calc(10px + env(safe-area-inset-top)) 16px 0; } }
+@media (max-width: 899px) { .appt-ai-banner + .appt-m .appt-m-head { padding-top: 12px; } }

@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { localToday, thaiDate, thaiTime, thaiWeekday } from "@/lib/booking-rules";
 import { contactName, type ContactNameFields } from "@/lib/patient-name";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { AppointmentForm, deliveryText } from "../appointments/appointment-form";
+import { bookingDraft } from "../inbox/booking-card";
+import { Icon } from "../icons";
 
 interface Row {
   id: string;
@@ -27,6 +30,9 @@ const SECTIONS: { status: Row["status"]; title: string }[] = [
 export function BookingsClient() {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [rows, setRows] = useState<Row[]>([]);
+  // ยืนยันลงนัด: เปิดฟอร์มนัดใต้แถว (ข้อมูลจาก AI แก้ได้ก่อนบันทึก)
+  const [converting, setConverting] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const { data } = await sb.from("bookings")
@@ -52,6 +58,7 @@ export function BookingsClient() {
         <Link className="btn ghost" href="/appointments"><span aria-hidden="true">←</span> นัดหมาย</Link>
         <h1>นัดที่ AI รับไว้</h1>
       </div>
+      {flash && <div className="banner ok" role="status">{flash}</div>}
       {SECTIONS.map(({ status, title }) => {
         const list = rows.filter((r) => r.status === status);
         return (
@@ -61,22 +68,41 @@ export function BookingsClient() {
             {list.length > 0 && (
               <div className="report-table-wrap">
                 <table className="report-table booking-table">
-                  <thead><tr><th scope="col">วันนัด</th><th scope="col">เวลา</th><th scope="col">บริการ</th><th scope="col">ชื่อ</th><th scope="col">เบอร์</th><th scope="col">แชท</th></tr></thead>
+                  <thead><tr><th scope="col">วันนัด</th><th scope="col">เวลา</th><th scope="col">บริการ</th><th scope="col">ชื่อ</th><th scope="col">เบอร์</th><th scope="col">แชท</th>{status === "ai_confirmed" && <th scope="col"><span className="sr-only">ยืนยัน</span></th>}</tr></thead>
                   <tbody>
                     {list.map((r) => {
                       const soon = r.status !== "cancelled" && (r.date === today || r.date === tomorrow);
+                      const shownName = r.conversations?.contacts?.hn ? contactName(r.conversations.contacts) : r.name || contactName(r.conversations?.contacts, "–");
                       return (
-                        <tr key={r.id} className={`${status === "ai_confirmed" ? "booking-unrecorded" : ""} ${soon ? "booking-soon" : ""}`}>
+                        <Fragment key={r.id}>
+                        <tr className={`${status === "ai_confirmed" ? "booking-unrecorded" : ""} ${soon ? "booking-soon" : ""}`}>
                           <td>
                             วัน{thaiWeekday(r.date)}ที่ {thaiDate(r.date)}
                             {soon && <span className="chip booking-when">{r.date === today ? "วันนี้" : "พรุ่งนี้"}</span>}
                           </td>
                           <td>{thaiTime(r.time)} น.</td>
                           <td>{r.service}</td>
-                          <td>{r.conversations?.contacts?.hn ? contactName(r.conversations.contacts) : r.name || contactName(r.conversations?.contacts, "–")}</td>
+                          <td>{shownName}</td>
                           <td>{r.phone || "–"}</td>
                           <td><Link href={`/inbox?c=${r.conversation_id}`}>เปิดแชท</Link></td>
+                          {status === "ai_confirmed" && (
+                            <td>
+                              <button type="button" className="btn primary small" disabled={converting === r.id}
+                                onClick={() => { setFlash(null); setConverting(r.id); }}><Icon name="check" /> ยืนยันลงนัด</button>
+                            </td>
+                          )}
                         </tr>
+                        {converting === r.id && (
+                          <tr className="booking-convert-row">
+                            <td colSpan={7}>
+                              <AppointmentForm compact conversationId={r.conversation_id} bookingId={r.id} saveLabel="บันทึกเป็นนัด"
+                                initial={bookingDraft(r, shownName === "–" ? null : shownName, today)}
+                                onCancel={() => setConverting(null)}
+                                onSaved={(res) => { setConverting(null); setFlash(`ลงนัด ${shownName} แล้ว · ${deliveryText(res.delivery)}`); load(); }} />
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })}
                   </tbody>

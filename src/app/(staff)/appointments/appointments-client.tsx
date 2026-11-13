@@ -37,6 +37,20 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   const [presets, setPresets] = useState<{ id: string; name: string }[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [counts, setCounts] = useState({ mustCall: 0, reschedule: 0, total: 0 });
+  // นัดที่ AI รับไว้ในแชท ยังรอเจ้าหน้าที่ยืนยันลงนัด
+  const [aiPending, setAiPending] = useState(0);
+  useEffect(() => {
+    if (!canOpenChat) return;
+    const count = async () => {
+      const { count: n } = await sb.from("bookings").select("id", { count: "exact", head: true }).eq("status", "ai_confirmed");
+      setAiPending(n ?? 0);
+    };
+    count();
+    const ch = sb.channel("appointments-ai-bookings")
+      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, count)
+      .subscribe();
+    return () => { sb.removeChannel(ch); };
+  }, [sb, canOpenChat]);
   const [tabCounts, setTabCounts] = useState<Record<Tab, number> | null>(null);
   const [limit, setLimit] = useState(500);
   const [creating, setCreating] = useState(false);
@@ -94,6 +108,12 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
 
   return (
     <div className="page appt-page">
+      {aiPending > 0 && (
+        <Link className="appt-ai-banner" href="/bookings">
+          <b>AI รับนัดไว้ {aiPending} รายการ รอยืนยัน</b>
+          <span>กดเพื่อตรวจและยืนยันลงนัด →</span>
+        </Link>
+      )}
       {/* มือถือ: แถบวัน + รายการแยกช่วงเวลา (จอใหญ่ซ่อน) */}
       <AppointmentsMobile counts={counts} onCreate={() => setCreating(true)} onOpen={setOpenId}
         onCalled={(id, called) => patch(id, { called })} />
@@ -104,7 +124,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
           {counts.reschedule > 0 && <span className="chip orange">ขอเลื่อน {counts.reschedule}</span>}
         </div>
         <div className="appt-actions-top">
-          {canOpenChat && <Link className="btn outline" href="/bookings">นัดที่ AI รับไว้</Link>}
+          {canOpenChat && <Link className="btn outline" href="/bookings">นัดที่ AI รับไว้{aiPending > 0 && <b className="badge red">{aiPending}</b>}</Link>}
           <button className="btn primary" onClick={() => setCreating(true)} disabled={creating}>+ ทำนัดใหม่</button>
         </div>
       </header>

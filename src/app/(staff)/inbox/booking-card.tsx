@@ -16,6 +16,19 @@ export interface BookingCardRow {
   status: "ai_confirmed" | "recorded" | "cancelled";
 }
 
+/** ค่าเริ่มต้นของฟอร์มลงนัดจากนัดที่ AI รับไว้ (ใช้ทั้งในแชทและหน้านัดที่ AI รับไว้) */
+export function bookingDraft(b: Pick<BookingCardRow, "service" | "date" | "time" | "name" | "phone">, contactName: string | null, today: string) {
+  return {
+    ...EMPTY_DRAFT,
+    patient_name: b.name || contactName || "",
+    phone: b.phone ?? "",
+    appoint_date: b.date >= today ? b.date : "",
+    time_mode: "exact" as const,
+    time_start: b.time.slice(0, 5),
+    purpose_text: b.service,
+  };
+}
+
 async function send(url: string, method: string, body?: unknown): Promise<string | null> {
   const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   return res.ok ? null : ((await res.json().catch(() => ({}))).error ?? "บันทึกไม่สำเร็จ");
@@ -50,23 +63,16 @@ export function BookingCard({ booking: b, conversationId, contactName, onChanged
       <div className="booking-sub">{b.name || "ไม่มีชื่อ"} · {b.phone || "ไม่มีเบอร์"} · AI รับนัดแล้ว รอลงนัด</div>
       {converting ? (
         <AppointmentForm compact conversationId={conversationId} bookingId={b.id} saveLabel="บันทึกเป็นนัด"
-          initial={{
-            ...EMPTY_DRAFT,
-            patient_name: b.name || contactName || "",
-            phone: b.phone ?? "",
-            appoint_date: b.date >= today ? b.date : "",
-            time_mode: "exact",
-            time_start: b.time.slice(0, 5),
-            purpose_text: b.service,
-          }}
+          initial={bookingDraft(b, contactName, today)}
           onCancel={() => setConverting(false)}
           onSaved={(r) => { setConverting(false); onError(`ลงนัดแล้ว · ${deliveryText(r.delivery)}`); onChanged(); }} />
       ) : (
         <div className="icon-row">
-          <button type="button" className="icon-btn primary" aria-label="แปลงเป็นนัด" title="แปลงเป็นนัด (บันทึกนัดจริง)"
-            onClick={() => setConverting(true)}><Icon name="check" /></button>
-          <button type="button" className="icon-btn" aria-label="ร่างข้อความเลื่อนนัดถึงลูกค้า" title="ร่างข้อความเลื่อนนัดถึงลูกค้า"
-            onClick={() => onReschedule(b.id)}><Icon name="message" /></button>
+          {/* ปุ่มมีชื่อ: ไอคอน ✓ อย่างเดียวไม่รู้ว่าต้องกดตรงไหนเพื่อยืนยันนัด */}
+          <button type="button" className="btn primary small" title="ยืนยันและบันทึกเป็นนัดจริงในหน้านัดหมาย"
+            onClick={() => setConverting(true)}><Icon name="check" /> ยืนยันลงนัด</button>
+          <button type="button" className="btn ghost small" title="ร่างข้อความเลื่อนนัดถึงลูกค้า"
+            onClick={() => onReschedule(b.id)}><Icon name="message" /> ขอเลื่อน</button>
           <button type="button" className={`icon-btn danger ${confirmCancel ? "confirm" : ""}`}
             aria-label={confirmCancel ? "ยืนยันยกเลิกนัด" : "ยกเลิกนัด"} title={confirmCancel ? "กดอีกครั้งเพื่อยืนยันยกเลิกนัด (ไม่ส่งข้อความถึงลูกค้า)" : "ยกเลิกนัด"}
             onClick={() => (confirmCancel ? cancel() : setConfirmCancel(true))}>
