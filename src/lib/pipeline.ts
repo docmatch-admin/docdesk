@@ -13,7 +13,7 @@ import { matchSensitive, SENSITIVE_ACK_TEXT } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive, notifySensitiveChat } from "./sensitive-store";
 import { markConversationReadWith } from "./read-receipts";
 import { awardStarPoints, recordStaffResponse } from "./score-store";
-import { classifyAck, classifyClosingMessage, endsConversation, hasUrgentSignal, isCustomerText, isStaffQuestion, isThanksOrSticker, shouldSkipSuggestion } from "./suggest-rules";
+import { classifyAck, classifyClosingMessage, endsConversation, hasUrgentSignal, isConversationTurn, isCustomerText, isStaffQuestion, isThanksOrSticker, shouldSkipSuggestion } from "./suggest-rules";
 import { matchTagRules, type TagRule } from "./tags";
 import { buildOutMediaUrl } from "./media-url";
 import { CHAT_BUCKET, consumeUploadAny, downloadFile, loadRetentionDays, QUICK_BUCKET, removeFiles, storeImage, type StoredFile, type StoredMedia } from "./media-store";
@@ -85,16 +85,21 @@ export async function storeIncoming(input: IncomingInput) {
   const closingKind = conv.archived ? null : classifyClosingMessage(input.text, input.isImage);
   let endsChat = false;
   if (closingKind) {
-    const { data: last } = await db.from("messages").select("direction, body, body_th")
-      .eq("conversation_id", conv.id).neq("sender_type", "system")
-      .order("created_at", { ascending: false }).limit(1).maybeSingle();
-    endsChat = endsConversation(closingKind, last ? { direction: last.direction as string, text: (last.body_th || last.body || "") as string } : null);
+    // ข้อความล่าสุดของการคุย นับข้อความที่ระบบนัดส่งด้วย (ลูกค้าตอบ "โอเค ขอบคุณ" หลังได้ข้อความนัด)
+    const { data: recent } = await db.from("messages").select("direction, body, body_th, sender_type, imported_sender_name")
+      .eq("conversation_id", conv.id).order("created_at", { ascending: false }).limit(10);
+    const last = ((recent ?? []) as { direction: string; body: string | null; body_th: string | null; sender_type: string; imported_sender_name: string | null }[])
+      .find(isConversationTurn);
+    endsChat = endsConversation(closingKind, last ? { direction: last.direction, text: last.body_th || last.body || "" } : null);
   }
   // แชทที่เสร็จแล้วกลับมารอตอบทุกข้อความ ยกเว้นคำขอบคุณ สติกเกอร์ หรือข้อความจบการคุย
   const stayClosed = wasClosed && !conv.archived && (isThanksOrSticker(input.text, input.isImage) || endsChat);
   // แชทที่เปิดอยู่ปิดเลย ยกเว้นงานค้าง (รอลงนัด, ต้องให้คนตอบ, งานของทีม, แท็กตามต่อ/รอนัด) เหมือนการย้ายอัตโนมัติ
   const closeNow = !wasClosed && endsChat && !conv.booking_pending && !conv.needs_human && !((conv.open_tasks ?? 0) > 0)
     && !((conv.tags ?? []) as string[]).some((t) => AUTO_CLOSE_EXEMPT_TAGS.includes(t));
+  // ตอบรับแต่ยังมีงานค้าง (รอลงนัด ต้องให้คนตอบ งานของทีม แท็กตามต่อ/รอนัด): แชทยังเปิดพร้อมป้ายงานค้าง
+  // แต่ลูกค้าไม่ได้รอคำตอบ → ไม่อยู่ในรอตอบเพราะข้อความนี้ และไม่นับเวลารอ
+  const ackOnly = !wasClosed && endsChat && !closeNow;
 
   // รูปหรือไฟล์ล้วน: AI อ่านไม่ได้ ไม่ต้องแปล และให้คนดู
   const imageOnly = (!!input.isImage || !!input.file) && !input.text.trim();
@@ -131,6 +136,7 @@ export async function storeIncoming(input: IncomingInput) {
     db.from("contacts").update({ language }).eq("id", contact.id),
     db.from("conversations").update({
       ...(stayClosed ? {} : closeNow ? CLOSE_PATCH : { status: "open" }),
+      ...(ackOnly ? { last_direction: "out", waiting_since: null } : {}),
       // แชทเก่าที่ได้ข้อความจริงจาก webhook คือแชทปกติแล้ว ต้องพิมพ์ตอบได้
       ...(conv.archived ? { archived: false } : {}),
       unread_count: (conv.unread_count ?? 0) + 1,

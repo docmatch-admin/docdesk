@@ -149,3 +149,37 @@ test("ไม่มีโค้ดที่ให้ AI เขียนชื่�
   assert.doesNotMatch(src, /customer_name|saveDetectedName|pickDetectedName/);
   assert.doesNotMatch(src, /from\("contacts"\)\.update/);
 });
+
+test("ตอบรับแต่ยังมีงานค้าง: แชทยังเปิด แต่ไม่นับว่าลูกค้ารอคำตอบ (ไม่นับเวลา)", async () => {
+  // ลากเสียงก็ยังเป็นคำตอบรับ
+  for (const t of ["โอเคค่ะ ขอบคุณค่าา", "ขอบคุณค้าาา", "โอเคคค", "ครับบบ"]) assert.ok(classifyClosingMessage(t), t);
+  for (const patch of [{ booking_pending: true }, { needs_human: true }, { tags: ["ตามต่อ"] }]) {
+    reset();
+    resetDb({ ...state.tables, channels: state.tables.channels, contacts: [], conversations: [], messages: [] });
+    await say("เปิดกี่โมงคะ");
+    reply("เปิด 08.00 น. ค่ะ");
+    Object.assign(conv(), patch);
+    await say("โอเคค่ะ ขอบคุณค่าา");
+    assert.equal(conv().status, "open", JSON.stringify(patch));
+    assert.equal(conv().last_direction, "out", JSON.stringify(patch));
+    assert.equal(conv().waiting_since, null, JSON.stringify(patch));
+  }
+});
+
+test("ข้อความจากระบบนัดนับเป็นคำตอบของเรา: ลูกค้าตอบ โอเค ขอบคุณ แล้วแชทปิด", async () => {
+  reset();
+  resetDb({ ...state.tables, channels: state.tables.channels, contacts: [], conversations: [], messages: [] });
+  await say("ขอเลื่อนนัดค่ะ");
+  state.tables.messages.push({ id: "sys-1", conversation_id: conv().id, direction: "out", sender_type: "system", imported_sender_name: "ระบบนัด",
+    body: "รับเรื่องขอเลื่อนนัดแล้วค่ะ", body_th: null, imported: false, created_at: nextTime() });
+  await say("โอเคค่ะ ขอบคุณค่ะ");
+  assert.equal(conv().status, "closed");
+  // ตอบกลับอัตโนมัติของเพจ (system อื่น) ยังไม่นับเป็นคำตอบ
+  reset();
+  resetDb({ ...state.tables, channels: state.tables.channels, contacts: [], conversations: [], messages: [] });
+  await say("ขอเลื่อนนัดค่ะ");
+  state.tables.messages.push({ id: "sys-2", conversation_id: conv().id, direction: "out", sender_type: "system", imported_sender_name: "ตอบกลับอัตโนมัติ",
+    body: "ขอบคุณที่ติดต่อมา", body_th: null, imported: false, created_at: nextTime() });
+  await say("ขอบคุณค่ะ");
+  assert.equal(conv().status, "open");
+});

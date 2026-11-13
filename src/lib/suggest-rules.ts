@@ -10,13 +10,15 @@ const ONGOING_CHAT_MS = 30 * 60 * 1000;
 
 const GRATITUDE = ["ขอบพระคุณ", "ขอบคุณ", "ขอบใจ", "thankyou", "thanks", "thank", "thx", "ty"];
 const AFFIRM = ["รับทราบ", "ทราบแล้ว", "เข้าใจแล้ว", "โอเค", "okay", "ok", "ตกลง", "ได้เลย", "ได้"];
-const FILLER = ["นะครับ", "นะคะ", "ครับผม", "ครับ", "ค่ะ", "คับ", "ค่า", "จ้า", "จ้ะ", "มากๆ", "มาก", "นะ", "เลย", "ๆ", "you", "so", "much"];
+const FILLER = ["นะครับ", "นะคะ", "ครับผม", "ครับ", "ค่ะ", "คับ", "ค่า", "ค้า", "คร้าบ", "ฮะ", "จ้า", "จ้ะ", "มากๆ", "มาก", "นะ", "เลย", "ๆ", "you", "so", "much"];
 const TOKENS = [...GRATITUDE, ...AFFIRM, ...FILLER, "คะ"].sort((a, b) => b.length - a.length);
 
 /** thanks = ขอบคุณ, affirm = รับทราบ/ตอบรับ/อีโมจิ ซึ่งอาจเป็นคำตอบของคำถามที่คลินิกเพิ่งถาม */
 export function classifyAck(line: string): "thanks" | "affirm" | null {
   if (/[?？]/.test(line)) return null;
-  let rest = line.toLowerCase().replace(/[\p{P}\p{S}\p{Extended_Pictographic}\p{Emoji_Modifier}‍️\s]/gu, "");
+  let rest = line.toLowerCase().replace(/[\p{P}\p{S}\p{Extended_Pictographic}\p{Emoji_Modifier}‍️\s]/gu, "")
+    // ลากเสียง: ค่าา ขอบคุณค้าาา โอเคคค ครับบบ → ตัวเดียว (ซ้ำ 2 ตัวยุบเฉพาะสระ เพราะ "โอเคค่ะ" มี ค ติดกันอยู่แล้ว)
+    .replace(/(.)\1{2,}/gu, "$1").replace(/([าะ])\1+/gu, "$1");
   if (!rest) return /\S/.test(line) ? "affirm" : null;
   const original = rest;
   const seen: string[] = [];
@@ -65,6 +67,15 @@ const GOODBYE = [
 export const isStaffQuestion = (text: string) => CUSTOMER_QUESTION.test(text) || /ไหน/.test(text) || /(?<!นะ)คะ\s*$/.test(text.trim());
 
 export type ClosingKind = "thanks" | "affirm" | "goodbye";
+
+/**
+ * ข้อความที่นับเป็นการคุยกับลูกค้า (ใช้ดูว่า "เราตอบล่าสุดหรือยัง")
+ * ข้อความระบบไม่นับ (เช่น ตอบกลับอัตโนมัติของเพจ) ยกเว้นข้อความนัดที่ระบบนัดส่งถึงลูกค้า เช่น รับเรื่องขอเลื่อนนัดแล้ว
+ */
+export function isConversationTurn(m: { direction: string; sender_type: string; imported_sender_name?: string | null }): boolean {
+  if (m.sender_type !== "system") return true;
+  return m.direction === "out" && (m.imported_sender_name ?? "").startsWith("ระบบนัด");
+}
 
 /** ข้อความที่จบการคุยได้: ขอบคุณ, ตอบรับ/อีโมจิ/สติกเกอร์, หรือบอกลา ทุกบรรทัดต้องเป็นแบบนี้และไม่มีคำถาม */
 export function classifyClosingMessage(text: string, isImage = false): ClosingKind | null {

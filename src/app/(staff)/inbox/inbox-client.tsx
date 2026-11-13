@@ -707,7 +707,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 {(c.open_tasks ?? 0) > 0 && <span className="chip orange">งานค้าง {c.open_tasks}</span>}
                 {c.needs_human && <span className="chip red">ต้องให้คนตอบ</span>}
                 {filter === "open" && isWaitingForReply(c) && <span className="chip red">รอตอบ</span>}
-                {filter === "waiting" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
+                {/* นับเวลาเฉพาะลูกค้ารอคำตอบ: แชทที่อยู่ในรอตอบเพราะงานค้าง/รอลงนัด ไม่นับ */}
+                {filter === "waiting" && c.last_direction === "in" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
                 {c.tags.map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
               </div>
             </div>
