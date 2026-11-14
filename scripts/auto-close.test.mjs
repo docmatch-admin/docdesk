@@ -183,3 +183,20 @@ test("ข้อความจากระบบนัดนับเป็น�
   await say("ขอบคุณค่ะ");
   assert.equal(conv().status, "open");
 });
+
+test("ระบบนัดส่งข้อความหลังลูกค้าถาม (เปลี่ยนวันนัด) = ตอบแล้ว ไม่นับเวลารอ · ข้อความระบบอื่นยังนับ", async () => {
+  reset();
+  resetDb({ ...state.tables, channels: state.tables.channels, contacts: [], conversations: [], messages: [] });
+  await say("เป็นวันที่15 ได้ไหมครับ");
+  assert.equal(conv().last_direction, "in");
+  // ระบบนัดส่งข้อความเปลี่ยนวันนัด (insert ผ่าน db เหมือน insertSystemMessage → trigger คำนวณคิว)
+  const { supabaseAdmin } = await import(fake("admin"));
+  await supabaseAdmin().from("messages").insert({ conversation_id: conv().id, direction: "out", sender_type: "system", imported_sender_name: "ระบบนัด",
+    body: "เปลี่ยนวันนัดใหม่", language: "th", created_at: nextTime() });
+  assert.equal(conv().last_direction, "out");
+  assert.equal(conv().waiting_since, null);
+  await say("ขอบคุณครับ ถามอีกเรื่อง");
+  await supabaseAdmin().from("messages").insert({ conversation_id: conv().id, direction: "out", sender_type: "system", imported_sender_name: "ตอบกลับอัตโนมัติ",
+    body: "ขอบคุณที่ติดต่อมา", language: "th", created_at: nextTime() });
+  assert.equal(conv().last_direction, "in", "ตอบกลับอัตโนมัติของเพจไม่นับเป็นคำตอบ");
+});

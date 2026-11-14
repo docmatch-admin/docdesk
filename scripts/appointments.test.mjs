@@ -355,7 +355,7 @@ test("ส่ง ยืนยันนัด #รหัส: ผูกแชทก
   assert.ok(appt(a.id).confirm_sent_at);
   assert.equal(calls.chat, 0, "ไม่เรียก AI");
   assert.ok(messagesOf(newConv.id).every((m) => m.sender_type === "system"));
-  assert.equal(newConv.last_direction ?? null, null, "ไม่เข้ารอตอบ");
+  assert.notEqual(newConv.last_direction, "in", "ไม่เข้ารอตอบ (ข้อความระบบนัด = คลินิกตอบแล้ว)");
 });
 
 test("รหัสผิดหรือนัดยกเลิกแล้ว: ตอบสั้นๆ ไม่ผูก", async () => {

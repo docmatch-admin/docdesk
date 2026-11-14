@@ -131,6 +131,11 @@ export async function storeIncoming(input: IncomingInput) {
     } : {}),
   }).select("id").single();
   if (mErr || !msg) throw mErr ?? new Error("message insert failed");
+  // ตอบรับเฉยๆ: ติดป้ายข้อความ ให้คิวรอตอบข้ามข้อความนี้แม้คำนวณใหม่ภายหลัง (migration 057 · ยังไม่รันก็ไม่พัง)
+  if (ackOnly) {
+    const { error: flagErr } = await db.from("messages").update({ no_reply_needed: true }).eq("id", msg.id);
+    if (flagErr) console.error("no_reply_needed flag", flagErr.message);
+  }
 
   await Promise.all([
     db.from("contacts").update({ language }).eq("id", contact.id),

@@ -84,14 +84,15 @@ function bucket(name) {
 function refreshQueue(conversationId) {
   const conv = state.tables.conversations?.find((c) => c.id === conversationId);
   if (!conv) return;
-  // ข้อความระบบไม่นับเป็นการตอบ เหมือน migration 030
-  const msgs = state.tables.messages.filter((m) => m.conversation_id === conversationId && m.sender_type !== "system")
+  // เหมือน migration 057: ข้อความระบบไม่นับ ยกเว้นข้อความที่ระบบนัดส่งถึงลูกค้า · ข้อความตอบรับ (no_reply_needed) ไม่นับเวลารอ
+  const msgs = state.tables.messages.filter((m) => m.conversation_id === conversationId && !m.imported
+    && (m.sender_type !== "system" || (m.direction === "out" && String(m.imported_sender_name ?? "").startsWith("ระบบนัด"))))
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-  const latest = (dir) => [...msgs].reverse().find((m) => m.direction === dir)?.created_at ?? null;
-  conv.last_direction = msgs.at(-1)?.direction ?? null;
+  const latest = (dir) => [...msgs].reverse().find((m) => m.direction === dir && (dir === "out" || m.sender_type !== "system"))?.created_at ?? null;
+  conv.last_direction = [...msgs].reverse().find((m) => !(m.direction === "in" && m.no_reply_needed))?.direction ?? null;
   conv.last_inbound_at = latest("in");
   const floor = Math.max(Date.parse(latest("out") ?? 0) || 0, Date.parse(conv.closed_at ?? 0) || 0);
-  conv.waiting_since = msgs.find((m) => m.direction === "in" && Date.parse(m.created_at) > floor)?.created_at ?? null;
+  conv.waiting_since = msgs.find((m) => m.direction === "in" && !m.no_reply_needed && Date.parse(m.created_at) > floor)?.created_at ?? null;
 }
 
 function trackStatus(conv, before) {
