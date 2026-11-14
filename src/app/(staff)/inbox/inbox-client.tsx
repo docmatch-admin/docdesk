@@ -1047,7 +1047,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             <>
               <BookingsBlock conversationId={selected.id} contactName={selected.contacts?.display_name ?? null} bookings={bookings} blurred={blurred}
                 onError={flash} onReschedule={draftReschedule} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
-              <WebBookingCard messages={messages} conversationId={selected.id} bookedDates={apptSummary?.dates ?? []} blurred={blurred}
+              <WebBookingCard messages={messages} conversationId={selected.id} bookedDates={apptSummary?.dates ?? []} latestApptAt={apptSummary?.latestCreatedAt ?? null} blurred={blurred}
                 onError={flash} onSaved={() => { loadBookings(selected.id); loadConvs(); }} />
               <AppointmentsBlock onSummary={setApptSummary} conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
                 onMessage={flash} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />

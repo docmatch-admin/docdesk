@@ -31,3 +31,8 @@ test("กล่องขวาของแชทแสดงคำขอจอ�
   const client = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
   assert.match(client, /<WebBookingCard /);
 });
+
+test("คำขอจองที่ลงนัดไปแล้ว (แม้เลื่อนวัน) ไม่ขึ้นซ้ำ", () => {
+  const card = readFileSync("src/app/(staff)/inbox/web-booking-card.tsx", "utf8");
+  assert.match(card, /Date\.parse\(latestApptAt\) > Date\.parse\(found\.at\)/);
+});

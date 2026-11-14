@@ -9,12 +9,14 @@ import { Icon } from "../icons";
 
 /**
  * ลูกค้าจองคิวผ่านฟอร์มบนเว็บ (ส่งเป็นข้อความ LINE): แสดงคำขอในกล่องนัดของแชท ให้เจ้าหน้าที่ตรวจแล้วกดยืนยันลงนัด
- * ซ่อนเมื่อมีนัดวันนั้นแล้ว หรือคำขอเป็นวันที่ผ่านไปแล้ว
+ * ซ่อนเมื่อคำขอนี้ลงนัดไปแล้ว (มีนัดที่สร้างหลังข้อความคำขอ หรือมีนัดวันนั้น) หรือวันที่ขอผ่านไปแล้ว
  */
-export function WebBookingCard({ messages, conversationId, bookedDates, blurred, onSaved, onError }: {
+export function WebBookingCard({ messages, conversationId, bookedDates, latestApptAt, blurred, onSaved, onError }: {
   messages: Message[];
   conversationId: string;
   bookedDates: string[];
+  /** นัดล่าสุดของแชทนี้สร้างเมื่อไร: สร้างหลังคำขอ = คำขอนี้ลงนัดไปแล้ว (แม้เลื่อนเป็นวันอื่น) */
+  latestApptAt: string | null;
   blurred: boolean;
   onSaved: () => void;
   onError: (msg: string) => void;
@@ -22,16 +24,18 @@ export function WebBookingCard({ messages, conversationId, bookedDates, blurred,
   const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
   const today = bangkokToday();
-  const req = useMemo<WebBookingRequest | null>(() => {
+  const found = useMemo<{ req: WebBookingRequest; at: string } | null>(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.direction !== "in") continue;
       const r = parseWebBookingRequest(m.body_th || m.body);
-      if (r) return r;
+      if (r) return { req: r, at: m.created_at };
     }
     return null;
   }, [messages]);
-  if (!req || (req.date && (req.date < today || bookedDates.includes(req.date))) || saved === conversationId) return null;
+  if (!found || saved === conversationId) return null;
+  const { req } = found;
+  if ((latestApptAt && Date.parse(latestApptAt) > Date.parse(found.at)) || (req.date && (req.date < today || bookedDates.includes(req.date)))) return null;
 
   return (
     <section className="side-block tp-appt web-booking">
