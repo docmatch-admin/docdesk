@@ -5,6 +5,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { localToday, thaiDate, thaiTime, thaiWeekday } from "@/lib/booking-rules";
 import { contactName, type ContactNameFields } from "@/lib/patient-name";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useLiveChannel } from "@/lib/use-live-channel";
 import { AppointmentForm, deliveryText } from "../appointments/appointment-form";
 import { bookingDraft } from "../inbox/booking-card";
 import { Icon } from "../icons";
@@ -41,13 +42,10 @@ export function BookingsClient() {
     setRows((data ?? []) as unknown as Row[]);
   }, [sb]);
 
-  useEffect(() => {
-    load();
-    const ch = sb.channel("bookings-page")
-      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, load)
-      .subscribe();
-    return () => { sb.removeChannel(ch); };
-  }, [sb, load]);
+  useEffect(() => { load(); }, [load]);
+  useLiveChannel(sb, "bookings-page",
+    (ch) => ch.on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => load()),
+    () => load());
 
   const today = localToday(Date.now(), "Asia/Bangkok");
   const tomorrow = localToday(Date.now() + 86_400_000, "Asia/Bangkok");

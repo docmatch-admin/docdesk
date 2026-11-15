@@ -7,6 +7,7 @@ import {
   type Appointment, type DeliveryState,
 } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useLiveChannel } from "@/lib/use-live-channel";
 import type { ChannelType } from "@/lib/types";
 import { Icon } from "../icons";
 import { AppointmentDrawer } from "./appointment-drawer";
@@ -46,11 +47,14 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
       setAiPending(n ?? 0);
     };
     count();
-    const ch = sb.channel("appointments-ai-bookings")
-      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, count)
-      .subscribe();
-    return () => { sb.removeChannel(ch); };
   }, [sb, canOpenChat]);
+  const countAi = useCallback(async () => {
+    const { count: n } = await sb.from("bookings").select("id", { count: "exact", head: true }).eq("status", "ai_confirmed");
+    setAiPending(n ?? 0);
+  }, [sb]);
+  useLiveChannel(sb, canOpenChat ? "appointments-ai-bookings" : null,
+    (ch) => ch.on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => countAi()),
+    () => countAi());
   const [tabCounts, setTabCounts] = useState<Record<Tab, number> | null>(null);
   const [limit, setLimit] = useState(500);
   const [creating, setCreating] = useState(false);
@@ -93,12 +97,9 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   }, [load, q]);
 
   // คนไข้กดยืนยัน/ขอเลื่อน หรือเจ้าหน้าที่คนอื่นติ๊กโทรแล้ว เห็นทันที
-  useEffect(() => {
-    const ch = sb.channel("appointments-page")
-      .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => load())
-      .subscribe();
-    return () => { sb.removeChannel(ch); };
-  }, [sb, load]);
+  useLiveChannel(sb, "appointments-page",
+    (ch) => ch.on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => load()),
+    () => load());
 
   async function patch(id: string, body: unknown) {
     const res = await fetch(`/api/appointments/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

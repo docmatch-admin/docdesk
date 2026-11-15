@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useLiveChannel } from "@/lib/use-live-channel";
 import { AppointmentDrawer } from "../appointments/appointment-drawer";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
 import type { LinkedAccountRow } from "../appointments/linked-accounts";
@@ -46,11 +47,10 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
     setGroups([]); setCreatingFor(undefined); setOpen(null);
     setLinking(false); setHnInput(""); setPreview(null); setLinkErr("");
     load();
-    const ch = sb.channel(`appt-${conversationId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "appointments", filter: `conversation_id=eq.${conversationId}` }, () => load())
-      .subscribe();
-    return () => { sb.removeChannel(ch); };
-  }, [sb, conversationId, load]);
+  }, [conversationId, load]);
+  useLiveChannel(sb, `appt-${conversationId}`,
+    (ch) => ch.on("postgres_changes", { event: "*", schema: "public", table: "appointments", filter: `conversation_id=eq.${conversationId}` }, () => load()),
+    () => load());
 
   function saved(r: SaveResult) {
     setCreatingFor(undefined);

@@ -6,6 +6,7 @@ import {
   type Appointment,
 } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useLiveChannel } from "@/lib/use-live-channel";
 import { Icon } from "../icons";
 import { shortHn } from "./new-appointment";
 
@@ -41,12 +42,9 @@ export function AppointmentsMobile({ counts, onCreate, onOpen, onCalled }: {
   }, [today]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const ch = sb.channel("appointments-mobile")
-      .on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => load())
-      .subscribe();
-    return () => { sb.removeChannel(ch); };
-  }, [sb, load]);
+  useLiveChannel(sb, "appointments-mobile",
+    (ch) => ch.on("postgres_changes", { event: "*", schema: "public", table: "appointments" }, () => load()),
+    () => load());
 
   useEffect(() => {
     if (!q.trim()) { setFound(null); return; }

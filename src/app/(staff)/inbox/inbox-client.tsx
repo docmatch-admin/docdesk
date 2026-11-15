@@ -3,6 +3,8 @@
 import { thaiDateTime } from "@/lib/time-format";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useLiveChannel } from "@/lib/use-live-channel";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
 import { staffInitial } from "@/lib/assignment";
 import { isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
@@ -73,6 +75,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   // ไม่มีสิทธิ์: เห็นแค่ว่ามีแชทลับรอตอบ
   const [maskedWaiting, setMaskedWaiting] = useState<{ key: string; waiting_since: string | null }[]>([]);
   const [acked, setAcked] = useState(me.sensitiveAcked);
+  const ackedRef = useRef(acked);
+  ackedRef.current = acked;
   const [ackChecked, setAckChecked] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [confirmUntag, setConfirmUntag] = useState(false);
@@ -255,9 +259,44 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     sb.from("settings").select("value").eq("key", "ai_mode").maybeSingle()
       .then(({ data }) => data && setGlobalMode(data.value as AiMode));
 
-    const ch = sb.channel("inbox")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => loadConvs())
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (p) => {
+    const t = setInterval(() => setTick((x) => x + 1), 15_000);
+    // ข้อความเข้าตอนหน้าต่างไม่โฟกัส: แจ้งอ่านแล้วเมื่อเจ้าหน้าที่กลับมา (server กันเรียก API ซ้ำให้)
+    const onFocus = () => {
+      if (!selectedRef.current) return;
+      markRead(selectedRef.current);
+      ensureSuggestion(selectedRef.current, true);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
+  }, [sb, loadConvs, loadTags]);
+
+  // ข้อความที่พลาดไประหว่าง realtime หลุด: ดึงล่าสุดมารวม ไม่ล้างหน้าจอ (แชทที่เปิดอยู่ไม่กระพริบ)
+  const refreshSelected = useCallback(async () => {
+    const id = selectedRef.current;
+    if (!id) return;
+    const { data: conv } = await sb.from("conversations").select("sensitive").eq("id", id).maybeSingle();
+    let rows: Message[] = [];
+    if (conv?.sensitive) {
+      if (!ackedRef.current) return;
+      const res = await fetch(`/api/conversations/${id}/messages`);
+      if (!res.ok) return;
+      rows = ((await res.json()) as { messages: Message[] }).messages;
+    } else {
+      const { data, error } = await sb.from("messages").select("*").eq("conversation_id", id).order("created_at", { ascending: false }).limit(300);
+      if (error) return;
+      rows = ((data ?? []) as Message[]).reverse();
+    }
+    if (selectedRef.current !== id) return;
+    setMessages((prev) => {
+      const same = prev.length === rows.length && prev.every((m, i) => m.id === rows[i].id && m.read_by_customer_at === rows[i].read_by_customer_at && m.body_th === rows[i].body_th && m.starred === rows[i].starred && m.media_deleted_at === rows[i].media_deleted_at);
+      return same ? prev : rows;
+    });
+    loadBookings(id);
+  }, [sb, loadBookings]);
+
+  useLiveChannel(sb, "inbox", (ch: RealtimeChannel) => ch
+    .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => loadConvs())
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (p) => {
         const m = p.new as Message;
         if (m.imported) return; // ข้อความเก่า ต่อท้ายแล้วลำดับจะผิด
         if (m.conversation_id === selectedRef.current) {
@@ -272,37 +311,27 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           }
         }
       })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, (p) => {
+    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, (p) => {
         const m = p.new as Message;
         if (m.conversation_id === selectedRef.current) {
           setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, ...m } : x)));
         }
       })
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, (p) => {
+    .on("postgres_changes", { event: "DELETE", schema: "public", table: "messages" }, (p) => {
         // ส่งรูปไม่สำเร็จ แถวที่สร้างไว้ก่อนส่งถูกลบ
         setMessages((prev) => prev.filter((x) => x.id !== (p.old as { id: string }).id));
       })
-      .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => {
+    .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => {
         if (selectedRef.current) loadBookings(selectedRef.current);
       })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (p) => {
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (p) => {
         const s = p.new as { id: string; conversation_id: string; options: SuggestionOption[]; needs_human: boolean; suggested_tags: string[] };
         if (s.conversation_id === selectedRef.current) {
           setSuggestion({ id: s.id, options: s.options, needs_human: s.needs_human, suggested_tags: s.suggested_tags });
           setChosen(null);
         }
-      })
-      .subscribe();
-    const t = setInterval(() => setTick((x) => x + 1), 15_000);
-    // ข้อความเข้าตอนหน้าต่างไม่โฟกัส: แจ้งอ่านแล้วเมื่อเจ้าหน้าที่กลับมา (server กันเรียก API ซ้ำให้)
-    const onFocus = () => {
-      if (!selectedRef.current) return;
-      markRead(selectedRef.current);
-      ensureSuggestion(selectedRef.current, true);
-    };
-    window.addEventListener("focus", onFocus);
-    return () => { sb.removeChannel(ch); clearInterval(t); window.removeEventListener("focus", onFocus); };
-  }, [sb, loadConvs, loadTags, loadBookings, markRead, ensureSuggestion]);
+      }),
+  () => { loadConvs(); refreshSelected(); });
 
   // ---------- เลือกแชท ----------
   useEffect(() => {

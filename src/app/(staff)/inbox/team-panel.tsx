@@ -3,6 +3,7 @@
 import { thaiDateTime } from "@/lib/time-format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { useLiveChannel } from "@/lib/use-live-channel";
 import { Icon } from "../icons";
 
 interface StaffOption { id: string; display_name: string; active: boolean; role?: string; can_view_sensitive?: boolean }
@@ -51,14 +52,12 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
   useEffect(() => {
     setTasks([]); setNotes([]); setOpenThread(null); setReply(""); setNewTask(""); setNewNote(""); setAssignee("");
     load();
-    // เจ้าหน้าที่คนอื่นเพิ่มงานหรือคอมเมนต์ก็เห็นทันที
-    const filter = `conversation_id=eq.${conversationId}`;
-    const ch = sb.channel(`team-${conversationId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "chat_tasks", filter }, () => load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "chat_notes", filter }, () => load())
-      .subscribe();
-    return () => { sb.removeChannel(ch); };
-  }, [sb, conversationId, load]);
+  }, [conversationId, load]);
+  // เจ้าหน้าที่คนอื่นเพิ่มงานหรือคอมเมนต์ก็เห็นทันที (หลุดแล้วต่อใหม่เอง)
+  useLiveChannel(sb, `team-${conversationId}`, (ch) => ch
+    .on("postgres_changes", { event: "*", schema: "public", table: "chat_tasks", filter: `conversation_id=eq.${conversationId}` }, () => load())
+    .on("postgres_changes", { event: "*", schema: "public", table: "chat_notes", filter: `conversation_id=eq.${conversationId}` }, () => load()),
+    () => load());
 
   async function call(path: string, method: "POST" | "PATCH", body: unknown): Promise<boolean> {
     setBusy(true);
