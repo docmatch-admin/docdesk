@@ -453,8 +453,79 @@ export function chooseDelivery(input: {
 export type MessageKind = "new" | "changed" | "reminder" | "cancelled" | "linked" | "test";
 export type Lang = "th" | "en";
 
-/** template_en เฉพาะแชทภาษาอังกฤษ ภาษาอื่นใช้ภาษาไทย */
-export const pickLanguage = (contactLanguage: string | null | undefined): Lang => (contactLanguage === "en" ? "en" : "th");
+/** แชทภาษาไทย (หรือไม่รู้ภาษา) ใช้ฉบับไทย ภาษาอื่นทุกภาษาใช้ฉบับอังกฤษเป็นต้นแบบ แล้วแปลเป็นภาษาของลูกค้า (pack) */
+export const pickLanguage = (contactLanguage: string | null | undefined): Lang =>
+  !contactLanguage || contactLanguage === "th" ? "th" : "en";
+
+/**
+ * วลีของข้อความนัดฉบับอังกฤษ (ต้นแบบสำหรับแปลเป็นภาษาอื่น) · {x} = ค่าที่ระบบเติมเอง ห้ามแปล
+ * แปลครั้งเดียวต่อภาษาเมื่อมีลูกค้าภาษาใหม่ แล้วเก็บไว้ใช้ซ้ำ (appointment_translations)
+ */
+export const EN_PHRASES = {
+  "header.new": "📅 Your next appointment",
+  "header.changed": "🔄 Appointment rescheduled",
+  "header.reminder": "⏰ Appointment reminder: tomorrow",
+  "header.cancelled": "❌ Appointment cancelled",
+  "header.linked": "✅ You will get appointment reminders here",
+  "header.test": "🧪 Test appointment message",
+  "label.date": "Date",
+  "label.time": "Time",
+  "label.reason": "Purpose",
+  "label.before": "Before visit",
+  "label.beforeLong": "Before your visit",
+  "label.was": "Was",
+  "label.new": "New",
+  "label.tel": "Tel",
+  "label.series": "Your appointments",
+  "label.cancelledList": "Cancelled appointments:",
+  "for": "Appointment for {for}",
+  "previous": "Previously: {date} ({time})",
+  "dose": "Dose {seq} of {total}",
+  "doseCustom": "{label} ({seq} of {total})",
+  "seriesGiven": "✓ {label}: given {date}",
+  "seriesItem": "• {label}: {date} ({time})",
+  "time.slot": "Time {range} (Seen in queue order)",
+  "time.exact": "Time {clock}",
+  "cancelBody": "Your appointment on {date} ({time}) at {clinic} has been cancelled.\nTo book again, call {phones}",
+  "button.confirm": "Confirm",
+  "button.reschedule": "Reschedule",
+  "reply.confirmed": "Thank you for confirming your appointment 🙏 See you soon.",
+  "reply.reschedule": "We received your reschedule request. Our staff will contact you to set a new date.",
+  "reply.closed": "This appointment was cancelled or has passed. Our staff can help you book a new one.",
+  "reply.notFound": "We could not find this appointment code. Please check the code on your card or wait for our staff.",
+  "reply.test": "Test button received.",
+  "reply.alreadyLinked": "This account is already linked to this appointment. You will get a reminder before the visit.",
+} as const;
+export type PhraseKey = keyof typeof EN_PHRASES;
+export type Phrases = Record<PhraseKey, string>;
+
+/** ชุดภาษาของลูกค้าที่ไม่ใช่ไทย: วลี + template ที่แปลแล้ว + locale วันที่ + ข้อความที่เจ้าหน้าที่พิมพ์ (แปลแล้ว) */
+export interface LanguagePack {
+  lang: string;
+  phrases: Phrases;
+  template: string;
+  /** ไม่ใส่ = วันที่แบบอังกฤษเดิม (englishDate) */
+  locale?: string;
+  texts?: { purpose_text?: string; instructions?: string };
+}
+
+const fill = (text: string, vars: Record<string, string | number> = {}) =>
+  text.replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all));
+
+/** วลีฉบับต่างประเทศ (อังกฤษหรือภาษาที่แปลแล้ว) */
+export const phrase = (pack: Pick<LanguagePack, "phrases"> | null | undefined, key: PhraseKey, vars?: Record<string, string | number>) =>
+  fill(pack?.phrases[key] ?? EN_PHRASES[key], vars);
+
+/** วันที่ตามภาษาของลูกค้า (ไม่ใช้ AI) */
+export function localDate(date: string, pack?: Pick<LanguagePack, "locale"> | null): string {
+  if (pack?.locale) {
+    try {
+      return new Intl.DateTimeFormat(pack.locale, { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
+        .format(new Date(`${date}T00:00:00Z`));
+    } catch { /* locale ไม่รู้จัก ใช้อังกฤษ */ }
+  }
+  return englishDate(date);
+}
 
 const HEADER: Record<Lang, Record<MessageKind, string>> = {
   th: {
@@ -494,6 +565,10 @@ export const REPLY_TEXT: Record<Lang, { confirmed: string; reschedule: string; c
   },
 };
 
+/** ข้อความตอบหลังกดปุ่ม/ส่งรหัส ตามภาษาของลูกค้า */
+export const replyFor = (lang: Lang, pack: LanguagePack | null | undefined, key: keyof (typeof REPLY_TEXT)["th"]) =>
+  lang === "th" ? REPLY_TEXT.th[key] : phrase(pack, `reply.${key}` as PhraseKey);
+
 const BUTTON_LABEL: Record<Lang, Record<PostbackAction, string>> = {
   th: { confirm: "ยืนยันนัด", reschedule: "ขอเลื่อนนัด" },
   en: { confirm: "Confirm", reschedule: "Reschedule" },
@@ -515,17 +590,28 @@ export interface MessageInput {
   seriesPosition?: { label: string; seq: number; total: number };
   /** บัญชีที่ผูกหลาย HN: ระบุชื่อคนที่นัด ("นัดของ ...") */
   forPatient?: string;
+  /** lang = "en": ภาษาของลูกค้า (ไม่ใส่ = อังกฤษ) */
+  pack?: LanguagePack | null;
 }
 
+const fx = (input: MessageInput, key: PhraseKey, vars?: Record<string, string | number>) => phrase(input.pack, key, vars);
+const fDate = (input: MessageInput, date: string) => localDate(date, input.pack);
+const headerText = (input: MessageInput) => (input.lang === "en" ? fx(input, `header.${input.kind}` as PhraseKey) : HEADER.th[input.kind]);
+const buttonLabel = (input: MessageInput, action: PostbackAction) =>
+  (input.lang === "en" ? fx(input, action === "confirm" ? "button.confirm" : "button.reschedule") : BUTTON_LABEL.th[action]);
+/** ข้อความที่เจ้าหน้าที่พิมพ์ ใช้คำแปลถ้ามี */
+const purposeOf = (input: MessageInput) => (input.lang === "en" && input.pack?.texts?.purpose_text) || input.appointment.purpose_text?.trim() || "";
+const instructionsOf = (input: MessageInput) => (input.lang === "en" && input.pack?.texts?.instructions) || input.appointment.instructions?.trim() || "";
+
 const forPatientText = (input: MessageInput) =>
-  input.forPatient?.trim() ? (input.lang === "en" ? `Appointment for ${input.forPatient.trim()}` : `นัดของ ${input.forPatient.trim()}`) : "";
+  input.forPatient?.trim() ? (input.lang === "en" ? fx(input, "for", { for: input.forPatient.trim() }) : `นัดของ ${input.forPatient.trim()}`) : "";
 
 function seriesLines(input: MessageInput): string[] {
   if (!input.series?.length) return [];
   return input.series.map((s) => {
-    if (s.done) return input.lang === "en" ? `✓ ${s.label}: given ${englishDate(s.appoint_date)}` : `✓ ${s.label}: ฉีดแล้ว ${thaiMediumDate(s.appoint_date)}`;
+    if (s.done) return input.lang === "en" ? fx(input, "seriesGiven", { label: s.label, date: fDate(input, s.appoint_date) }) : `✓ ${s.label}: ฉีดแล้ว ${thaiMediumDate(s.appoint_date)}`;
     return input.lang === "en"
-      ? `• ${s.label}: ${englishDate(s.appoint_date)} (${timeShort(s)})`
+      ? fx(input, "seriesItem", { label: s.label, date: fDate(input, s.appoint_date), time: timeShort(s) })
       : `• ${s.label}: ${thaiMediumDate(s.appoint_date)} (${timeShort(s)} น.)`;
   });
 }
@@ -534,7 +620,7 @@ function positionText(input: MessageInput): string {
   const p = input.seriesPosition;
   if (!p) return "";
   const standard = p.label === defaultSeriesLabel(p.seq);
-  if (input.lang === "en") return standard ? `Dose ${p.seq} of ${p.total}` : `${p.label} (${p.seq} of ${p.total})`;
+  if (input.lang === "en") return standard ? fx(input, "dose", { seq: p.seq, total: p.total }) : fx(input, "doseCustom", { label: p.label, seq: p.seq, total: p.total });
   return standard ? `เข็ม ${p.seq} จาก ${p.total}` : `${p.label} (${p.seq} จาก ${p.total})`;
 }
 
@@ -542,8 +628,23 @@ function previousText(input: MessageInput): string {
   const p = input.previous;
   if (!p || input.kind !== "changed") return "";
   return input.lang === "en"
-    ? `Previously: ${englishDate(p.appoint_date)} (${timeShort(p)})`
+    ? fx(input, "previous", { date: fDate(input, p.appoint_date), time: timeShort(p) })
     : `จากเดิม ${thaiFullDate(p.appoint_date)} (${timeShort(p)} น.)`;
+}
+
+/** ค่าวันเวลาเดิมบนการ์ด (แถว "เดิม") */
+function previousValue(input: MessageInput): string {
+  const p = input.previous;
+  if (!p || input.kind !== "changed") return "";
+  return input.lang === "en" ? `${fDate(input, p.appoint_date)} (${timeShort(p)})` : `${thaiFullDate(p.appoint_date)} (${timeShort(p)} น.)`;
+}
+
+function timeText(input: MessageInput): string {
+  const a = input.appointment;
+  if (input.lang === "th") return timePhrase(a, "th");
+  return a.time_mode === "slot" && a.time_end
+    ? fx(input, "time.slot", { range: timeShort(a) })
+    : fx(input, "time.exact", { clock: thaiClock(a.time_start) });
 }
 
 /**
@@ -572,12 +673,12 @@ function variables(input: MessageInput): Record<string, string> {
   const a = input.appointment;
   return {
     name: a.patient_name,
-    date: input.lang === "en" ? englishDate(a.appoint_date) : thaiFullDate(a.appoint_date),
-    time: timePhrase(a, input.lang),
+    date: input.lang === "en" ? fDate(input, a.appoint_date) : thaiFullDate(a.appoint_date),
+    time: timeText(input),
     clinic: input.clinicName,
     phone: input.settings.clinic_phone,
     mobile: input.settings.clinic_mobile ?? "",
-    mobileLabel: input.lang === "en" ? "Tel" : "โทร",
+    mobileLabel: input.lang === "en" ? fx(input, "label.tel") : "โทร",
   };
 }
 
@@ -588,25 +689,26 @@ const cancelledKind = (kind: MessageKind) => kind === "cancelled";
 export function appointmentText(input: MessageInput): string {
   const v = variables(input);
   const forWho = forPatientText(input);
-  const header = `${HEADER[input.lang][input.kind]}${forWho ? `\n${forWho}` : ""}`;
+  const header = `${headerText(input)}${forWho ? `\n${forWho}` : ""}`;
   if (input.kind === "cancelled") {
     const body = input.lang === "en"
-      ? `Your appointment on ${v.date} (${timeShort(input.appointment)}) at ${v.clinic} has been cancelled.\nTo book again, call ${[v.phone, v.mobile].filter(Boolean).join(", ")}`
+      ? fx(input, "cancelBody", { date: v.date, time: timeShort(input.appointment), clinic: v.clinic, phones: [v.phone, v.mobile].filter(Boolean).join(", ") })
       : `นัด${v.date} (${timeShort(input.appointment)} น.) ที่ ${v.clinic} ถูกยกเลิกแล้วค่ะ\nหากต้องการนัดใหม่ โทร ${[v.phone, v.mobile].filter(Boolean).join(", ")}`;
     const cancelledLines = seriesLines(input);
-    const list = cancelledLines.length ? `\n${input.lang === "en" ? "Cancelled appointments:" : "นัดที่ยกเลิก:"}\n${cancelledLines.join("\n")}` : "";
+    const list = cancelledLines.length ? `\n${input.lang === "en" ? fx(input, "label.cancelledList") : "นัดที่ยกเลิก:"}\n${cancelledLines.join("\n")}` : "";
     return `${header}\n${body}${list}`;
   }
-  const purpose = input.includePurpose && input.appointment.purpose_text?.trim()
-    ? `\n${input.lang === "en" ? "Purpose" : "เรื่อง"}: ${input.appointment.purpose_text.trim()}` : "";
+  const purpose = input.includePurpose && purposeOf(input)
+    ? `\n${input.lang === "en" ? fx(input, "label.reason") : "เรื่อง"}: ${purposeOf(input)}` : "";
   // การปฏิบัติตัวส่งเสมอ ไม่ขึ้นกับ send_purpose_in_message
-  const instructions = input.appointment.instructions?.trim()
-    ? `\n${input.lang === "en" ? "Before your visit" : "การปฏิบัติตัว"}: ${input.appointment.instructions.trim()}` : "";
+  const instructions = instructionsOf(input)
+    ? `\n${input.lang === "en" ? fx(input, "label.beforeLong") : "การปฏิบัติตัว"}: ${instructionsOf(input)}` : "";
   const previous = previousText(input);
   const position = positionText(input);
   const lines = seriesLines(input);
-  const series = lines.length ? `\n${input.lang === "en" ? "Your appointments:" : "ตารางนัดทั้งชุด:"}\n${lines.join("\n")}` : "";
-  return `${header}${position ? ` · ${position}` : ""}${previous ? `\n${previous}` : ""}\n${fillVariables(input.lang === "en" ? input.settings.template_en : input.settings.template_th, v)}${purpose}${instructions}${series}`;
+  const series = lines.length ? `\n${input.lang === "en" ? `${fx(input, "label.series")}:` : "ตารางนัดทั้งชุด:"}\n${lines.join("\n")}` : "";
+  const template = input.lang === "en" ? input.pack?.template || input.settings.template_en : input.settings.template_th;
+  return `${header}${position ? ` · ${position}` : ""}${previous ? `\n${previous}` : ""}\n${fillVariables(template, v)}${purpose}${instructions}${series}`;
 }
 
 type Json = Record<string, unknown>;
@@ -624,11 +726,11 @@ export function appointmentFlex(input: MessageInput): Json {
   const v = variables(input);
   const th = input.lang === "th";
   const a = input.appointment;
-  const purpose = input.includePurpose && a.purpose_text?.trim() ? a.purpose_text.trim() : null;
-  const instructions = !cancelledKind(input.kind) && a.instructions?.trim() ? a.instructions.trim() : null;
+  const purpose = input.includePurpose && purposeOf(input) ? purposeOf(input) : null;
+  const instructions = !cancelledKind(input.kind) && instructionsOf(input) ? instructionsOf(input) : null;
   const cancelled = input.kind === "cancelled";
   const body: Json[] = [
-    { type: "text", text: HEADER[input.lang][input.kind], weight: "bold", size: "md", color: cancelled ? "#c0392b" : "#1f2a44", wrap: true },
+    { type: "text", text: headerText(input), weight: "bold", size: "md", color: cancelled ? "#c0392b" : "#1f2a44", wrap: true },
     ...(positionText(input) ? [{ type: "text", text: positionText(input), size: "sm", weight: "bold", color: "#4a63e0" }] : []),
     forPatientText(input)
       ? { type: "text", text: forPatientText(input), size: "sm", weight: "bold", color: "#1f2a44", wrap: true }
@@ -637,11 +739,11 @@ export function appointmentFlex(input: MessageInput): Json {
     {
       type: "box", layout: "vertical", margin: "md", spacing: "sm",
       contents: [
-        ...(previousText(input) ? [row(th ? "เดิม" : "Was", previousText(input).replace(/^จากเดิม |^Previously: /, ""))] : []),
-        row(th ? (input.previous ? "ใหม่" : "วันที่") : (input.previous ? "New" : "Date"), v.date, true),
-        row(th ? "เวลา" : "Time", v.time, true),
-        ...(purpose ? [row(th ? "เรื่อง" : "Purpose", purpose)] : []),
-        ...(instructions ? [row(th ? "ปฏิบัติตัว" : "Before visit", instructions, true)] : []),
+        ...(previousValue(input) ? [row(th ? "เดิม" : fx(input, "label.was"), previousValue(input))] : []),
+        row(th ? (input.previous ? "ใหม่" : "วันที่") : fx(input, input.previous ? "label.new" : "label.date"), v.date, true),
+        row(th ? "เวลา" : fx(input, "label.time"), v.time, true),
+        ...(purpose ? [row(th ? "เรื่อง" : fx(input, "label.reason"), purpose)] : []),
+        ...(instructions ? [row(th ? "ปฏิบัติตัว" : fx(input, "label.before"), instructions, true)] : []),
       ],
     },
     ...(seriesLines(input).length ? [
@@ -649,7 +751,7 @@ export function appointmentFlex(input: MessageInput): Json {
       {
         type: "box", layout: "vertical", margin: "md", spacing: "xs",
         contents: [
-          { type: "text", text: th ? "ตารางนัดทั้งชุด" : "Your appointments", size: "sm", weight: "bold" },
+          { type: "text", text: th ? "ตารางนัดทั้งชุด" : fx(input, "label.series"), size: "sm", weight: "bold" },
           ...seriesLines(input).map((l) => ({ type: "text", text: l, size: "xs", wrap: true })),
         ],
       },
@@ -660,7 +762,7 @@ export function appointmentFlex(input: MessageInput): Json {
       contents: [
         { type: "text", text: v.clinic, size: "sm", weight: "bold", wrap: true },
         ...(input.settings.clinic_address ? [{ type: "text", text: input.settings.clinic_address, size: "xs", color: "#8a8f9c", wrap: true }] : []),
-        ...([v.phone, v.mobile].some(Boolean) ? [{ type: "text", text: `${th ? "โทร" : "Tel"} ${[v.phone, v.mobile].filter(Boolean).join(", ")}`, size: "xs", color: "#8a8f9c", wrap: true }] : []),
+        ...([v.phone, v.mobile].some(Boolean) ? [{ type: "text", text: `${th ? "โทร" : fx(input, "label.tel")} ${[v.phone, v.mobile].filter(Boolean).join(", ")}`, size: "xs", color: "#8a8f9c", wrap: true }] : []),
       ],
     },
   ];
@@ -668,7 +770,7 @@ export function appointmentFlex(input: MessageInput): Json {
   if (hasButtons(input.kind)) {
     const button = (action: PostbackAction, style: "primary" | "secondary"): Json => ({
       type: "button", style, height: "sm", ...(style === "primary" ? { color: "#4a63e0" } : {}),
-      action: { type: "postback", label: BUTTON_LABEL[input.lang][action], data: postbackData(action, a.id), displayText: BUTTON_LABEL[input.lang][action] },
+      action: { type: "postback", label: buttonLabel(input, action).slice(0, 20), data: postbackData(action, a.id), displayText: buttonLabel(input, action) },
     });
     bubble.footer = { type: "box", layout: "horizontal", spacing: "sm", contents: [button("confirm", "primary"), button("reschedule", "secondary")] };
   }
@@ -683,7 +785,8 @@ export function metaAppointmentMessage(kind: "facebook" | "instagram", input: Me
   const text = appointmentText(input);
   if (!hasButtons(input.kind)) return { text: [...text].slice(0, 1000).join("") };
   const id = input.appointment.id;
-  const labels = BUTTON_LABEL[input.lang];
+  // Facebook/Instagram จำกัดชื่อปุ่ม 20 ตัวอักษร (ภาษาที่แปลแล้วอาจยาวกว่า)
+  const labels = { confirm: buttonLabel(input, "confirm").slice(0, 20), reschedule: buttonLabel(input, "reschedule").slice(0, 20) };
   if (kind === "facebook") {
     return {
       attachment: {

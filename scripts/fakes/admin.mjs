@@ -149,7 +149,8 @@ function query(name) {
     if (op === "upsert" && Array.isArray(payload)) {
       const added = [];
       for (const item of payload) {
-        if (table.some((r) => r[conflict] === item[conflict])) continue;
+        const ks = conflict?.split(",") ?? [];
+        if (ks.length && table.some((r) => ks.every((k) => r[k] === item[k]))) continue;
         const row = { id: `${name}-${++seq}`, created_at: nextTime(), ...item };
         table.push(row);
         added.push(row);

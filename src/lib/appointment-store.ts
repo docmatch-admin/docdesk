@@ -1,10 +1,11 @@
 import {
   addDays, appointmentFlex, callQueue, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
-  metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, pickExactNameMatches, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT,
+  metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, pickExactNameMatches, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT, replyFor,
   reminderDecision, TEST_APPOINTMENT_ID, thaiShortDate, timeShort, weekdayOf,
   canRestore, CANCEL_REASON_LABEL, DELIVERY_SKIP_TEXT, type DeliverySkip, defaultSeriesLabel, notifiesOnCancel, shiftFollowing,
   type Appointment, type AppointmentSettings, type AppointmentStatus, type CancelReason, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
 } from "./appointment-rules";
+import { languagePack } from "./appointment-language";
 import { sendPushToStaff } from "./booking-store";
 import { lineSendMessages } from "./channels/line";
 import { LinePushSkipped, LineQuotaError } from "./channels/line-log";
@@ -206,10 +207,13 @@ async function alreadyHandled(externalId: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 export interface DeliveryResult { sent: boolean; via?: ChannelType; error?: string; /** ส่งถึงกี่บัญชี (มากกว่า 1) */ accounts?: number; /** งดส่งทันทีโดยตั้งใจ (ไม่ใช่ส่งไม่ได้) */ skipped?: boolean }
 
-function messageInput(appt: MessageInput["appointment"], kind: MessageKind, info: ConversationInfo, settings: AppointmentSettings, clinic: string): MessageInput {
+async function messageInput(appt: MessageInput["appointment"], kind: MessageKind, info: ConversationInfo, settings: AppointmentSettings, clinic: string): Promise<MessageInput> {
+  const lang = pickLanguage(info.language);
   return {
     kind,
-    lang: pickLanguage(info.language),
+    lang,
+    // ภาษาของลูกค้า (ไม่ใช่ไทย): แปลครั้งเดียวต่อภาษาแล้วเก็บไว้ AI ล่ม = อังกฤษ
+    pack: lang === "en" ? await languagePack(info.language, settings, { purpose: appt.purpose_text, instructions: appt.instructions }) : null,
     appointment: appt,
     settings,
     clinicName: clinic,
@@ -271,11 +275,11 @@ export async function deliverAppointment(appt: Appointment, kind: MessageKind, o
     }
     // บัญชีนี้เกี่ยวกับมากกว่า 1 HN (รวม HN ของนัดนี้ที่อาจกำลังจะผูก): ระบุชื่อคนที่นัด
     const multiHn = new Set([...(await linksOfConversation(target)).map((l) => l.hn.replace(/^0+/, "")), ...(appt.hn ? [appt.hn.trim().replace(/^0+/, "")] : [])]).size > 1;
-    const input = { ...messageInput(appt, kind, info, settings, clinic), previous: opts.previous, series: opts.series, seriesPosition: opts.seriesPosition, ...(multiHn ? { forPatient: appt.patient_name } : {}) };
+    const input = { ...(await messageInput(appt, kind, info, settings, clinic)), previous: opts.previous, series: opts.series, seriesPosition: opts.seriesPosition, ...(multiHn ? { forPatient: appt.patient_name } : {}) };
     try {
       // replyToken ใช้ได้กับแชทที่ส่ง event มาเท่านั้น
       const mid = await pushAppointment(info, delivery.via, input, opts.only === target ? opts.replyToken : undefined, delivery.via === "line" && !!pushSkip);
-      await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.lang, externalId: mid });
+      await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.pack?.lang ?? input.lang, externalId: mid });
       sent.push({ id: target, via: delivery.via });
     } catch (e) {
       if (e instanceof LinePushSkipped && pushSkip) { skipped.push({ id: target, reason: pushSkip }); continue; }
@@ -342,8 +346,11 @@ async function seriesPosition(a: Appointment): Promise<MessageInput["seriesPosit
   return { label: a.series_label || defaultSeriesLabel(seq), seq, total };
 }
 
-/** ข้อความตอบสั้นๆ หลังกดปุ่มหรือส่งรหัส ใช้ replyToken ของ LINE ก่อนเพื่อไม่กินโควตา */
-async function replyText(info: ConversationInfo, text: string, replyToken?: string) {
+/** ข้อความตอบสั้นๆ หลังกดปุ่มหรือส่งรหัส ตามภาษาของลูกค้า ใช้ replyToken ของ LINE ก่อนเพื่อไม่กินโควตา */
+async function replyText(info: ConversationInfo, key: keyof (typeof REPLY_TEXT)["th"], replyToken?: string) {
+  const lang = pickLanguage(info.language);
+  const pack = lang === "en" ? await languagePack(info.language, await loadAppointmentSettings()) : null;
+  const text = replyFor(lang, pack, key);
   if (info.channelType === "line") {
     await lineSendMessages(info.externalId, [{ type: "text", text }], replyToken, { kind: "appointment", conversationId: info.id, tokenAgeMs: replyToken ? 0 : null });
     await insertSystemMessage(info.id, { direction: "out", body: text, language: pickLanguage(info.language) });
@@ -752,7 +759,7 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
   await insertSystemMessage(conversationId, { direction: "in", body: `[กดปุ่ม] ${label || (parsed.action === "confirm" ? "ยืนยันนัด" : "ขอเลื่อนนัด")}`, language: lang, externalId: ref.eventId });
 
   if (parsed.appointmentId === TEST_APPOINTMENT_ID) {
-    await replyText(info, REPLY_TEXT[lang].test, ref.replyToken);
+    await replyText(info, "test", ref.replyToken);
     return "ignored";
   }
   const appt = await loadAppointment(parsed.appointmentId);
@@ -761,20 +768,20 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
   const relation = (await rolesForHn(appt.hn, [conversationId])).get(conversationId) ?? (await relationsOf([conversationId])).get(conversationId) ?? (appt.conversation_id === conversationId ? "patient" : "relative");
   const who = { conversation_id: conversationId, account: info.displayName, relation };
   if (!OPEN_STATUSES.includes(appt.status) || isPast(appt, now)) {
-    await replyText(info, REPLY_TEXT[lang].closed, ref.replyToken);
+    await replyText(info, "closed", ref.replyToken);
     return "ignored";
   }
 
   if (parsed.action === "confirm") {
     await db.from("appointments").update({ status: "confirmed", updated_at: nowIso() }).eq("id", appt.id);
     await logAppointmentEvent(appt.id, "confirmed", "customer", { channel: info.channelType, detail: who });
-    await replyText(info, REPLY_TEXT[lang].confirmed, ref.replyToken);
+    await replyText(info, "confirmed", ref.replyToken);
     return "confirmed";
   }
 
   await db.from("appointments").update({ status: "reschedule_requested", called_at: null, called_by: null, updated_at: nowIso() }).eq("id", appt.id);
   await logAppointmentEvent(appt.id, "reschedule_requested", "customer", { channel: info.channelType, detail: who });
-  await replyText(info, REPLY_TEXT[lang].reschedule, ref.replyToken);
+  await replyText(info, "reschedule", ref.replyToken);
   await db.from("chat_tasks").insert({
     conversation_id: conversationId,
     text: `เลื่อนนัด: คนไข้ขอเลื่อนนัด ${thaiShortDate(appt.appoint_date)} ${timeShort(appt)} น. — โทรนัดวันใหม่`,
@@ -802,11 +809,11 @@ export async function handleLinkCode(ref: InboundRef, text: string, code: string
   const { data } = await db.from("appointments").select(APPOINTMENT_COLUMNS).eq("link_code", code).maybeSingle();
   const appt = data as unknown as Appointment | null;
   if (!appt) {
-    await replyText(info, REPLY_TEXT[lang].notFound, ref.replyToken);
+    await replyText(info, "notFound", ref.replyToken);
     return "not_found";
   }
   if (!OPEN_STATUSES.includes(appt.status) || isPast(appt, now)) {
-    await replyText(info, REPLY_TEXT[lang].closed, ref.replyToken);
+    await replyText(info, "closed", ref.replyToken);
     return "closed";
   }
   const alreadyLinked = appt.hn
@@ -816,7 +823,7 @@ export async function handleLinkCode(ref: InboundRef, text: string, code: string
   if (alreadyLinked) {
     if (!appt.conversation_id) await db.from("appointments").update({ conversation_id: conversationId, last_send_error: null, updated_at: nowIso() }).eq("id", appt.id);
     await logAppointmentEvent(appt.id, "linked", "customer", { channel: info.channelType, detail: { code, conversation_id: conversationId, already: true } });
-    await replyText(info, REPLY_TEXT[lang].alreadyLinked, ref.replyToken);
+    await replyText(info, "alreadyLinked", ref.replyToken);
     return "linked";
   }
   const added = !!appt.conversation_id && appt.conversation_id !== conversationId;
@@ -886,13 +893,13 @@ export async function sendTestAppointment(conversationId: string, staffId: strin
   const delivery = chooseDelivery({ channelType: info?.channelType ?? null, lastInboundAt: info?.lastInboundAt ?? null, archived: info?.archived, unfollowed: info?.unfollowed, now });
   if (!info || !delivery.ok) return { sent: false, via: info?.channelType, error: DELIVERY_FAILURE_TEXT[delivery.ok ? "no_chat" : delivery.reason] };
   const [settings, clinic] = await Promise.all([loadAppointmentSettings(), clinicName()]);
-  const input = messageInput({
+  const input = await messageInput({
     id: TEST_APPOINTMENT_ID, patient_name: info.displayName || "ทดสอบ", appoint_date: addDays(bangkokToday(now), 1),
     time_mode: "slot", time_start: "08:00", time_end: "12:00", purpose_text: "ทดสอบเหตุผลนัด", instructions: "ตัวอย่างการปฏิบัติตัว",
   }, "test", info, settings, clinic);
   try {
     const mid = await pushAppointment(info, delivery.via, input);
-    await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.lang, externalId: mid, label: `${APPOINTMENT_SENDER_NAME} (ทดสอบ)` });
+    await insertSystemMessage(info.id, { direction: "out", body: appointmentText(input), language: input.pack?.lang ?? input.lang, externalId: mid, label: `${APPOINTMENT_SENDER_NAME} (ทดสอบ)` });
   } catch (e) {
     return { sent: false, via: delivery.via, error: (e instanceof Error ? e.message : String(e)).slice(0, 200) };
   }
