@@ -219,7 +219,8 @@ async function messageInput(appt: MessageInput["appointment"], kind: MessageKind
     pack: lang === "en" ? await languagePack(info.language, settings, { purpose: appt.purpose_text, instructions: appt.instructions }) : null,
     appointment: appt,
     settings,
-    clinicName: clinic,
+    // ข้อความภาษาอื่นใช้ชื่อคลินิกภาษาอังกฤษ (ตั้งค่า → นัดหมาย)
+    clinicName: lang === "en" && settings.clinic_name_en.trim() ? settings.clinic_name_en.trim() : clinic,
     includePurpose: settings.send_purpose_in_message && !info.sensitive && !info.tags.includes(SENSITIVE_TAG),
   };
 }
