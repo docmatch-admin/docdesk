@@ -933,15 +933,23 @@ export function deliveryState(a: Pick<Appointment, "status" | "conversation_id" 
 }
 
 /** ต้องโทร: นัดวันนี้หรือพรุ่งนี้ที่ส่งข้อความไม่ได้และยังไม่ได้โทร ขอเลื่อน: ทุกนัดที่ขอเลื่อนและยังไม่ได้โทร */
-export function callQueue(rows: Pick<Appointment, "status" | "conversation_id" | "last_send_error" | "confirm_sent_at" | "reminder_sent_at" | "appoint_date" | "called_at">[], now = Date.now()) {
+type QueueRow = Pick<Appointment, "status" | "conversation_id" | "last_send_error" | "confirm_sent_at" | "reminder_sent_at" | "appoint_date" | "called_at">;
+export type CallQueueKind = "call" | "reschedule";
+/** นัดนี้อยู่คิวไหน: ต้องโทร (ส่งไม่ได้/ไม่มีแชท ภายในวันนี้-พรุ่งนี้) · ขอเลื่อน · ไม่อยู่ในคิว (ใช้ทั้งตัวเลขและตอนกดดูรายการ) */
+export function callQueueKind(a: QueueRow, now = Date.now()): CallQueueKind | null {
+  if (a.called_at) return null;
+  const state = deliveryState(a);
+  if (state === "reschedule") return "reschedule";
   const today = bangkokToday(now);
-  const tomorrow = addDays(today, 1);
+  if ((state === "failed" || state === "no_chat") && a.appoint_date >= today && a.appoint_date <= addDays(today, 1)) return "call";
+  return null;
+}
+export function callQueue(rows: QueueRow[], now = Date.now()) {
   let mustCall = 0, reschedule = 0;
   for (const a of rows) {
-    if (a.called_at) continue;
-    const state = deliveryState(a);
-    if (state === "reschedule") reschedule++;
-    else if ((state === "failed" || state === "no_chat") && a.appoint_date >= today && a.appoint_date <= tomorrow) mustCall++;
+    const k = callQueueKind(a, now);
+    if (k === "reschedule") reschedule++;
+    else if (k === "call") mustCall++;
   }
   return { mustCall, reschedule, total: mustCall + reschedule };
 }

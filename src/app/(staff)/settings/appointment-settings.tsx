@@ -117,7 +117,10 @@ export function AppointmentSettings({ initial, children }: { initial?: { setting
   const previews = previewLang ? PREVIEW_KINDS.map(([kind, label]) => ({
     kind, label,
     text: appointmentText({
-      kind, lang: previewLang, appointment: sample, settings: normalized, clinicName, includePurpose: normalized.send_purpose_in_message,
+      // ตรงกับข้อความจริง: ฉบับต่างประเทศใช้ชื่อคลินิกภาษาอังกฤษ (เหตุผลนัด/การปฏิบัติตัวแปลตอนส่งจริง ตัวอย่างนี้ยังเป็นไทย)
+      kind, lang: previewLang, appointment: sample, settings: normalized,
+      clinicName: previewLang === "en" && normalized.clinic_name_en.trim() ? normalized.clinic_name_en.trim() : clinicName,
+      includePurpose: normalized.send_purpose_in_message,
       previous: kind === "changed" ? { appoint_date: addDays(sample.appoint_date, -3), time_mode: "exact", time_start: "14:30", time_end: null } : undefined,
     }),
   })) : [];

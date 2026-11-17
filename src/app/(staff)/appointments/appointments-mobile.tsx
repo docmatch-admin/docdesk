@@ -34,6 +34,20 @@ export function AppointmentsMobile({ counts, onCreate, onOpen, onCalled }: {
   const [searching, setSearching] = useState(false);
   const [q, setQ] = useState("");
   const [found, setFound] = useState<Row[] | null>(null);
+  // กดการ์ด ต้องโทร / ขอเลื่อน → แสดงเฉพาะคิวนั้น
+  const [queue, setQueue] = useState<"" | "call" | "reschedule">("");
+  const [queueRows, setQueueRows] = useState<Row[] | null>(null);
+  useEffect(() => {
+    const k = new URLSearchParams(window.location.search).get("queue");
+    if (k === "call" || k === "reschedule") setQueue(k);
+  }, []);
+  useEffect(() => {
+    if (!queue) { setQueueRows(null); return; }
+    let live = true;
+    fetch(`/api/appointments?${new URLSearchParams({ tab: "all", queue })}`).then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (live && j) setQueueRows((j.rows ?? []) as Row[]); });
+    return () => { live = false; };
+  }, [queue, rows]);
 
   const load = useCallback(async () => {
     const p = new URLSearchParams({ tab: "all", from: today, to: addDays(today, DAYS - 1) });
@@ -84,7 +98,19 @@ export function AppointmentsMobile({ counts, onCreate, onOpen, onCalled }: {
         <button type="button" className="appt-m-add" aria-label="ทำนัดใหม่" onClick={onCreate}><Icon name="plus" size={22} /></button>
       </div>
 
-      {searching ? (
+      {queue ? (
+        <>
+          <div className="appt-m-queue-head">
+            <button type="button" className="link-btn" onClick={() => setQueue("")}>← กลับ</button>
+            <b>{queue === "call" ? "ต้องโทร" : "ขอเลื่อน"}{queueRows ? ` · ${queueRows.length}` : ""}</b>
+          </div>
+          <div className="appt-m-list">
+            {queueRows === null && <div className="appt-m-empty">กำลังโหลด…</div>}
+            {queueRows && !queueRows.length && <div className="appt-m-empty">ไม่มีนัดในรายการนี้แล้ว</div>}
+            {queueRows?.map((r) => <MRow key={r.id} r={r} showDate onOpen={onOpen} onCalled={onCalled} />)}
+          </div>
+        </>
+      ) : searching ? (
         <>
           <label className="appt-m-search">
             <Icon name="search" size={18} />
@@ -112,8 +138,8 @@ export function AppointmentsMobile({ counts, onCreate, onOpen, onCalled }: {
           </div>
 
           <div className="appt-m-sum">
-            <div className="sum call"><span>ต้องโทร</span><b>{counts.mustCall}</b></div>
-            <div className="sum warn"><span>ขอเลื่อน</span><b>{counts.reschedule}</b></div>
+            <button type="button" className="sum call" onClick={() => setQueue("call")} aria-label={`ดูรายการต้องโทร ${counts.mustCall} นัด`}><span>ต้องโทร</span><b>{counts.mustCall}</b></button>
+            <button type="button" className="sum warn" onClick={() => setQueue("reschedule")} aria-label={`ดูรายการขอเลื่อน ${counts.reschedule} นัด`}><span>ขอเลื่อน</span><b>{counts.reschedule}</b></button>
             <div className="sum ok"><span>มาแล้ว</span><b>{arrived}/{active}</b></div>
           </div>
 

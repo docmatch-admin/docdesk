@@ -1,7 +1,7 @@
 import {
   addDays, appointmentFlex, callQueue, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
   metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, pickExactNameMatches, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT, replyFor,
-  parseRescheduleChoice, rescheduleData, rescheduleDays, dayButtonLabel, slotButtonLabel, callMeLabel, localDate, slotsForDate, thaiFullDate,
+  parseRescheduleChoice, rescheduleData, callQueueKind, type CallQueueKind, rescheduleDays, dayButtonLabel, slotButtonLabel, callMeLabel, localDate, slotsForDate, thaiFullDate,
   type RescheduleChoice, type LanguagePack,
   reminderDecision, TEST_APPOINTMENT_ID, thaiShortDate, timeShort, weekdayOf,
   canRestore, CANCEL_REASON_LABEL, DELIVERY_SKIP_TEXT, type DeliverySkip, defaultSeriesLabel, notifiesOnCancel, shiftFollowing,
@@ -440,7 +440,7 @@ async function handleRescheduleChoice(info: ConversationInfo, appt: Appointment,
     console.error("reschedule_request save failed", error.code);
     await db.from("appointments").update({ status: "reschedule_requested", called_at: null, called_by: null, updated_at: nowIso() }).eq("id", appt.id);
   }
-  await logAppointmentEvent(appt.id, "reschedule_requested", "customer", { channel: info.channelType, detail: { ...who, requested: { date: request.date, time: `${request.time_start}–${request.time_end}` } } });
+  await logAppointmentEvent(appt.id, "reschedule_requested", "customer", { channel: info.channelType, detail: { ...who, requested: { date: request.date, slot_id: request.slot_id, time: `${request.time_start}–${request.time_end}` } } });
   const timeText = timeRange(slot.start, slot.end);
   const dateText = lang === "th" ? thaiFullDate(choice.date) : localDate(choice.date, pack);
   await replyText(info, "requested", replyToken, { pack, vars: { date: dateText, time: lang === "th" ? `เวลา ${timeText} น.` : timeText } });
@@ -1031,7 +1031,7 @@ const searchTerm = (q: string) => q.replace(/[,()%*\:"']/g, " ").trim().slice(0,
 
 export type ListTab = "today" | "tomorrow" | "all";
 /** ตัวกรองหน้านัดหมาย: purpose ใช้ทุกแท็บ q/from/to/status ใช้เฉพาะแท็บทั้งหมด (from/to ว่าง = ไม่กรองวัน) */
-export interface ListFilters { q?: string; from?: string | null; to?: string | null; purpose?: string | null; status?: string | null; /** แท็บทั้งหมด: รวมนัดที่ยกเลิก */ includeCancelled?: boolean }
+export interface ListFilters { q?: string; from?: string | null; to?: string | null; purpose?: string | null; status?: string | null; /** แท็บทั้งหมด: รวมนัดที่ยกเลิก */ includeCancelled?: boolean; /** กดการ์ด ต้องโทร / ขอเลื่อน: แสดงเฉพาะคิวนั้น (เงื่อนไขเดียวกับตัวเลข) */ queue?: CallQueueKind | null }
 export const LIST_LIMIT = 500;
 const LIST_STATUSES = ["scheduled", "confirmed", "reschedule_requested", "cancelled", "attended", "no_show"];
 
@@ -1041,7 +1041,7 @@ const LIST_STATUSES = ["scheduled", "confirmed", "reschedule_requested", "cancel
  * นัดที่ยกเลิก: ซ่อนจากแท็บพรุ่งนี้/วันนี้เสมอ · แท็บทั้งหมดแสดงเมื่อเลือก "รวมยกเลิก" หรือกรองสถานะยกเลิก (ลบถาวรเมื่อพ้นระยะเก็บ)
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applyListFilters<Q extends { eq: any; gte: any; lte: any; or: any; neq: any; is: any }>(query: Q, tab: ListTab, opts: ListFilters, today: string): Q {
+function applyListFilters<Q extends { eq: any; gte: any; lte: any; or: any; neq: any; is: any; in: any }>(query: Q, tab: ListTab, opts: ListFilters, today: string): Q {
   let qy = query;
   if (tab === "today") qy = qy.eq("appoint_date", today).neq("status", "cancelled");
   else if (tab === "tomorrow") qy = qy.eq("appoint_date", addDays(today, 1)).neq("status", "cancelled");
@@ -1052,6 +1052,8 @@ function applyListFilters<Q extends { eq: any; gte: any; lte: any; or: any; neq:
     const q = searchTerm(opts.q ?? "");
     if (q) qy = qy.or(`patient_name.ilike.%${q}%,hn.ilike.%${q}%,phone.ilike.%${q}%`);
     if (opts.status && LIST_STATUSES.includes(opts.status)) qy = qy.eq("status", opts.status);
+    // คิวโทร: ตัดคร่าวๆ ที่ฐานข้อมูล แล้วกรองละเอียดด้วย callQueueKind ใน listAppointments
+    if (opts.queue) qy = qy.gte("appoint_date", today).is("called_at", null).in("status", opts.queue === "reschedule" ? ["reschedule_requested"] : ["scheduled"]);
   }
   qy = qy.neq("series_done", true);
   if (opts.purpose === "none") qy = qy.is("purpose_id", null);
@@ -1090,6 +1092,7 @@ export async function listAppointments(opts: { tab: ListTab } & ListFilters, now
         .order("appoint_date", { ascending: false }).order("time_start", { ascending: false }).limit(LIST_LIMIT),
     ]);
     data = [...(up ?? []), ...(past ?? [])].slice(0, LIST_LIMIT);
+    if (opts.queue) data = (data as Appointment[]).filter((a) => callQueueKind(a, now) === opts.queue);
   } else {
     ({ data } = await applyListFilters(base, opts.tab, opts, today)
       .order("appoint_date", { ascending: true }).order("time_start", { ascending: true }).limit(LIST_LIMIT));

@@ -60,6 +60,16 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
   const [creating, setCreating] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
+  // กดป้าย ต้องโทร / ขอเลื่อน → แท็บทั้งหมด กรองเฉพาะคิวนั้น (ลิงก์ /appointments?queue=call ก็ได้)
+  const [queue, setQueue] = useState<"" | "call" | "reschedule">("");
+  useEffect(() => {
+    const k = new URLSearchParams(window.location.search).get("queue");
+    if (k === "call" || k === "reschedule") { setTab("all"); setQueue(k); }
+  }, []);
+  const openQueue = (k: "call" | "reschedule") => {
+    setPurpose(""); setQ(""); setFrom(""); setTo(""); setStatus(""); setWithCancelled(false);
+    setTab("all"); setQueue(k);
+  };
   const [withCancelled, setWithCancelled] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -74,6 +84,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
     if (q.trim()) p.set("q", q.trim());
     if (from) p.set("from", from);
     if (to) p.set("to", to);
+    if (tab === "all" && queue) p.set("queue", queue);
     const res = await fetch(`/api/appointments?${p}`);
     if (!res.ok) return;
     const j = await res.json();
@@ -81,11 +92,12 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
     setCounts(j.counts);
     if (j.tabCounts) setTabCounts(j.tabCounts);
     if (j.limit) setLimit(j.limit);
-  }, [tab, q, from, to, purpose, status, withCancelled]);
+  }, [tab, q, from, to, purpose, status, withCancelled, queue]);
 
-  const filtered = !!purpose || (tab === "all" && (!!q.trim() || !!from || !!to || !!status || withCancelled));
-  const clearFilters = () => { setPurpose(""); setQ(""); setFrom(""); setTo(""); setStatus(""); setWithCancelled(false); };
-  const shownTotal = tabCounts?.[tab] ?? rows.length;
+  const queueOn = tab === "all" && !!queue;
+  const filtered = !!purpose || (tab === "all" && (!!q.trim() || !!from || !!to || !!status || withCancelled || !!queue));
+  const clearFilters = () => { setPurpose(""); setQ(""); setFrom(""); setTo(""); setStatus(""); setWithCancelled(false); setQueue(""); };
+  const shownTotal = queueOn ? rows.length : tabCounts?.[tab] ?? rows.length;
 
   useEffect(() => {
     fetch("/api/appointments/form-data").then((r) => (r.ok ? r.json() : null)).then((j) => j && setPresets(j.presets)).catch(() => {});
@@ -121,8 +133,8 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
       <header className="appt-header appt-desktop">
         <div className="appt-title">
           <h1>นัดหมาย</h1>
-          {counts.mustCall > 0 && <span className="chip red">ต้องโทร {counts.mustCall}</span>}
-          {counts.reschedule > 0 && <span className="chip orange">ขอเลื่อน {counts.reschedule}</span>}
+          {counts.mustCall > 0 && <button type="button" className={`chip red appt-queue-chip ${queueOn && queue === "call" ? "on" : ""}`} onClick={() => openQueue("call")} title="ดูรายการที่ต้องโทร">ต้องโทร {counts.mustCall}</button>}
+          {counts.reschedule > 0 && <button type="button" className={`chip orange appt-queue-chip ${queueOn && queue === "reschedule" ? "on" : ""}`} onClick={() => openQueue("reschedule")} title="ดูรายการที่ขอเลื่อน">ขอเลื่อน {counts.reschedule}</button>}
         </div>
         <div className="appt-actions-top">
           {canOpenChat && <Link className="btn outline" href="/bookings">นัดที่ AI รับไว้{aiPending > 0 && <b className="badge red">{aiPending}</b>}</Link>}
@@ -137,7 +149,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
         <div className="appt-toolbar">
           <div className="segmented" role="tablist" aria-label="ช่วงวันนัด">
             {TABS.map(([k, label]) => (
-              <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>
+              <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => { setTab(k); setQueue(""); }}>
                 {label}{tabCounts && <span className="seg-badge">{tabCounts[k]}</span>}
               </button>
             ))}
@@ -166,7 +178,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
           )}
         </div>
         {filtered && rows.length > 0 && (
-          <div className="appt-filter-note small muted">กรองอยู่ · พบ {shownTotal.toLocaleString("th-TH")} นัด <button type="button" className="link-btn" onClick={clearFilters}>ล้างตัวกรอง</button></div>
+          <div className="appt-filter-note small muted">{queueOn ? (queue === "call" ? "กำลังดู: ต้องโทร" : "กำลังดู: ขอเลื่อน") : "กรองอยู่"} · พบ {shownTotal.toLocaleString("th-TH")} นัด <button type="button" className="link-btn" onClick={clearFilters}>ล้างตัวกรอง</button></div>
         )}
         {rows.length === 0 && (
           <div className="appt-empty-state">

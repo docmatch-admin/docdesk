@@ -1812,3 +1812,8 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 /* คำขอเลื่อนนัดที่คนไข้เลือกวันเวลาเองในแชท */
 .drawer-reschedule { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--warning-border); border-radius: 12px; background: var(--warning-soft); color: var(--ink); }
 .drawer-reschedule b { color: var(--warning-ink); }
+/* ป้าย ต้องโทร / ขอเลื่อน กดได้: ไปดูเฉพาะรายการนั้น */
+.appt-queue-chip { border: 0; cursor: pointer; font: inherit; }
+.appt-queue-chip:hover, .appt-queue-chip.on { box-shadow: 0 0 0 2px currentColor inset; }
+.appt-m-queue-head { display: flex; align-items: center; gap: 12px; padding: 0 16px 12px; font-size: 16px; }
+@media (max-width: 899px) { .appt-m-sum .sum { font: inherit; text-align: left; cursor: pointer; } }

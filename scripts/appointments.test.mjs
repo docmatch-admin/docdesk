@@ -1395,7 +1395,8 @@ test("หน้านัดหมาย: ช่องตั้งแต่ว่
   const src = readFileSync("src/app/(staff)/appointments/appointments-client.tsx", "utf8");
   assert.match(src, /const \[from, setFrom\] = useState\(""\)/);
   assert.match(src, /ไม่พบนัดตามเงื่อนไข · <button type="button" className="link-btn" onClick=\{clearFilters\}>ล้างตัวกรอง<\/button>/);
-  assert.match(src, /const clearFilters = \(\) => \{ setPurpose\(""\); setQ\(""\); setFrom\(""\); setTo\(""\); setStatus\(""\); setWithCancelled\(false\); \};/);
+  assert.match(src, /const clearFilters = \(\) => \{ setPurpose\(""\); setQ\(""\); setFrom\(""\); setTo\(""\); setStatus\(""\); setWithCancelled\(false\); setQueue\(""\); \};/);
+  assert.match(src, /onClick=\{\(\) => openQueue\("call"\)\}/, "กดป้ายต้องโทรแล้วไปที่รายการ");
   assert.match(src, /> รวมยกเลิก/);
   assert.match(src, /if \(withCancelled\) p\.set\("include_cancelled", "1"\);/);
 });
@@ -1891,4 +1892,18 @@ test("จับคู่ HN อัตโนมัติ: เฉพาะชื�
   assert.equal(pick([{ id: "f", patient_name: "วิไล ศรีสุข", phone: "081-111-1111" }], visits, none, new Map([["900", "0811111111"]])).length, 1);
   // ชื่อสั้นเกิน → ไม่จับ
   assert.deepEqual(pick([{ id: "g", patient_name: "นาย อ", phone: null }], [{ hn: "1", patient_name: "อ" }], none, noPhone), []);
+});
+
+test("กดป้าย ต้องโทร / ขอเลื่อน: รายการตรงกับตัวเลข", async () => {
+  const call = addAppointment({ conversation_id: null, appoint_date: inDays(1) });
+  const resched = addAppointment({ status: "reschedule_requested", appoint_date: inDays(5) });
+  addAppointment({ appoint_date: inDays(1) }); // มีแชท ไม่ต้องโทร
+  addAppointment({ conversation_id: null, appoint_date: inDays(1), called_at: nextTime() }); // โทรแล้ว
+  const callRows = await store.listAppointments({ tab: "all", queue: "call" });
+  assert.deepEqual(callRows.map((r) => r.id), [call.id]);
+  const resRows = await store.listAppointments({ tab: "all", queue: "reschedule" });
+  assert.deepEqual(resRows.map((r) => r.id), [resched.id]);
+  const counts = rules.callQueue(state.tables.appointments);
+  assert.equal(callRows.length, counts.mustCall);
+  assert.equal(resRows.length, counts.reschedule);
 });
