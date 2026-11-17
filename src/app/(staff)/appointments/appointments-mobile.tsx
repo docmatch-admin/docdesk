@@ -10,7 +10,7 @@ import { useLiveChannel } from "@/lib/use-live-channel";
 import { Icon } from "../icons";
 import { shortHn } from "./new-appointment";
 
-type Row = Appointment & { series_total: number | null };
+type Row = Appointment & { series_total: number | null; reschedule_request?: { date: string; time_start: string; time_end: string } | null };
 type Counts = { mustCall: number; reschedule: number; total: number };
 
 const DAYS = 14;
@@ -144,7 +144,8 @@ function MRow({ r, showDate, onOpen, onCalled }: { r: Row; showDate?: boolean; o
   const tel = r.phone?.replace(/[^\d+]/g, "");
   const label = r.status === "attended"
     ? `มาแล้ว${r.arrived_time ? ` ${r.arrived_time}` : ""}`
-    : state === "closed" ? STATUS_LABEL[r.status] : state === "failed" || state === "no_chat" ? "ต้องโทร" : DELIVERY_LABEL[state];
+    : state === "closed" ? STATUS_LABEL[r.status] : state === "failed" || state === "no_chat" ? "ต้องโทร"
+    : r.reschedule_request ? `ขอเลื่อน → ${thaiShortDate(r.reschedule_request.date).replace(/ \d{2}$/, "")}` : DELIVERY_LABEL[state];
   const tone = r.status === "attended" ? "done" : state === "confirmed" ? "ok" : state === "reschedule" ? "warn" : state === "failed" || state === "no_chat" ? "bad" : "";
   const sub = [
     showDate ? thaiShortDate(r.appoint_date) : null,

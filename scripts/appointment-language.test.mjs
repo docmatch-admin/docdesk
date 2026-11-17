@@ -62,7 +62,8 @@ test("ข้อความที่เจ้าหน้าที่พิม�
   const en = await languagePack("en", settings, { purpose: appt.purpose_text, instructions: appt.instructions });
   assert.equal(en.texts.purpose_text, "Lab results");
   const text = rules.appointmentText({ kind: "new", lang: "en", appointment: appt, settings, clinicName: "HappiWell", includePurpose: true, pack: en });
-  assert.match(text, /Purpose: Lab results/);
+  assert.match(text, /^📅 Appointment: Lab results/, "เหตุผลนัดอยู่ในหัวข้อ ไม่มีบรรทัด Purpose ซ้ำ");
+  assert.doesNotMatch(text, /Purpose:/);
   assert.match(text, /Before your visit: No food for 8 hours/);
   assert.doesNotMatch(text, /ฟังผลแล็บ/);
 });
@@ -74,4 +75,16 @@ test("ปุ่มและข้อความตอบหลังกดป�
   assert.equal(rules.replyFor("th", null, "confirmed"), rules.REPLY_TEXT.th.confirmed);
   const flex = rules.appointmentFlex({ kind: "new", lang: "en", appointment: appt, settings, clinicName: "HappiWell", includePurpose: false, pack });
   assert.equal(flex.contents.footer.contents[0].action.label, "中文:Confirm");
+});
+
+test("หัวข้อความบอกว่านัดมาทำอะไร · ตัดคำนำหน้าชื่อหลัง คุณ", () => {
+  const base = { lang: "th", settings, clinicName: "HappiWell", appointment: { ...appt, patient_name: "น.ส. สุดารัตน์ ผางเวช", time_mode: "slot", time_start: "13:00", time_end: "18:00" } };
+  const t = rules.appointmentText({ ...base, kind: "new", includePurpose: true });
+  assert.match(t, /^📅 นัดฟังผลแล็บ\n/);
+  assert.doesNotMatch(t, /เรื่อง:/);
+  assert.match(t, /คุณสุดารัตน์ ผางเวช/);
+  assert.match(rules.appointmentText({ ...base, kind: "reminder", includePurpose: true }), /^⏰ พรุ่งนี้มีนัดฟังผลแล็บ/);
+  assert.match(rules.appointmentText({ ...base, kind: "new", includePurpose: true, appointment: { ...base.appointment, purpose_text: "นัดเจาะเลือด" } }), /^📅 นัดเจาะเลือด\n/);
+  // ปิดการส่งเหตุผลนัด (เช่น เรื่องส่วนตัว) = หัวข้อเดิม
+  assert.match(rules.appointmentText({ ...base, kind: "new", includePurpose: false }), /^📅 นัดหมายครั้งต่อไป/);
 });

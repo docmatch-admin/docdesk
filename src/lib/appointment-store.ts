@@ -1,10 +1,13 @@
 import {
   addDays, appointmentFlex, callQueue, frequentTexts, lineOaMessageUrl, appointmentText, bangkokToday, chooseDelivery, DELIVERY_FAILURE_TEXT, generateLinkCode,
   metaAppointmentMessage, normalizeAppointmentSettings, OPEN_STATUSES, parseDate, pickExactNameMatches, parseTime, parseAppointmentPostback, pickLanguage, REPLY_TEXT, replyFor,
+  parseRescheduleChoice, rescheduleData, rescheduleDays, dayButtonLabel, slotButtonLabel, callMeLabel, localDate, slotsForDate, thaiFullDate,
+  type RescheduleChoice, type LanguagePack,
   reminderDecision, TEST_APPOINTMENT_ID, thaiShortDate, timeShort, weekdayOf,
   canRestore, CANCEL_REASON_LABEL, DELIVERY_SKIP_TEXT, type DeliverySkip, defaultSeriesLabel, notifiesOnCancel, shiftFollowing,
   type Appointment, type AppointmentSettings, type AppointmentStatus, type CancelReason, type ClinicSchedule, type ClinicSlot, type Lang, type MessageInput, type MessageKind,
 } from "./appointment-rules";
+import { timeRange } from "./time-format";
 import { languagePack } from "./appointment-language";
 import { sendPushToStaff } from "./booking-store";
 import { lineSendMessages } from "./channels/line";
@@ -347,17 +350,119 @@ async function seriesPosition(a: Appointment): Promise<MessageInput["seriesPosit
 }
 
 /** ข้อความตอบสั้นๆ หลังกดปุ่มหรือส่งรหัส ตามภาษาของลูกค้า ใช้ replyToken ของ LINE ก่อนเพื่อไม่กินโควตา */
-async function replyText(info: ConversationInfo, key: keyof (typeof REPLY_TEXT)["th"], replyToken?: string) {
+type QuickButton = { label: string; data: string };
+async function replyText(info: ConversationInfo, key: keyof (typeof REPLY_TEXT)["th"], replyToken?: string,
+  opts: { vars?: Record<string, string>; quick?: QuickButton[]; pack?: LanguagePack | null } = {}) {
   const lang = pickLanguage(info.language);
-  const pack = lang === "en" ? await languagePack(info.language, await loadAppointmentSettings()) : null;
-  const text = replyFor(lang, pack, key);
+  const pack = opts.pack !== undefined ? opts.pack : lang === "en" ? await languagePack(info.language, await loadAppointmentSettings()) : null;
+  const text = replyFor(lang, pack, key, opts.vars);
+  const quick = (opts.quick ?? []).slice(0, 13);
   if (info.channelType === "line") {
-    await lineSendMessages(info.externalId, [{ type: "text", text }], replyToken, { kind: "appointment", conversationId: info.id, tokenAgeMs: replyToken ? 0 : null });
+    const message = quick.length
+      ? { type: "text", text, quickReply: { items: quick.map((q) => ({ type: "action", action: { type: "postback", label: q.label.slice(0, 20), data: q.data, displayText: q.label } })) } }
+      : { type: "text", text };
+    await lineSendMessages(info.externalId, [message], replyToken, { kind: "appointment", conversationId: info.id, tokenAgeMs: replyToken ? 0 : null });
     await insertSystemMessage(info.id, { direction: "out", body: text, language: pickLanguage(info.language) });
   } else if (info.channelType === "facebook" || info.channelType === "instagram") {
-    const mid = await metaSendMessage(info.externalId, { text });
+    const mid = await metaSendMessage(info.externalId, quick.length
+      ? { text, quick_replies: quick.map((q) => ({ content_type: "text", title: q.label.slice(0, 20), payload: q.data })) }
+      : { text });
     await insertSystemMessage(info.id, { direction: "out", body: text, language: pickLanguage(info.language), externalId: mid });
   }
+}
+
+// ---------------------------------------------------------------------------
+// คนไข้เลือกวันเวลาใหม่เอง (กดขอเลื่อน → เลือกวัน → เลือกเวลา) แล้วรอเจ้าหน้าที่อนุมัติ
+// ---------------------------------------------------------------------------
+export interface RescheduleRequest { date: string; slot_id: string; time_start: string; time_end: string; requested_at: string; conversation_id: string }
+
+/** คำขอเลื่อนที่คนไข้เลือกไว้ (คอลัมน์ reschedule_request จาก migration 059 · ยังไม่รัน = ไม่มีคำขอ) */
+export async function rescheduleRequests(ids: string[]): Promise<Map<string, RescheduleRequest>> {
+  if (!ids.length) return new Map();
+  const { data, error } = await supabaseAdmin().from("appointments").select("id, reschedule_request").in("id", ids).not("reschedule_request", "is", null);
+  if (error) return new Map();
+  return new Map(((data ?? []) as { id: string; reschedule_request: RescheduleRequest | null }[])
+    .filter((r) => r.reschedule_request).map((r) => [r.id, r.reschedule_request as RescheduleRequest]));
+}
+
+async function dayButtons(appt: Appointment, lang: Lang, pack: LanguagePack | null, now: number): Promise<QuickButton[]> {
+  const today = bangkokToday(now);
+  const schedule = await loadClinicSchedule(today, addDays(today, 60));
+  return [
+    ...rescheduleDays(today, appt.appoint_date, schedule).map((d) => ({ label: dayButtonLabel(d, lang, pack), data: rescheduleData.day(appt.id, d) })),
+    { label: callMeLabel(lang, pack), data: rescheduleData.call(appt.id) },
+  ];
+}
+
+async function handleRescheduleChoice(info: ConversationInfo, appt: Appointment, choice: RescheduleChoice, replyToken: string | undefined, who: Record<string, unknown>, now: number) {
+  const db = supabaseAdmin();
+  const lang = pickLanguage(info.language);
+  const pack = lang === "en" ? await languagePack(info.language, await loadAppointmentSettings()) : null;
+  const today = bangkokToday(now);
+  const staffTask = async (text: string, push: string) => {
+    await db.from("chat_tasks").insert({ conversation_id: info.id, text, done: false });
+    if (info.status !== "open") await db.from("conversations").update({ status: "open" }).eq("id", info.id);
+    await sendPushToStaff(null, { title: "📅 คนไข้ขอเลื่อนนัด", body: push, url: "/appointments" }).catch((e) => console.error("reschedule push failed", e));
+  };
+  const was = `${thaiShortDate(appt.appoint_date)} ${timeShort(appt)} น.`;
+
+  if (choice.step === "call") {
+    await logAppointmentEvent(appt.id, "reschedule_requested", "customer", { channel: info.channelType, detail: { ...who, call: true } });
+    await replyText(info, "callMe", replyToken, { pack });
+    await staffTask(`เลื่อนนัด: คนไข้ขอเลื่อนนัด ${was} — โทรนัดวันใหม่`, "คนไข้ขอให้โทรนัดวันใหม่ 1 รายการ");
+    return;
+  }
+  const schedule = await loadClinicSchedule(choice.date, choice.date);
+  const slots = choice.date > today ? slotsForDate(choice.date, schedule) : [];
+  if (choice.step === "day") {
+    if (!slots.length) {
+      await replyText(info, "slotGone", replyToken, { pack, quick: await dayButtons(appt, lang, pack, now) });
+      return;
+    }
+    const dateText = lang === "th" ? thaiFullDate(choice.date) : localDate(choice.date, pack);
+    await replyText(info, "pickTime", replyToken, {
+      pack, vars: { date: dateText },
+      quick: [...slots.map((sl) => ({ label: slotButtonLabel(sl), data: rescheduleData.slot(appt.id, choice.date, sl.slot_id) })),
+        { label: callMeLabel(lang, pack), data: rescheduleData.call(appt.id) }],
+    });
+    return;
+  }
+  const slot = slots.find((sl) => sl.slot_id === choice.slotId);
+  if (!slot) {
+    await replyText(info, "slotGone", replyToken, { pack, quick: await dayButtons(appt, lang, pack, now) });
+    return;
+  }
+  const request: RescheduleRequest = { date: choice.date, slot_id: slot.slot_id, time_start: slot.start, time_end: slot.end, requested_at: nowIso(), conversation_id: info.id };
+  const { error } = await db.from("appointments").update({ status: "reschedule_requested", reschedule_request: request, called_at: null, called_by: null, updated_at: nowIso() }).eq("id", appt.id);
+  if (error) {
+    // ยังไม่รัน migration 059: เก็บไว้ในประวัติและงานให้เจ้าหน้าที่แทน
+    console.error("reschedule_request save failed", error.code);
+    await db.from("appointments").update({ status: "reschedule_requested", called_at: null, called_by: null, updated_at: nowIso() }).eq("id", appt.id);
+  }
+  await logAppointmentEvent(appt.id, "reschedule_requested", "customer", { channel: info.channelType, detail: { ...who, requested: { date: request.date, time: `${request.time_start}–${request.time_end}` } } });
+  const timeText = timeRange(slot.start, slot.end);
+  const dateText = lang === "th" ? thaiFullDate(choice.date) : localDate(choice.date, pack);
+  await replyText(info, "requested", replyToken, { pack, vars: { date: dateText, time: lang === "th" ? `เวลา ${timeText} น.` : timeText } });
+  const want = `${thaiShortDate(request.date)} ${timeText} น.`;
+  await staffTask(`เลื่อนนัด: คนไข้ขอเลื่อนจาก ${was} เป็น ${want} — กดอนุมัติในรายละเอียดนัด`, `คนไข้ขอเลื่อนนัดเป็น ${want}`);
+}
+
+/** เจ้าหน้าที่อนุมัติวันที่คนไข้เลือก: เปลี่ยนนัด + ส่งข้อความวันนัดใหม่ให้คนไข้ (และปิดงานเลื่อนนัด) */
+export async function approveRescheduleRequest(id: string, staffId: string, now = Date.now()) {
+  const req = (await rescheduleRequests([id])).get(id);
+  if (!req) throw new AppointmentError("ไม่มีคำขอเลื่อนจากคนไข้ หรือจัดการไปแล้ว", 409);
+  const result = await updateAppointment(id, { appoint_date: req.date, time_mode: "slot", slot_id: req.slot_id }, staffId, now);
+  await supabaseAdmin().from("appointments").update({ reschedule_request: null }).eq("id", id);
+  // งานเลื่อนนัดอยู่ในแชทที่คนไข้กดเลือก (อาจเป็นบัญชีญาติ ไม่ใช่แชทหลักของนัด)
+  if (req.conversation_id) await closeRescheduleTasks(req.conversation_id, staffId);
+  await logAppointmentEvent(id, "reschedule_approved", "staff", { staffId, detail: { date: req.date, slot_id: req.slot_id } });
+  return result;
+}
+
+/** ไม่ใช้วันที่คนไข้เลือก (จะโทรคุยเอง): ล้างคำขอ นัดยังอยู่ในสถานะขอเลื่อน */
+export async function dismissRescheduleRequest(id: string, staffId: string) {
+  await supabaseAdmin().from("appointments").update({ reschedule_request: null, updated_at: nowIso() }).eq("id", id);
+  await logAppointmentEvent(id, "reschedule_dismissed", "staff", { staffId });
 }
 
 // ---------------------------------------------------------------------------
@@ -748,7 +853,8 @@ const isPast = (a: Appointment, now: number) => a.appoint_date < bangkokToday(no
  * AI ไม่ตอบ เพราะไม่ผ่าน processIncoming
  */
 export async function handleAppointmentPostback(ref: InboundRef, payload: string, label: string, now = Date.now()): Promise<"confirmed" | "reschedule" | "ignored" | "duplicate"> {
-  const parsed = parseAppointmentPostback(payload);
+  const choice = parseRescheduleChoice(payload);
+  const parsed = parseAppointmentPostback(payload) ?? (choice ? { action: "reschedule" as const, appointmentId: choice.appointmentId } : null);
   if (!parsed) return "ignored";
   if (await alreadyHandled(ref.eventId)) return "duplicate";
   const db = supabaseAdmin();
@@ -756,7 +862,10 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
   const info = await conversationInfo(conversationId);
   if (!info) return "ignored";
   const lang: Lang = pickLanguage(info.language);
-  await insertSystemMessage(conversationId, { direction: "in", body: `[กดปุ่ม] ${label || (parsed.action === "confirm" ? "ยืนยันนัด" : "ขอเลื่อนนัด")}`, language: lang, externalId: ref.eventId });
+  const choiceText = !choice ? null
+    : choice.step === "call" ? "ให้เจ้าหน้าที่โทร"
+    : choice.step === "day" ? `เลือกวัน ${thaiShortDate(choice.date)}` : `เลือก ${thaiShortDate(choice.date)} (${choice.slotId})`;
+  await insertSystemMessage(conversationId, { direction: "in", body: `[กดปุ่ม] ${label || choiceText || (parsed.action === "confirm" ? "ยืนยันนัด" : "ขอเลื่อนนัด")}`, language: lang, externalId: ref.eventId });
 
   if (parsed.appointmentId === TEST_APPOINTMENT_ID) {
     await replyText(info, "test", ref.replyToken);
@@ -779,17 +888,15 @@ export async function handleAppointmentPostback(ref: InboundRef, payload: string
     return "confirmed";
   }
 
+  if (choice) {
+    await handleRescheduleChoice(info, appt, choice, ref.replyToken, who, now);
+    return "reschedule";
+  }
+  // กดขอเลื่อน: ขึ้นสถานะขอเลื่อนทันที (ถ้าคนไข้ไม่เลือกต่อ เจ้าหน้าที่ยังเห็นในรายการขอเลื่อน) แล้วให้เลือกวันใหม่
   await db.from("appointments").update({ status: "reschedule_requested", called_at: null, called_by: null, updated_at: nowIso() }).eq("id", appt.id);
   await logAppointmentEvent(appt.id, "reschedule_requested", "customer", { channel: info.channelType, detail: who });
-  await replyText(info, "reschedule", ref.replyToken);
-  await db.from("chat_tasks").insert({
-    conversation_id: conversationId,
-    text: `เลื่อนนัด: คนไข้ขอเลื่อนนัด ${thaiShortDate(appt.appoint_date)} ${timeShort(appt)} น. — โทรนัดวันใหม่`,
-  });
-  // เข้ารอตอบ: แชทต้องเปิดอยู่ งานค้างทำให้ค้างในรอตอบเอง
-  if (info.status !== "open") await db.from("conversations").update({ status: "open" }).eq("id", conversationId);
-  await sendPushToStaff(null, { title: "📅 คนไข้ขอเลื่อนนัด", body: "มีคนไข้ขอเลื่อนนัด 1 รายการ", url: "/appointments" })
-    .catch((e) => console.error("reschedule push failed", e));
+  const pack = lang === "en" ? await languagePack(info.language, await loadAppointmentSettings()) : null;
+  await replyText(info, "pickDay", ref.replyToken, { pack, quick: await dayButtons(appt, lang, pack, now) });
   return "reschedule";
 }
 
@@ -914,6 +1021,8 @@ export interface AppointmentListRow extends Appointment {
   channel: ChannelType | null;
   chat_name: string | null;
   series_total: number | null;
+  /** คนไข้เลือกวันเวลาใหม่ไว้ รอเจ้าหน้าที่อนุมัติ */
+  reschedule_request?: RescheduleRequest | null;
 }
 
 /** ค้นหาใช้ใน PostgREST or() จึงตัดตัวอักษรที่มีความหมายในไวยากรณ์ออก */
@@ -993,11 +1102,12 @@ export async function listAppointments(opts: { tab: ListTab } & ListFilters, now
       if (r.status !== "cancelled") seriesTotal.set(r.series_id, Math.max(seriesTotal.get(r.series_id) ?? 0, r.series_seq ?? 0));
     }
   }
+  const requests = await rescheduleRequests(((data ?? []) as { id: string; status: string }[]).filter((r) => r.status === "reschedule_requested").map((r) => r.id));
   return ((data ?? []) as unknown as (Appointment & { conversations: unknown })[]).map(({ conversations, ...a }) => {
     const conv = (Array.isArray(conversations) ? conversations[0] : conversations) as { channels?: { type: ChannelType } | { type: ChannelType }[]; contacts?: ContactNameFields | ContactNameFields[] } | null;
     const channel = conv?.channels ? (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) : null;
     const contact = conv?.contacts ? (Array.isArray(conv.contacts) ? conv.contacts[0] : conv.contacts) : null;
-    return { ...a, channel: channel?.type ?? null, chat_name: contact ? contactName(contact) : null, series_total: a.series_id ? seriesTotal.get(a.series_id) ?? null : null };
+    return { ...a, channel: channel?.type ?? null, chat_name: contact ? contactName(contact) : null, series_total: a.series_id ? seriesTotal.get(a.series_id) ?? null : null, reschedule_request: requests.get(a.id) ?? null };
   });
 }
 

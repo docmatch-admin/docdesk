@@ -12,12 +12,13 @@ import { AppointmentForm, deliveryText, draftOf } from "./appointment-form";
 import { LinkedAccounts, type LinkedAccountRow } from "./linked-accounts";
 
 interface EventRow { id: string; kind: string; actor: "staff" | "customer" | "system"; staff_name: string | null; channel: string | null; detail: Record<string, unknown>; created_at: string }
-interface Detail { appointment: Appointment; events: EventRow[]; series: Appointment[]; accounts: LinkedAccountRow[] }
+interface RescheduleRequest { date: string; slot_id: string; time_start: string; time_end: string; requested_at: string }
+interface Detail { appointment: Appointment; events: EventRow[]; series: Appointment[]; accounts: LinkedAccountRow[]; request: RescheduleRequest | null }
 
 const EVENT_LABEL: Record<string, string> = {
   created: "ลงนัด", edited: "แก้ไขรายละเอียด", rescheduled: "เปลี่ยนวัน/เวลา", cancelled: "ยกเลิกนัด", restored: "กู้คืนนัด",
   sent: "ส่งข้อความ", send_failed: "ส่งไม่ได้", send_skipped: "ไม่ได้ส่งข้อความ", confirmed: "คนไข้กดยืนยัน",
-  reschedule_requested: "คนไข้ขอเลื่อน", linked: "คนไข้สแกน QR ผูกแชท", called: "ติ๊กโทรแล้ว", call_unmarked: "เอาติ๊กโทรออก",
+  reschedule_requested: "คนไข้ขอเลื่อน", reschedule_approved: "อนุมัติวันที่คนไข้เลือก", reschedule_dismissed: "ไม่ใช้วันที่คนไข้เลือก (โทรคุย)", linked: "คนไข้สแกน QR ผูกแชท", called: "ติ๊กโทรแล้ว", call_unmarked: "เอาติ๊กโทรออก",
   attended: "มาตามนัด", no_show: "ไม่มาตามนัด", reminder_skipped: "ข้ามการเตือน", hn_match_suggested: "เสนอจับคู่ HN",
   hn_match_accepted: "ยืนยันจับคู่ HN", unlinked: "ยกเลิกการผูกแชท",
 };
@@ -71,7 +72,7 @@ export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, initialMod
     const r = await fetch(`/api/appointments/${id}`);
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return setErr(j.error ?? "โหลดนัดไม่สำเร็จ");
-    setData({ appointment: j.appointment, events: j.events, series: j.series ?? [], accounts: j.accounts ?? [] });
+    setData({ appointment: j.appointment, events: j.events, series: j.series ?? [], accounts: j.accounts ?? [], request: j.reschedule_request ?? null });
   }, [id]);
 
   useEffect(() => { setMode("view"); setAskPrint(""); setData(null); load(); }, [load]);
@@ -87,6 +88,17 @@ export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, initialMod
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  async function decideReschedule(action: "approve" | "dismiss") {
+    setBusy(true);
+    setErr("");
+    const r = await fetch(`/api/appointments/${id}/reschedule`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+    const j = await r.json().catch(() => ({}));
+    setBusy(false);
+    if (!r.ok) return setErr(j.error ?? "บันทึกไม่สำเร็จ");
+    await load();
+    onChanged(action === "approve" ? `เลื่อนนัดแล้ว${j.delivery ? ` · ${deliveryText(j.delivery)}` : ""}` : "ล้างคำขอแล้ว โทรนัดวันใหม่กับคนไข้");
+  }
 
   async function cancel(e: React.FormEvent) {
     e.preventDefault();
@@ -208,6 +220,16 @@ export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, initialMod
               </>
             )}
 
+            {mode === "view" && data?.request && data.appointment.status === "reschedule_requested" && (
+              <section className="drawer-reschedule" aria-label="คำขอเลื่อนนัดจากคนไข้">
+                <div><b>คนไข้ขอเลื่อนเป็น</b> {thaiFullDate(data.request.date)} เวลา {data.request.time_start}–{data.request.time_end} น.</div>
+                <div className="muted small">เดิม {thaiFullDate(data.appointment.appoint_date)} {timeShort(data.appointment)} น. · อนุมัติแล้วระบบส่งข้อความวันนัดใหม่ให้คนไข้</div>
+                <div className="row">
+                  <button type="button" className="btn primary" disabled={busy} onClick={() => decideReschedule("approve")}>อนุมัติเลื่อน</button>
+                  <button type="button" className="btn ghost" disabled={busy} onClick={() => decideReschedule("dismiss")}>จะโทรคุยเอง</button>
+                </div>
+              </section>
+            )}
             {mode === "view" && (data?.accounts.length ?? 0) > 0 && (
               <section className="drawer-accounts">
                 <LinkedAccounts accounts={data!.accounts} isAdmin={isAdmin}

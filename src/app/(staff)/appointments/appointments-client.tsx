@@ -16,7 +16,7 @@ import { shortHn } from "./new-appointment";
 import { NewAppointment } from "./new-appointment";
 import { AppointmentsMobile } from "./appointments-mobile";
 
-type Row = Appointment & { channel: ChannelType | null; chat_name: string | null; series_total: number | null };
+type Row = Appointment & { channel: ChannelType | null; chat_name: string | null; series_total: number | null; reschedule_request?: { date: string; time_start: string; time_end: string } | null };
 type Tab = "tomorrow" | "today" | "all";
 
 // เรียงตามเวลา: วันนี้ → พรุ่งนี้ → ทั้งหมด
@@ -222,7 +222,7 @@ export function AppointmentsClient({ canOpenChat, isAdmin }: { canOpenChat: bool
                       <td>
                         {r.status === "attended" && r.arrived_time
                           ? <span className="appt-state confirmed">มาแล้ว {r.arrived_time}</span>
-                          : <span className={state === "closed" ? `appt-state closed status-${r.status}` : STATE_CLASS[state]} title={r.last_send_error ?? undefined}>{state === "closed" ? STATUS_LABEL[r.status] : DELIVERY_LABEL[state]}</span>}
+                          : <span className={state === "closed" ? `appt-state closed status-${r.status}` : STATE_CLASS[state]} title={r.last_send_error ?? undefined}>{state === "closed" ? STATUS_LABEL[r.status] : r.reschedule_request ? `ขอเลื่อน → ${thaiShortDate(r.reschedule_request.date).replace(/ \d{2}$/, "")} ${r.reschedule_request.time_start}` : DELIVERY_LABEL[state]}</span>}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" aria-label={`โทรหา ${r.patient_name} แล้ว`} checked={!!r.called_at} disabled={!open}

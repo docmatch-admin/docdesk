@@ -1809,3 +1809,6 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .booking-convert-row td { background: var(--bg); padding: 12px; white-space: normal; }
 @media (max-width: 899px) { .appt-ai-banner { margin: calc(10px + env(safe-area-inset-top)) 16px 0; } }
 @media (max-width: 899px) { .appt-ai-banner + .appt-m .appt-m-head { padding-top: 12px; } }
+/* คำขอเลื่อนนัดที่คนไข้เลือกวันเวลาเองในแชท */
+.drawer-reschedule { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--warning-border); border-radius: 12px; background: var(--warning-soft); color: var(--ink); }
+.drawer-reschedule b { color: var(--warning-ink); }

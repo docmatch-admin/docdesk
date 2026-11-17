@@ -226,7 +226,7 @@ test("Instagram ใช้ quick reply และเหตุผลนัดไม
   conv("conv-ig").sensitive = false;
   outbound = [];
   await store.createAppointment({ patient_name: "ไอจี", appoint_date: inDays(2), time_mode: "exact", time_start: "09:30", conversation_id: "conv-ig", purpose_text: "ผลเลือด" }, "agent");
-  assert.match(outbound.find((o) => o.url.includes("/me/messages")).body.message.text, /เรื่อง: ผลเลือด/);
+  assert.match(outbound.find((o) => o.url.includes("/me/messages")).body.message.text, /^📅 นัดผลเลือด/);
 });
 
 test("ลงนัดจากหน้านัดหมาย: HN ผูกแชท LINE แล้วส่ง Flex พร้อมปุ่ม ไม่ผูกแล้วไม่ส่ง", async () => {
@@ -290,20 +290,56 @@ test("LINE กดยืนยัน: confirmed ตอบขอบคุณด้
   assert.equal(linePosts().length, 0);
 });
 
-test("LINE กดขอเลื่อน: ตอบว่าจะติดต่อกลับ ย้ายเข้ารอตอบ สร้างงานเลื่อนนัด", async () => {
+test("LINE กดขอเลื่อน: ให้คนไข้เลือกวัน → เลือกเวลา → รอเจ้าหน้าที่อนุมัติ แล้วส่งวันนัดใหม่ให้คนไข้", async () => {
   const a = addAppointment({ called_at: nextTime(), called_by: "agent" });
   await lineWebhook.POST(lineRequest([linePostback(`appt:reschedule:${a.id}`, "ev-2")]));
   assert.equal(appt(a.id).status, "reschedule_requested");
-  assert.equal(appt(a.id).called_at, null, "ต้องโทรใหม่");
-  assert.match(linePosts().find((o) => o.url.endsWith("/reply")).body.messages[0].text, /เจ้าหน้าที่จะติดต่อกลับเพื่อนัดวันใหม่/);
+  assert.equal(appt(a.id).called_at, null, "ต้องโทรใหม่ถ้าคนไข้ไม่เลือกต่อ");
+  let msg = linePosts().filter((o) => o.url.endsWith("/reply")).at(-1).body.messages[0];
+  assert.match(msg.text, /เลือกวันที่สะดวก/);
+  const items = msg.quickReply.items;
+  assert.ok(items.length >= 2 && items.length <= 13);
+  assert.equal(items.at(-1).action.data, `appt:rcall:${a.id}`);
+  const dayData = items[0].action.data;
+  assert.match(dayData, new RegExp(`^appt:rday:${a.id}:\\d{8}$`));
+  assert.ok(!dayData.endsWith(a.appoint_date.replace(/-/g, "")), "ไม่เสนอวันนัดเดิม");
+
+  await lineWebhook.POST(lineRequest([linePostback(dayData, "ev-2b")]));
+  msg = linePosts().filter((o) => o.url.endsWith("/reply")).at(-1).body.messages[0];
+  assert.match(msg.text, /เลือกเวลาของ/);
+  const slotData = msg.quickReply.items[0].action.data;
+  assert.match(slotData, /^appt:rslot:/);
+
+  await lineWebhook.POST(lineRequest([linePostback(slotData, "ev-2c")]));
+  msg = linePosts().filter((o) => o.url.endsWith("/reply")).at(-1).body.messages[0];
+  assert.match(msg.text, /รับคำขอเลื่อนนัดเป็น.*เจ้าหน้าที่จะยืนยัน/);
+  const req = appt(a.id).reschedule_request;
+  assert.equal(req.date.replace(/-/g, ""), dayData.slice(-8));
   const task = state.tables.chat_tasks.find((t) => t.conversation_id === "conv-line");
-  assert.match(task.text, /^เลื่อนนัด/);
-  assert.ok(!task.done);
+  assert.match(task.text, /^เลื่อนนัด: คนไข้ขอเลื่อนจาก .* เป็น /);
   assert.equal(conv("conv-line").status, "open");
-  assert.equal(conv("conv-line").open_tasks, 1);
   assert.deepEqual(tabsOf(conv("conv-line")), ["open", "waiting"]);
   assert.equal(rules.callQueue(state.tables.appointments).reschedule, 1);
   assert.equal(calls.chat, 0);
+
+  // เจ้าหน้าที่อนุมัติ: นัดย้ายไปวันที่คนไข้เลือก ล้างคำขอ ปิดงาน และส่งข้อความเปลี่ยนวันนัดให้คนไข้
+  const before = linePosts().length;
+  await store.approveRescheduleRequest(a.id, "agent");
+  assert.equal(appt(a.id).appoint_date, req.date);
+  assert.equal(appt(a.id).status, "scheduled");
+  assert.equal(appt(a.id).reschedule_request, null);
+  assert.ok(state.tables.chat_tasks.find((t) => t.id === task.id).done, "ปิดงานเลื่อนนัด");
+  const sent = linePosts().slice(before).map((o) => JSON.stringify(o.body)).join("\n");
+  assert.match(sent, /เปลี่ยนวันนัดใหม่/);
+});
+
+test("ขอเลื่อนแล้วกด ให้เจ้าหน้าที่โทร: สร้างงานโทรนัดวันใหม่", async () => {
+  const a = addAppointment({});
+  await lineWebhook.POST(lineRequest([linePostback(`appt:rcall:${a.id}`, "ev-rc")]));
+  assert.match(linePosts().filter((o) => o.url.endsWith("/reply")).at(-1).body.messages[0].text, /เจ้าหน้าที่จะติดต่อกลับเพื่อนัดวันใหม่/);
+  assert.match(state.tables.chat_tasks.at(-1).text, /โทรนัดวันใหม่/);
+  assert.equal(rules.parseRescheduleChoice(`appt:rslot:${a.id}:20261120:../x`), null);
+  assert.equal(rules.parseRescheduleChoice(`appt:rday:${a.id}:20261340`), null);
 });
 
 test("postback ปลอมหรือของแชทอื่น: ไม่เปลี่ยนนัด", async () => {

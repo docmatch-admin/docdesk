@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAppointmentStaff } from "@/lib/auth";
 import { appointmentErrorResponse } from "@/lib/appointment-http";
-import { appointmentEvents, appointmentSlip, setCalled, updateAppointment } from "@/lib/appointment-store";
+import { appointmentEvents, appointmentSlip, rescheduleRequests, setCalled, updateAppointment } from "@/lib/appointment-store";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,8 @@ export async function GET(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const slip = await appointmentSlip(id, user.id);
   if (!slip) return NextResponse.json({ error: "ไม่พบนัด" }, { status: 404 });
-  return NextResponse.json({ ...slip, events: await appointmentEvents(id) }, { headers: { "Cache-Control": "no-store" } });
+  const reschedule_request = (await rescheduleRequests([id])).get(id) ?? null;
+  return NextResponse.json({ ...slip, events: await appointmentEvents(id), reschedule_request }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** { called: boolean } ติ๊กโทรแล้ว หรือแก้รายละเอียด (แก้วัน-เวลาแล้วส่งข้อความนัดใหม่อัตโนมัติ) */

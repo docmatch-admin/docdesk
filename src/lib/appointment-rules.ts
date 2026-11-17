@@ -391,6 +391,53 @@ export const TEST_APPOINTMENT_ID = "test";
 
 export const postbackData = (action: PostbackAction, appointmentId: string) => `appt:${action}:${appointmentId}`;
 
+/** ปุ่มเลือกวันเวลาใหม่หลังกดขอเลื่อน: rday = เลือกวัน · rslot = เลือกช่วงเวลา · rcall = ให้เจ้าหน้าที่โทร */
+export type RescheduleChoice =
+  | { step: "day"; appointmentId: string; date: string }
+  | { step: "slot"; appointmentId: string; date: string; slotId: string }
+  | { step: "call"; appointmentId: string };
+const dateOf = (ymd: string) => `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
+export const rescheduleData = {
+  day: (id: string, date: string) => `appt:rday:${id}:${date.replace(/-/g, "")}`,
+  slot: (id: string, date: string, slotId: string) => `appt:rslot:${id}:${date.replace(/-/g, "")}:${slotId}`,
+  call: (id: string) => `appt:rcall:${id}`,
+};
+export function parseRescheduleChoice(data: unknown): RescheduleChoice | null {
+  if (typeof data !== "string") return null;
+  const id = "([0-9a-f-]{36})";
+  let m = data.match(new RegExp(`^appt:rday:${id}:(\\d{8})$`, "i"));
+  if (m && parseDate(dateOf(m[2]))) return { step: "day", appointmentId: m[1].toLowerCase(), date: dateOf(m[2]) };
+  m = data.match(new RegExp(`^appt:rslot:${id}:(\\d{8}):([\\w-]{1,40})$`, "i"));
+  if (m && parseDate(dateOf(m[2]))) return { step: "slot", appointmentId: m[1].toLowerCase(), date: dateOf(m[2]), slotId: m[3] };
+  m = data.match(new RegExp(`^appt:rcall:${id}$`, "i"));
+  return m ? { step: "call", appointmentId: m[1].toLowerCase() } : null;
+}
+/** ข้อมูลปุ่มทุกแบบของระบบนัด (ใช้คัด event ใน webhook) */
+export const isAppointmentPostbackData = (data: unknown) => !!parseAppointmentPostback(data) || !!parseRescheduleChoice(data);
+
+/**
+ * วันเปิดถัดไปให้คนไข้เลือก (ไม่รวมวันนี้และวันนัดเดิม) · LINE/Facebook ปุ่มด่วนได้ไม่เกิน 13 ปุ่ม: วัน 12 + ให้เจ้าหน้าที่โทร 1
+ */
+export function rescheduleDays(today: string, currentDate: string, s: ClinicSchedule, max = 12): string[] {
+  const out: string[] = [];
+  for (let i = 1; i <= 60 && out.length < max; i++) {
+    const d = addDays(today, i);
+    if (d !== currentDate && !isClosedDate(d, s)) out.push(d);
+  }
+  return out;
+}
+
+const DOW_SHORT_TH = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+/** ชื่อปุ่มวัน (≤ 20 ตัวอักษร): "พ. 19 พ.ย." / ตามภาษาของลูกค้า */
+export function dayButtonLabel(date: string, lang: Lang, pack?: Pick<LanguagePack, "locale"> | null): string {
+  if (lang === "th") return `${DOW_SHORT_TH[weekday(date)]} ${thaiShortDate(date).replace(/ \d{2,4}$/, "")}`.slice(0, 20);
+  try {
+    return new Intl.DateTimeFormat(pack?.locale ?? "en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })
+      .format(new Date(`${date}T00:00:00Z`)).slice(0, 20);
+  } catch { return date; }
+}
+export const slotButtonLabel = (slot: ClinicSlot) => range(slot.start, slot.end, true).slice(0, 20);
+
 export function parseAppointmentPostback(data: unknown): { action: PostbackAction; appointmentId: string } | null {
   const m = typeof data === "string" ? data.match(/^appt:(confirm|reschedule):([0-9a-f-]{36}|test)$/i) : null;
   return m ? { action: m[1].toLowerCase() as PostbackAction, appointmentId: m[2].toLowerCase() } : null;
@@ -468,6 +515,9 @@ export const EN_PHRASES = {
   "header.cancelled": "❌ Appointment cancelled",
   "header.linked": "✅ You will get appointment reminders here",
   "header.test": "🧪 Test appointment message",
+  "header.newFor": "📅 Appointment: {purpose}",
+  "header.changedFor": "🔄 Rescheduled: {purpose}",
+  "header.reminderFor": "⏰ Tomorrow: {purpose}",
   "label.date": "Date",
   "label.time": "Time",
   "label.reason": "Purpose",
@@ -495,6 +545,12 @@ export const EN_PHRASES = {
   "reply.notFound": "We could not find this appointment code. Please check the code on your card or wait for our staff.",
   "reply.test": "Test button received.",
   "reply.alreadyLinked": "This account is already linked to this appointment. You will get a reminder before the visit.",
+  "reply.pickDay": "Please choose a new date for your appointment 👇",
+  "reply.pickTime": "Choose a time on {date} 👇",
+  "reply.requested": "We received your request to move your appointment to {date}, {time}. Our staff will confirm and send you the new appointment shortly.",
+  "reply.callMe": "Our staff will contact you to set a new date.",
+  "button.callMe": "Ask staff to call",
+  "reply.slotGone": "That time is no longer available. Please choose again 👇",
 } as const;
 export type PhraseKey = keyof typeof EN_PHRASES;
 export type Phrases = Record<PhraseKey, string>;
@@ -546,8 +602,13 @@ const HEADER: Record<Lang, Record<MessageKind, string>> = {
   },
 };
 
-export const REPLY_TEXT: Record<Lang, { confirmed: string; reschedule: string; closed: string; notFound: string; test: string; alreadyLinked: string }> = {
+export const REPLY_TEXT: Record<Lang, { confirmed: string; reschedule: string; closed: string; notFound: string; test: string; alreadyLinked: string; pickDay: string; pickTime: string; requested: string; callMe: string; slotGone: string }> = {
   th: {
+    pickDay: "เลือกวันที่สะดวกมาได้เลยค่ะ 👇",
+    pickTime: "เลือกเวลาของ{date} ค่ะ 👇",
+    requested: "รับคำขอเลื่อนนัดเป็น{date} {time} แล้วค่ะ เจ้าหน้าที่จะยืนยันและส่งนัดใหม่ให้อีกครั้งค่ะ",
+    callMe: "รับเรื่องแล้วค่ะ เจ้าหน้าที่จะติดต่อกลับเพื่อนัดวันใหม่ค่ะ",
+    slotGone: "ช่วงเวลานี้เลือกไม่ได้แล้วค่ะ รบกวนเลือกใหม่ค่ะ 👇",
     confirmed: "ขอบคุณที่ยืนยันนัดค่ะ 🙏 แล้วพบกันนะคะ",
     reschedule: "รับเรื่องขอเลื่อนนัดแล้วค่ะ เจ้าหน้าที่จะติดต่อกลับเพื่อนัดวันใหม่ค่ะ",
     closed: "นัดนี้ถูกยกเลิกหรือผ่านไปแล้วค่ะ หากต้องการนัดใหม่ เจ้าหน้าที่จะช่วยดูให้ค่ะ",
@@ -562,12 +623,18 @@ export const REPLY_TEXT: Record<Lang, { confirmed: string; reschedule: string; c
     notFound: "We could not find this appointment code. Please check the code on your card or wait for our staff.",
     test: "Test button received.",
     alreadyLinked: "This account is already linked to this appointment. You will get a reminder before the visit.",
+    pickDay: EN_PHRASES["reply.pickDay"],
+    pickTime: EN_PHRASES["reply.pickTime"],
+    requested: EN_PHRASES["reply.requested"],
+    callMe: EN_PHRASES["reply.callMe"],
+    slotGone: EN_PHRASES["reply.slotGone"],
   },
 };
 
 /** ข้อความตอบหลังกดปุ่ม/ส่งรหัส ตามภาษาของลูกค้า */
-export const replyFor = (lang: Lang, pack: LanguagePack | null | undefined, key: keyof (typeof REPLY_TEXT)["th"]) =>
-  lang === "th" ? REPLY_TEXT.th[key] : phrase(pack, `reply.${key}` as PhraseKey);
+export const replyFor = (lang: Lang, pack: LanguagePack | null | undefined, key: keyof (typeof REPLY_TEXT)["th"], vars?: Record<string, string>) =>
+  lang === "th" ? fill(REPLY_TEXT.th[key], vars) : phrase(pack, `reply.${key}` as PhraseKey, vars);
+export const callMeLabel = (lang: Lang, pack?: LanguagePack | null) => (lang === "th" ? "ให้เจ้าหน้าที่โทร" : phrase(pack, "button.callMe").slice(0, 20));
 
 const BUTTON_LABEL: Record<Lang, Record<PostbackAction, string>> = {
   th: { confirm: "ยืนยันนัด", reschedule: "ขอเลื่อนนัด" },
@@ -596,7 +663,23 @@ export interface MessageInput {
 
 const fx = (input: MessageInput, key: PhraseKey, vars?: Record<string, string | number>) => phrase(input.pack, key, vars);
 const fDate = (input: MessageInput, date: string) => localDate(date, input.pack);
-const headerText = (input: MessageInput) => (input.lang === "en" ? fx(input, `header.${input.kind}` as PhraseKey) : HEADER.th[input.kind]);
+/**
+ * หัวข้อความ: มีเหตุผลนัด (และตั้งค่าให้ส่ง) → บอกเลยว่านัดมาทำอะไร "📅 นัดฟังผลแล็บ" แทน "นัดหมายครั้งต่อไป"
+ * แล้วไม่ต้องมีบรรทัดเรื่องซ้ำ ข้อความสั้นลง
+ */
+const PURPOSE_HEADER_KINDS: MessageKind[] = ["new", "changed", "reminder"];
+const purposeInHeader = (input: MessageInput) => input.includePurpose && PURPOSE_HEADER_KINDS.includes(input.kind) && !!purposeOf(input);
+/** "ฟังผลแล็บ" → "นัดฟังผลแล็บ" · "นัดเจาะเลือด" คงเดิม */
+export const withNad = (purpose: string) => (/^นัด/.test(purpose.trim()) ? purpose.trim() : `นัด${purpose.trim()}`);
+function headerText(input: MessageInput): string {
+  if (purposeInHeader(input)) {
+    const purpose = purposeOf(input);
+    if (input.lang === "en") return fx(input, `header.${input.kind}For` as PhraseKey, { purpose });
+    const nad = withNad(purpose);
+    return input.kind === "new" ? `📅 ${nad}` : input.kind === "reminder" ? `⏰ พรุ่งนี้มี${nad}` : `🔄 เปลี่ยนวัน${nad}`;
+  }
+  return input.lang === "en" ? fx(input, `header.${input.kind}` as PhraseKey) : HEADER.th[input.kind];
+}
 const buttonLabel = (input: MessageInput, action: PostbackAction) =>
   (input.lang === "en" ? fx(input, action === "confirm" ? "button.confirm" : "button.reschedule") : BUTTON_LABEL.th[action]);
 /** ข้อความที่เจ้าหน้าที่พิมพ์ ใช้คำแปลถ้ามี */
@@ -672,7 +755,8 @@ export function fillVariables(template: string, values: Record<string, string>):
 function variables(input: MessageInput): Record<string, string> {
   const a = input.appointment;
   return {
-    name: a.patient_name,
+    // "คุณ{name}" → ตัดคำนำหน้า กันขึ้น "คุณน.ส. ..."
+    name: a.patient_name.trim().replace(NAME_TITLES, "").trim() || a.patient_name,
     date: input.lang === "en" ? fDate(input, a.appoint_date) : thaiFullDate(a.appoint_date),
     time: timeText(input),
     clinic: input.clinicName,
@@ -698,7 +782,7 @@ export function appointmentText(input: MessageInput): string {
     const list = cancelledLines.length ? `\n${input.lang === "en" ? fx(input, "label.cancelledList") : "นัดที่ยกเลิก:"}\n${cancelledLines.join("\n")}` : "";
     return `${header}\n${body}${list}`;
   }
-  const purpose = input.includePurpose && purposeOf(input)
+  const purpose = input.includePurpose && purposeOf(input) && !purposeInHeader(input)
     ? `\n${input.lang === "en" ? fx(input, "label.reason") : "เรื่อง"}: ${purposeOf(input)}` : "";
   // การปฏิบัติตัวส่งเสมอ ไม่ขึ้นกับ send_purpose_in_message
   const instructions = instructionsOf(input)
@@ -726,7 +810,7 @@ export function appointmentFlex(input: MessageInput): Json {
   const v = variables(input);
   const th = input.lang === "th";
   const a = input.appointment;
-  const purpose = input.includePurpose && purposeOf(input) ? purposeOf(input) : null;
+  const purpose = input.includePurpose && purposeOf(input) && !purposeInHeader(input) ? purposeOf(input) : null;
   const instructions = !cancelledKind(input.kind) && instructionsOf(input) ? instructionsOf(input) : null;
   const cancelled = input.kind === "cancelled";
   const body: Json[] = [

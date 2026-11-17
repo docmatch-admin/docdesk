@@ -5,7 +5,7 @@ import { isPdfName, MAX_FILE_BYTES, sanitizeFileName } from "@/lib/files";
 import { downloadLimited } from "@/lib/media";
 import { ingestInboundFile, ingestInboundImage } from "@/lib/media-store";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
-import { parseAppointmentPostback, parseLinkCode } from "@/lib/appointment-rules";
+import { isAppointmentPostbackData, parseLinkCode } from "@/lib/appointment-rules";
 import { handleAppointmentPostback, handleLinkCode, setLineFollow } from "@/lib/appointment-store";
 
 export const runtime = "nodejs";
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
 
 /** คืน true ถ้าเป็นของระบบนัด พลาดต้องไม่ทำให้ event อื่นหาย และ LINE ไม่ต้องส่งซ้ำเพราะกันซ้ำด้วย id อยู่แล้ว */
 async function handleAppointmentEvent(ev: LineEvent, userId: string): Promise<boolean> {
-  const postback = ev.type === "postback" && parseAppointmentPostback(ev.postback?.data) ? (ev.postback?.data as string) : null;
+  const postback = ev.type === "postback" && isAppointmentPostbackData(ev.postback?.data) ? (ev.postback?.data as string) : null;
   const text = ev.type === "message" && ev.message?.type === "text" ? ev.message.text ?? "" : "";
   const code = text ? parseLinkCode(text) : null;
   if (!postback && !code) return false;
