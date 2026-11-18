@@ -1918,3 +1918,8 @@ button.lab-card { cursor: pointer; }
 .drawer .btn:disabled, .drawer input:disabled { opacity: .4; cursor: not-allowed; }
 .lab-drawer-why { margin: -8px 0 0; }
 .lab-drawer-match.off label { color: var(--muted); }
+
+/* ปุ่มดู PDF ท้ายแถว: อยู่ที่เดิมเสมอ ยังไม่มีไฟล์ = จาง */
+.lab-table th.lab-pdf-col, .lab-table td.lab-pdf-col { text-align: right; width: 1%; }
+.lab-table .btn:disabled { opacity: .4; cursor: not-allowed; }
+@media (max-width: 760px) { .lab-table td.lab-pdf-col { text-align: left; padding-top: 6px; } }

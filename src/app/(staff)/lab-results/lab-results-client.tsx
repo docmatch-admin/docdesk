@@ -145,7 +145,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
           <div className="report-table-wrap">
             <table className="report-table lab-table">
               <thead>
-                <tr><th scope="col">คนไข้</th><th scope="col">สั่งตรวจ</th><th scope="col">แจ้งคนไข้</th><th scope="col">คนไข้เปิดดู</th><th scope="col">นัดฟังผล</th></tr>
+                <tr><th scope="col">คนไข้</th><th scope="col">สั่งตรวจ</th><th scope="col">แจ้งคนไข้</th><th scope="col">คนไข้เปิดดู</th><th scope="col">นัดฟังผล</th><th scope="col" className="lab-pdf-col"><span className="sr-only">ไฟล์ผล</span></th></tr>
               </thead>
               <tbody>
                 {rows.map((r) => {
@@ -173,6 +173,11 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
                           : <span className="muted">{r.notify_status === "sent" ? "ยังไม่เปิด" : "–"}</span>}
                       </td>
                       <td data-label="นัดฟังผล">{r.patient_id && appts[r.patient_id] ? appts[r.patient_id] : <span className="muted">–</span>}</td>
+                      <td className="lab-pdf-col" onClick={(e) => e.stopPropagation()}>
+                        {r.pdf_path
+                          ? <a className="btn ghost small" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
+                          : <button type="button" className="btn ghost small" disabled title={r.pdf_error ? "โหลดไฟล์ไม่สำเร็จ" : "ยังไม่มีไฟล์"}>ดู PDF</button>}
+                      </td>
                     </tr>
                   );
                 })}
