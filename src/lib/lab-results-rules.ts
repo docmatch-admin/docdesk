@@ -183,7 +183,7 @@ export function patientNoticeFlex(n: PatientNotice) {
     { type: "button", style: "primary", color: "#0f7a5f", height: "sm", action: { type: "uri", label: "ดูผล", uri: n.viewUrl } },
     { type: "button", style: "link", height: "sm", action: { type: "uri", label: "ดูผลแล็บทั้งหมดของฉัน", uri: n.mineUrl } },
   ];
-  // ปุ่มยืนยัน/เลื่อนนัด ใช้ postback เดิมของระบบนัด (นัดออนไลน์เลื่อนเองไม่ได้ จึงมีแค่ยืนยัน)
+  // ปุ่มยืนยัน/เลื่อนนัด ใช้ postback เดิมของระบบนัด (นัดที่มี telemed_id = นัดออนไลน์ เลื่อนเองไม่ได้ จึงมีแค่ยืนยัน)
   if (a) {
     buttons.push({
       type: "box", layout: "horizontal", spacing: "sm",

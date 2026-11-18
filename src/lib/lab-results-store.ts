@@ -227,7 +227,7 @@ export function lineErrorText(e: unknown): string {
 async function hearingAppointment(hn: string, now: number): Promise<LabAppointment | null> {
   const today = bangkokToday(now);
   const { data } = await supabaseAdmin().from("appointments")
-    .select("id, appoint_date, time_mode, time_start, time_end, status, purpose_text, telemed_id")
+    .select("id, appoint_date, time_mode, time_start, time_end, status, purpose_text")
     .in("hn", hnVariants(hn)).in("status", OPEN_STATUSES).gte("appoint_date", today).lte("appoint_date", addDays(today, 120));
   return resultHearingAppointment((data ?? []) as unknown as LabAppointment[], today);
 }
