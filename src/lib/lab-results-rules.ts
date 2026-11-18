@@ -7,7 +7,7 @@ export const LAB_BUCKET = "lab-results";
 export const LAB_SENDER_NAME = "ส่งอัตโนมัติ · ผลแล็บ";
 /** คนไข้เปิดดู PDF ผ่าน signed URL อายุไม่เกิน 10 นาที */
 export const LAB_SIGNED_URL_SECONDS = 600;
-/** ห้ามเรียกระบบแล็บถี่กว่า 15 นาที (cron จริงชั่วโมงละครั้ง 13:00–18:00 น.) กันคนกดเรียก route ซ้ำ */
+/** ห้ามเรียกระบบแล็บถี่กว่า 15 นาที (cron จริงทุก 30 นาที 13:00–18:00 น.) กันคนกดเรียก route ซ้ำ */
 export const LAB_SYNC_MIN_INTERVAL_MS = 14 * 60_000;
 /** ดูย้อนหลังกี่วันในแต่ละรอบ (หาผลใหม่ + version ที่แล็บแก้) */
 export const LAB_SYNC_LOOKBACK_DAYS = 45;

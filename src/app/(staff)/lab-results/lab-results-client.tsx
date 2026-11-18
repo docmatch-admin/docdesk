@@ -102,7 +102,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
       <div className="lab-head">
         <div>
           <h1>ผลแล็บ</h1>
-          <p className="muted small">Bangkok Medical Lab · ดึงอัตโนมัติชั่วโมงละครั้ง 13:00–18:00 น.</p>
+          <p className="muted small">Bangkok Medical Lab · ดึงอัตโนมัติทุก 30 นาที 13:00–18:00 น.</p>
         </div>
         <span className={`lab-sync ${sync?.last_error ? "bad" : sync?.last_ok_at ? "ok" : ""}`} title={sync?.last_error ?? undefined}>
           {sync?.last_error ? "ดึงรอบล่าสุดไม่สำเร็จ" : sync?.last_ok_at ? `ดึงสำเร็จล่าสุด ${whenTh(sync.last_ok_at)}` : "ยังไม่เคยดึงผล"}

@@ -16,7 +16,7 @@ function authorized(req: Request): boolean {
 }
 
 /**
- * Supabase pg_cron + pg_net เรียกชั่วโมงละครั้ง 13:00–18:00 น. (Vercel Hobby ทำ cron ถี่ไม่ได้)
+ * Supabase pg_cron + pg_net เรียกทุก 30 นาที 13:00–18:00 น. (Vercel Hobby ทำ cron ถี่ไม่ได้)
  * ดึงผลใหม่/ฉบับแก้จาก Bangkok Medical Lab (อ่านอย่างเดียว) → เก็บ PDF → จับคู่ HN → แจ้งคนไข้ทาง LINE ทันที + แจ้งทีม
  */
 async function handle(req: Request) {

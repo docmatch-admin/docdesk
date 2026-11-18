@@ -123,7 +123,7 @@ async function upsertItem(item: BmlLabItem, opts: { backfill: boolean; allowPdf:
   return { row: ((data ?? [])[0] as unknown as LabResult) ?? existing, action: versionBump ? "updated" : "same", pdfFailed, pdfTried: opts.allowPdf };
 }
 
-/** pg_cron ชั่วโมงละครั้ง 13:00–18:00 น. (→ /api/cron/lab-results) · เรียกซ้ำภายใน 15 นาทีข้ามโดยไม่เรียกระบบแล็บ
+/** pg_cron ทุก 30 นาที 13:00–18:00 น. (→ /api/cron/lab-results) · เรียกซ้ำภายใน 15 นาทีข้ามโดยไม่เรียกระบบแล็บ
  * เจอผลใหม่ในรอบไหน แจ้งคนไข้ทาง LINE ในรอบนั้นทันที */
 export async function runLabSync(now = Date.now()): Promise<LabSyncSummary> {
   const summary: LabSyncSummary = { fetched: 0, created: 0, updated: 0, pdfFailed: 0, notified: 0, unreachable: 0, team: 0 };
