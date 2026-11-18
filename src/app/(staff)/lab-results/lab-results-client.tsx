@@ -23,6 +23,7 @@ export function notifyText(n: unknown): string {
   if (v.sent) return `ส่งแจ้งคนไข้ทาง LINE แล้ว${(v.accounts ?? 1) > 1 ? ` (${v.accounts} บัญชี)` : ""}`;
   if (v.reason === "unreachable") return "คนไข้ไม่ได้ผูก LINE — ไม่ได้ส่งแจ้ง";
   if (v.reason === "no_pdf") return "ยังไม่มีไฟล์ผล รอรอบดึงถัดไป";
+  if (v.reason === "no_liff") return "ยังไม่ได้ตั้งค่า LIFF — ยังไม่ส่งแจ้งคนไข้";
   if (v.reason === "unmatched") return "ยังไม่ได้จับคู่คนไข้";
   return `ส่งไม่สำเร็จ${v.error ? `: ${v.error}` : ""}`;
 }

@@ -545,3 +545,18 @@ test("แบ่งหน้า: cursor อ่านไม่ได้ หยุ�
   await store.runLabSync(Date.now());
   assert.equal(listQueries.length, 1);
 });
+
+test("ยังไม่ได้ตั้ง LIFF: ไม่ส่ง LINE (ปุ่มดูผลจะเปิดไม่ได้) ค้างเป็นรอแจ้ง · ตั้งแล้วรอบถัดไปส่งเอง", async () => {
+  const next = await initialize(Date.now());
+  delete process.env.NEXT_PUBLIC_LINE_LIFF_ID;
+  labs = [item("2201")];
+  await store.runLabSync(next);
+  assert.equal(pushes().length, 0);
+  assert.equal(row("2201").notify_status, "pending");
+  assert.match(row("2201").notify_error, /LIFF/);
+  process.env.NEXT_PUBLIC_LINE_LIFF_ID = "2000000000-abcd";
+  await store.runLabSync(next + 60 * MIN);
+  assert.equal(pushes().length, 1);
+  assert.equal(row("2201").notify_status, "sent");
+  assert.equal(row("2201").notify_error, null);
+});

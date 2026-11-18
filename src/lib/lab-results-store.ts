@@ -237,7 +237,7 @@ async function clinicName(): Promise<string> {
   return profile?.name?.trim() || DEFAULT_CLINIC_PROFILE.name;
 }
 
-export type NotifyResult = { sent: true; accounts: number } | { sent: false; reason: "unmatched" | "no_pdf" | "unreachable" | "failed"; error?: string };
+export type NotifyResult = { sent: true; accounts: number } | { sent: false; reason: "unmatched" | "no_pdf" | "unreachable" | "failed" | "no_liff"; error?: string };
 
 /** ส่ง "ผลแล็บของคุณออกแล้ว" (หรือ "มีการปรับปรุง") ไปทุกบัญชี LINE ที่ผูก HN — ไม่ส่งไฟล์ PDF ในแชท ส่งแค่ปุ่มเปิดผ่าน LIFF */
 export async function notifyLabResult(id: string, opts: { now?: number } = {}): Promise<NotifyResult> {
@@ -247,6 +247,11 @@ export async function notifyLabResult(id: string, opts: { now?: number } = {}): 
   if (!r) throw new LabError("ไม่พบผลแล็บ", 404);
   if (!r.patient_id) return { sent: false, reason: "unmatched" };
   if (!r.pdf_path) return { sent: false, reason: "no_pdf" };
+  // ยังไม่ได้ตั้ง LIFF: ปุ่ม "ดูผล" จะเปิดไม่ได้ ยังไม่ส่ง (ค้างเป็นรอแจ้ง รอบ sync ถัดไปหลังตั้งค่าส่งเอง)
+  if (!liffId()) {
+    await db.from("lab_results").update({ notify_error: "ยังไม่ได้ตั้ง NEXT_PUBLIC_LINE_LIFF_ID — ยังไม่ส่งแจ้งคนไข้", updated_at: nowIso() }).eq("id", r.id);
+    return { sent: false, reason: "no_liff" };
+  }
   const { targets, blocked } = await lineTargetsOf(r.patient_id);
   if (!targets.length && blocked.length) {
     // ผูก LINE ไว้แต่ส่งไม่ได้ (บล็อก/เลิกติดตาม) = ส่งไม่สำเร็จ ให้เห็นเป็นสีแดงในหน้าผลแล็บ
