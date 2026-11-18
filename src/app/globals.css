@@ -1926,3 +1926,30 @@ button.lab-card { cursor: pointer; }
 .lab-drawer-actions.one { grid-template-columns: minmax(0, 1fr); }
 .lab-book-days, .lab-book-times { display: flex; flex-wrap: wrap; gap: 6px; }
 .lab-book-times .btn { min-width: 64px; justify-content: center; }
+/* รายการแชทรวม: ปุ่มกรอง "รอตอบ" ปุ่มเดียว · เส้นแบ่งชั้น · ป้าย "เสร็จ" */
+.inbox-tabs.one { justify-content: flex-start; padding: 6px 12px; gap: 8px; }
+.inbox-tabs.one button { flex: 0 0 auto; height: 36px; padding: 0 16px; border: 1px solid var(--line); border-radius: 18px; color: var(--muted-strong); }
+.inbox-tabs.one button.on { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); border-bottom-color: var(--blue); }
+.conv-divider { padding: 6px 14px; font-size: 12px; color: var(--muted); background: var(--bg); border-bottom: 1px solid var(--line); }
+.chip.done-chip { background: var(--neutral-soft); color: var(--muted-strong); border-color: transparent; }
+.all-done.small { min-height: 0; font-size: 13px; padding: 8px 12px; }
+@media (max-width: 899px) {
+  .inbox-tabs.one { display: flex; grid-template-columns: none; padding: 4px 16px 10px; }
+}
+
+/* หน้า LIFF เลือกวันนัดฟังผล: ปุ่มใหญ่ กดง่าย · ปุ่มส่งอยู่ล่างสุดเสมอ */
+.lab-book { display: flex; flex-direction: column; gap: 10px; padding-bottom: 96px; }
+.lab-book-step { margin: 8px 0 0; font-size: 16px; }
+.lab-book-days { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.lab-book-day { min-height: 56px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); font: inherit; font-size: 16px; font-weight: 600; cursor: pointer; }
+.lab-book-times { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.lab-book-time { min-height: 48px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-size: 16px; cursor: pointer; }
+.lab-book-day.on, .lab-book-time.on { border-color: var(--accent-solid); background: var(--accent-solid); color: var(--on-accent); }
+.lab-book-submit { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.lab-book-submit .btn { min-height: 52px; font-size: 17px; }
+.lab-book-submit .btn:disabled { opacity: .4; cursor: not-allowed; }
+.lab-book-submit p { margin: 0; text-align: center; }
+.lab-book-sent { padding: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.lab-book-when { font-size: 18px; font-weight: 600; }
+.lab-book-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; margin-top: 6px; }
+.lab-book-actions .btn { min-height: 48px; justify-content: center; }

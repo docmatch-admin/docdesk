@@ -601,14 +601,15 @@ const apptStore = await import("../src/lib/appointment-store.ts");
 const HOURS = { tz: "Asia/Bangkok", days: { 0: null, 1: ["09:00", "17:00"], 2: ["09:00", "17:00"], 3: ["09:00", "17:00"], 4: ["09:00", "17:00"], 5: ["09:00", "17:00"], 6: ["09:00", "17:00"] } };
 const withHours = () => state.tables.settings.push({ key: "business_hours", value: HOURS });
 
-test("เลือกวันนัดเอง: 14 วันข้างหน้า ทีละ 30 นาที ตามเวลาเปิด ข้ามวันปิด ไม่ให้เลือกเวลาที่ผ่านไปแล้ว", () => {
+test("เลือกวันนัดเอง: 8 วันเปิดถัดไป ทีละ 30 นาที ตามเวลาเปิด ข้ามวันปิด ไม่ให้เลือกเวลาที่ผ่านไปแล้ว", () => {
   const now = Date.parse("2026-11-18T10:10:00+07:00"); // พุธ 10:10 น.
   const days = bookingRules.selfBookingDays(HOURS, now);
   assert.equal(days[0].date, "2026-11-18");
   assert.equal(days[0].times[0], "10:30", "วันนี้เริ่มหลังเวลาปัจจุบัน");
   assert.equal(days[0].times.at(-1), "16:30", "ช่วงสุดท้ายก่อนปิด 30 นาที");
   assert.ok(!days.some((d) => d.date === "2026-11-22"), "อาทิตย์ปิด");
-  assert.ok(days.every((d) => d.date <= "2026-12-02"), "ไม่เกิน 14 วัน");
+  assert.equal(days.length, 8, "8 วันเปิด (ข้ามอาทิตย์)");
+  assert.equal(days.at(-1).date, "2026-11-26");
   assert.equal(bookingRules.selfBookingAllowed("2026-11-18", "09:30", HOURS, now), false, "เลยเวลาแล้ว");
   assert.equal(bookingRules.selfBookingAllowed("2026-11-19", "18:00", HOURS, now), false, "นอกเวลาเปิด");
   assert.equal(bookingRules.selfBookingAllowed("2026-11-19", "10:15", HOURS, now), false, "ไม่ลงตัว 30 นาที");
@@ -646,7 +647,7 @@ test("ขอนัดฟังผล: บัญชีที่ไม่ผูก
   const info = await (await postJson(bookingRoute, { id, idToken: "tok-owner" })).json();
   assert.equal(info.appointment, null);
   assert.equal(info.request, null);
-  assert.ok(info.days.length > 0 && info.days.length <= 15);
+  assert.ok(info.days.length > 0 && info.days.length <= 8);
   const [d1, d2] = [info.days[0], info.days[1]];
 
   const bad = await postJson(requestRoute, { id, idToken: "tok-owner", date: d1.date, time: "03:00" });

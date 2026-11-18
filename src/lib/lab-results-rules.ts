@@ -215,7 +215,14 @@ export function patientNoticeFlex(n: PatientNotice) {
     { type: "text", text: "นัดฟังผล", size: "xs", color: "#6b7280", margin: "md" },
     a
       ? { type: "text", text: apptWhen(a), size: "sm", weight: "bold", color: "#4a63e0", wrap: true }
-      : { type: "text", text: "ยังไม่มีนัดฟังผล", size: "sm", color: "#6b7280", wrap: true },
+      // ไม่มีนัด: กล่องเหลือง ให้เห็นชัดว่าต้องเลือกวัน
+      : {
+        type: "box", layout: "vertical", backgroundColor: "#fff4e0", cornerRadius: "8px", paddingAll: "10px",
+        contents: [
+          { type: "text", text: "ยังไม่มีนัดฟังผล", size: "sm", weight: "bold", color: "#8a5200", wrap: true },
+          { type: "text", text: "กด \"เลือกวันนัดฟังผล\" ด้านล่าง แล้วคลินิกจะยืนยันนัดให้", size: "xs", color: "#8a5200", wrap: true },
+        ],
+      },
     { type: "text", text: n.clinic, size: "xxs", color: "#8a8f9c", wrap: true, margin: "md" },
   ];
   const buttons: Record<string, unknown>[] = [

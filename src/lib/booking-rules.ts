@@ -348,13 +348,13 @@ export function bookingCalendar(now: number, tz: string, days = 21): string {
 }
 
 /**
- * วันและเวลาที่คนไข้เลือกนัดเองได้ (หน้า LIFF): วันนี้ถึง days วันข้างหน้า ทีละ step นาที ตามเวลาเปิดคลินิก
- * ข้ามวันปิด · ไม่รวมเวลาที่ผ่านไปแล้ว · ช่วงสุดท้ายก่อนปิด LAST_SLOT_BEFORE_CLOSE_MINUTES นาที
+ * วันและเวลาที่คนไข้เลือกนัดเองได้ (หน้า LIFF): วันเปิดถัดไป maxDays วัน (เริ่มวันนี้ ดูไกลสุด 30 วัน) ทีละ step นาที
+ * ตามเวลาเปิดคลินิก ข้ามวัน/ช่วงที่ปิด · ไม่รวมเวลาที่ผ่านไปแล้ว · ช่วงสุดท้ายก่อนปิด LAST_SLOT_BEFORE_CLOSE_MINUTES นาที
  */
-export function selfBookingDays(hours: BusinessHoursConfig, now: number, days = 14, step = 30): { date: string; times: string[] }[] {
+export function selfBookingDays(hours: BusinessHoursConfig, now: number, maxDays = 8, step = 30): { date: string; times: string[] }[] {
   const today = localToday(now, hours.tz || "Asia/Bangkok");
   const out: { date: string; times: string[] }[] = [];
-  for (let i = 0; i <= days; i++) {
+  for (let i = 0; i <= 30 && out.length < maxDays; i++) {
     const date = addDays(today, i);
     const range = bookableRange(date, hours);
     if (!range) continue;
@@ -368,6 +368,6 @@ export function selfBookingDays(hours: BusinessHoursConfig, now: number, days = 
   return out;
 }
 
-/** คนไข้เลือกเองได้ไหม: อยู่ในรายการด้านบนเท่านั้น (เวลาเปิด, ไม่เลยเวลา, ไม่เกิน days วัน, ลงตัวทีละ step) */
-export const selfBookingAllowed = (date: string, time: string, hours: BusinessHoursConfig, now: number, days = 14, step = 30) =>
-  selfBookingDays(hours, now, days, step).some((d) => d.date === date && d.times.includes(time));
+/** คนไข้เลือกเองได้ไหม: อยู่ในรายการด้านบนเท่านั้น (เวลาเปิด, ไม่เลยเวลา, ไม่เกิน maxDays วันเปิด, ลงตัวทีละ step) */
+export const selfBookingAllowed = (date: string, time: string, hours: BusinessHoursConfig, now: number, maxDays = 8, step = 30) =>
+  selfBookingDays(hours, now, maxDays, step).some((d) => d.date === date && d.times.includes(time));

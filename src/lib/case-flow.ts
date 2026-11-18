@@ -13,11 +13,34 @@ export function isWaitingForReply(c: { status: string; last_direction: string | 
   return c.status === "open" && (c.last_direction === "in" || !!c.booking_pending || (c.open_tasks ?? 0) > 0);
 }
 
-/** แท็บที่แชทนี้ปรากฏ */
+/**
+ * ชั้นของแชทในรายการรวม (ไม่มีแท็บ "เสร็จแล้ว" แล้ว): "waiting" = ชั้นบน (รอตอบ) · "open" = ชั้นล่าง
+ * · "closed" = ชั้นล่างแบบจาง + ป้าย "เสร็จ" — ลูกค้าทักใหม่ แชทเปิดเอง (logic เดิม) แล้วขึ้นชั้นบน
+ */
 export type InboxTab = "open" | "waiting" | "closed";
 export function tabsOf(c: { status: string; last_direction: string | null; booking_pending?: boolean; open_tasks?: number }): InboxTab[] {
   if (c.status !== "open") return ["closed"];
   return isWaitingForReply(c) ? ["open", "waiting"] : ["open"];
+}
+
+export interface InboxRow {
+  id: string; status: string; last_direction: string | null; booking_pending?: boolean; open_tasks?: number;
+  waiting_since?: string | null; last_inbound_at?: string | null; last_message_at?: string | null;
+}
+const tsOr = (v: string | null | undefined, fallback: number) => { const t = Date.parse(v ?? ""); return Number.isFinite(t) ? t : fallback; };
+
+/**
+ * รายการแชทรวม 2 ชั้น: (1) รอตอบ อยู่บนสุดเสมอ รอนานสุดอยู่บน (รอเพราะนัด/งานค้างที่ไม่มีเวลารอ ต่อท้ายชั้นบน)
+ * (2) ที่เหลือรวมแชทที่เสร็จแล้ว เรียงตามข้อความล่าสุด · onlyWaiting = ปุ่มกรอง "รอตอบ"
+ */
+export function inboxOrder<T extends InboxRow>(rows: T[], opts: { onlyWaiting?: boolean } = {}): T[] {
+  const uniq = [...new Map(rows.map((r) => [r.id, r])).values()];
+  const waiting = uniq.filter(isWaitingForReply).sort((a, b) =>
+    tsOr(a.waiting_since ?? a.last_inbound_at, Infinity) - tsOr(b.waiting_since ?? b.last_inbound_at, Infinity)
+    || Number(!!b.booking_pending) - Number(!!a.booking_pending));
+  if (opts.onlyWaiting) return waiting;
+  const rest = uniq.filter((r) => !isWaitingForReply(r)).sort((a, b) => tsOr(b.last_message_at, 0) - tsOr(a.last_message_at, 0));
+  return [...waiting, ...rest];
 }
 
 /** กดเสร็จแล้วหรือย้ายอัตโนมัติ: ล้าง ai_due_at ด้วย ไม่อย่างนั้น cron จะให้ AI ตอบแทนในแชทที่เสร็จแล้ว */

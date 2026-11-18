@@ -203,36 +203,51 @@ export function LabResultViewer({ liffId }: { liffId: string }) {
         <>
           {book.patientName && <div><b>{book.patientName}</b>{book.orderDate && <div className="muted small">ผลตรวจวันที่ {dateTh(book.orderDate)}</div>}</div>}
           {sent ? (
-            <div className="card" style={{ padding: 12 }}>
-              <b>ส่งคำขอนัดแล้ว รอคลินิกยืนยัน</b>
-              <div>{sent.when}</div>
+            /* หน้า "ส่งคำขอนัดแล้ว" */
+            <div className="card lab-book-sent">
+              <b>ส่งคำขอนัดแล้ว</b>
+              <div className="lab-book-when">{sent.when}</div>
+              <span className="lab-chip wait">รอคลินิกยืนยัน</span>
               <div className="muted small">เจ้าหน้าที่จะยืนยันนัดและส่งข้อความนัดให้ทาง LINE</div>
+              <div className="lab-book-actions">
+                <button type="button" className="btn ghost" onClick={() => { setSent(null); setPickDate(sent.date); setPickTime(sent.time); }}>เปลี่ยนวัน</button>
+                <button type="button" className="btn primary" onClick={() => { if (!liff) return; const labId = bookId; setBookId(null); setId(labId); window.history.replaceState(null, "", `${window.location.pathname}?id=${encodeURIComponent(labId)}`); openOne(liff, labId); }}>กลับไปดูผล</button>
+              </div>
             </div>
           ) : book.appointment ? (
             apptBox(book.appointment, null, bookId)
           ) : (
-            <>
+            <div className="lab-book">
               {book.request && <p className="small" style={{ color: "var(--warning-ink)" }}>มีคำขอเดิม {book.request.when} (รอคลินิกยืนยัน) — เลือกใหม่เพื่อเปลี่ยนวันที่ขอ</p>}
-              {!book.days.length && <p className="muted">ช่วง 14 วันนี้ไม่มีเวลาว่างให้เลือก กรุณาทักแชทนัดกับเจ้าหน้าที่</p>}
+              <h2 className="lab-book-step">1. เลือกวัน</h2>
+              {!book.days.length && <p className="muted">ช่วงนี้ไม่มีเวลาว่างให้เลือก กรุณาทักแชทนัดกับเจ้าหน้าที่</p>}
               <div className="lab-book-days" role="radiogroup" aria-label="เลือกวัน">
                 {book.days.map((d) => (
-                  <button key={d.date} type="button" role="radio" aria-checked={pickDate === d.date} className={`btn small ${pickDate === d.date ? "primary" : "ghost"}`}
+                  <button key={d.date} type="button" role="radio" aria-checked={pickDate === d.date} className={`lab-book-day ${pickDate === d.date ? "on" : ""}`}
                     onClick={() => { setPickDate(d.date); setPickTime(null); }}>{d.label}</button>
                 ))}
               </div>
-              <div className="lab-book-times" role="radiogroup" aria-label="เลือกเวลา">
-                {(book.days.find((d) => d.date === pickDate)?.times ?? []).map((t) => (
-                  <button key={t} type="button" role="radio" aria-checked={pickTime === t} className={`btn small ${pickTime === t ? "primary" : "ghost"}`}
-                    onClick={() => setPickTime(t)}>{t}</button>
-                ))}
+              <h2 className="lab-book-step">2. เลือกเวลา</h2>
+              {!pickDate
+                ? <p className="muted small">เลือกวันก่อน</p>
+                : (
+                  <div className="lab-book-times" role="radiogroup" aria-label="เลือกเวลา">
+                    {(book.days.find((d) => d.date === pickDate)?.times ?? []).map((t) => (
+                      <button key={t} type="button" role="radio" aria-checked={pickTime === t} className={`lab-book-time ${pickTime === t ? "on" : ""}`}
+                        onClick={() => setPickTime(t)}>{t}</button>
+                    ))}
+                  </div>
+                )}
+              {/* ปุ่มส่งอยู่ล่างสุดเสมอ: กดได้เมื่อเลือกเวลาแล้ว */}
+              <div className="lab-book-submit">
+                <button type="button" className="btn primary" disabled={!pickDate || !pickTime || sending} onClick={sendRequest}>
+                  {sending ? "กำลังส่ง…" : "ส่งคำขอนัด"}
+                </button>
+                <p className="muted small">{!pickTime ? "เลือกวันและเวลาก่อน แล้วกด \"ส่งคำขอนัด\"" : "คลินิกจะยืนยันนัดให้อีกครั้ง"}</p>
               </div>
-              <button type="button" className="btn primary" disabled={!pickDate || !pickTime || sending} onClick={sendRequest}>
-                {sending ? "กำลังส่ง…" : "ส่งคำขอนัด"}
-              </button>
-              <p className="muted small">{!pickTime ? "เลือกวันและเวลาก่อน แล้วกด \"ส่งคำขอนัด\"" : "คลินิกจะยืนยันนัดให้อีกครั้ง"}</p>
-            </>
+            </div>
           )}
-          <button type="button" className="link-btn" onClick={backToList}>ดูผลแล็บทั้งหมดของฉัน</button>
+          {!sent && <button type="button" className="link-btn" onClick={backToList}>ดูผลแล็บทั้งหมดของฉัน</button>}
         </>
       )}
 

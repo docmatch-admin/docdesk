@@ -1,13 +1,13 @@
 "use client";
 
 import { thaiDateTime } from "@/lib/time-format";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useLiveChannel } from "@/lib/use-live-channel";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
 import { staffInitial } from "@/lib/assignment";
-import { isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
+import { inboxOrder, isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
 import { SENSITIVE_TAG } from "@/lib/sensitive-rules";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { formatFileSize, isPdfName, MAX_FILE_BYTES } from "@/lib/files";
@@ -57,7 +57,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const isAdmin = me.role === "admin";
   const sb = useMemo(() => supabaseBrowser(), []);
   const [convs, setConvs] = useState<Conversation[]>([]);
-  const [filter, setFilter] = useState<Filter>("waiting");
+  // รายการเดียว: ค่าเริ่มต้นไม่กรอง · ปุ่ม "รอตอบ" กรองเฉพาะชั้นบน
+  const [onlyWaiting, setOnlyWaiting] = useState(false);
   const [lists, setLists] = useState<Record<Filter, Conversation[]>>({ waiting: [], open: [], closed: [] });
   const [counts, setCounts] = useState({ waiting: 0, open: 0 });
   const [reloadTick, setReloadTick] = useState(0);
@@ -163,7 +164,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       base("open").or("last_direction.eq.in,booking_pending.eq.true,open_tasks.gt.0")
         .order("booking_pending", { ascending: false }).order("needs_human", { ascending: false }).order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
       base("open").order("last_message_at", { ascending: false }).limit(200),
-      base("closed").order("closed_at", { ascending: false, nullsFirst: false }).limit(200),
+      // แชทที่เสร็จแล้วอยู่ในรายการเดียวกัน เรียงตามข้อความล่าสุด (ค้นหาได้เสมอ)
+      base("closed").order("last_message_at", { ascending: false, nullsFirst: false }).limit(200),
     ]);
     if (seq !== loadSeq.current) return; // ผลของการค้นหาเก่าที่ตอบช้าต้องไม่ทับผลล่าสุด
     const asRows = (r: { data: unknown }) => (r.data ?? []) as Conversation[];
@@ -636,7 +638,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
-  const shown = lists[filter];
+  const shown = useMemo(() => inboxOrder([...lists.waiting, ...lists.open, ...lists.closed], { onlyWaiting }), [lists, onlyWaiting]);
+  const firstRest = onlyWaiting ? -1 : shown.findIndex((c) => !isWaitingForReply(c));
   useEffect(() => { setMtab("chat"); setApptSummary(null); setNoteCount(0); }, [selectedId]);
   useMobileTyping(!!selectedId);
   const openTasks = selected?.open_tasks ?? 0;
@@ -673,14 +676,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="ค้นหาชื่อ ข้อความ หรือแท็ก…" aria-label="ค้นหาแชท" />
         </div>
-        <div className="inbox-tabs" role="tablist" aria-label="สถานะแชท">
-          <button role="tab" aria-selected={filter === "open"} className={filter === "open" ? "on" : ""} onClick={() => setFilter("open")}>
-            ทั้งหมด {counts.open > 0 && <b className="badge muted-badge">{counts.open}</b>}
+        {/* รายการเดียว (ไม่มีแท็บ): รอตอบอยู่บนสุดเสมอ · ปุ่มนี้กรองเฉพาะรอตอบ */}
+        <div className="inbox-tabs one" role="group" aria-label="กรองแชท">
+          <button type="button" aria-pressed={onlyWaiting} className={onlyWaiting ? "on" : ""} onClick={() => setOnlyWaiting((v) => !v)}>
+            รอตอบ {counts.waiting + maskedWaiting.length > 0 && <b className="badge red">{counts.waiting + maskedWaiting.length}</b>}
           </button>
-          <button role="tab" aria-selected={filter === "waiting"} className={filter === "waiting" ? "on" : ""} onClick={() => setFilter("waiting")}>
-            <span className="tab-emoji" aria-hidden="true">🔴 </span>รอตอบ {counts.waiting + maskedWaiting.length > 0 && <b className="badge red">{counts.waiting + maskedWaiting.length}</b>}
-          </button>
-          <button role="tab" aria-selected={filter === "closed"} className={filter === "closed" ? "on" : ""} onClick={() => setFilter("closed")}><span className="tab-emoji" aria-hidden="true">✅ </span>เสร็จแล้ว</button>
         </div>
         <div className="scope-filter" role="group" aria-label="ขอบเขตแชท">
           <button className={scope === "all" ? "on" : ""} aria-pressed={scope === "all"} onClick={() => changeScope("all")}>ทุกคน</button>
@@ -699,7 +699,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           </div>
           {tagFilter.length > 1 && <div className="muted small">แสดงแชทที่มีครบทุกแท็กที่เลือก</div>}
         </details>
-        {filter === "waiting" && scope === "all" && maskedWaiting.map((m) => (
+        {scope === "all" && maskedWaiting.map((m) => (
           <div key={m.key} className="conv masked" aria-label="แชทลับรอตอบ">
             <div className="avatar">🔒</div>
             <div className="conv-body">
@@ -708,14 +708,19 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             </div>
           </div>
         ))}
-        {shown.length === 0 && !(filter === "waiting" && scope === "all" && maskedWaiting.length > 0) && (search.trim() || tagFilter.length || scope === "mine" ? (
+        {shown.length === 0 && !(scope === "all" && maskedWaiting.length > 0) && (search.trim() || tagFilter.length || scope === "mine" ? (
           <div className="empty">ไม่พบแชทที่ตรงกับการค้นหาหรือแท็กที่เลือก</div>
-        ) : filter === "waiting" ? (
+        ) : onlyWaiting ? (
           <div className="all-done">🎉 ตอบครบแล้ว</div>
         ) : (
-          <div className="empty">{filter === "closed" ? "ยังไม่มีแชทที่เสร็จแล้ว" : "ยังไม่มีแชท"}</div>
+          <div className="empty">ยังไม่มีแชท</div>
         ))}
-        {shown.map((c) => (
+        {!onlyWaiting && firstRest === 0 && shown.length > 0 && !(scope === "all" && maskedWaiting.length > 0) && !search.trim() && (
+          <div className="all-done small">🎉 ตอบครบแล้ว</div>
+        )}
+        {shown.map((c, i) => (
+          <Fragment key={c.id}>
+          {i === firstRest && i > 0 && <div className="conv-divider" role="separator">แชทอื่น ๆ</div>}
           <button key={c.id} className={`conv ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""} ${c.status !== "closed" && isWaitingForReply(c) ? "waiting" : ""}`}
             onClick={() => setSelectedId(c.id)}>
             <span className="conv-avatar">
@@ -737,9 +742,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 {c.booking_pending && <span className="chip red booking-chip">📅 ยังไม่ลงนัด</span>}
                 {(c.open_tasks ?? 0) > 0 && <span className="chip orange">งานค้าง {c.open_tasks}</span>}
                 {c.needs_human && <span className="chip red">ต้องให้คนตอบ</span>}
-                {filter === "open" && isWaitingForReply(c) && <span className="chip red">รอตอบ</span>}
                 {/* นับเวลาเฉพาะลูกค้ารอคำตอบ: แชทที่อยู่ในรอตอบเพราะงานค้าง/รอลงนัด ไม่นับ */}
-                {filter === "waiting" && c.last_direction === "in" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
+                {isWaitingForReply(c) && c.last_direction === "in" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
+                {c.status === "closed" && <span className="chip done-chip">เสร็จ</span>}
                 {c.tags.map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
               </div>
             </div>
@@ -750,6 +755,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             )}
             {c.unread_count > 0 && <b className="badge">{c.unread_count}</b>}
           </button>
+          </Fragment>
         ))}
       </aside>
 

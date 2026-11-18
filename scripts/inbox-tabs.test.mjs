@@ -9,7 +9,7 @@ const { nextTime, resetDb, state } = await import(fake("admin"));
 const {
   aiTiming, autoCloseQuietChats, markConversationRead, processIncoming, sendMediaReply, sendReply, setConversationTag, storeIncoming,
 } = await import("../src/lib/pipeline.ts");
-const { CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, nextOpenChat, normalizeAutoCloseHours, tabsOf } = await import("../src/lib/case-flow.ts");
+const { CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, inboxOrder, nextOpenChat, normalizeAutoCloseHours, tabsOf } = await import("../src/lib/case-flow.ts");
 
 process.env.MEDIA_URL_SECRET = "test-secret";
 process.env.LINE_CHANNEL_ACCESS_TOKEN = "line-token";
@@ -332,4 +332,34 @@ test("แชทถัดไปมาจากแท็บรอตอบเท�
   assert.equal(nextOpenChat(waiting, "a"), "b");
   assert.equal(nextOpenChat(waiting, "z"), "a", "กดจากแท็บทั้งหมดด้วยแชทที่ไม่อยู่ในคิว เริ่มจากต้นคิว");
   assert.equal(nextOpenChat([], "a"), null);
+});
+
+// ---- รายการแชทรวม (ไม่มีแท็บเสร็จแล้ว) ----
+test("รายการรวม: รอตอบอยู่บนสุด รอนานสุดอยู่บน · ที่เหลือรวมแชทเสร็จแล้วเรียงตามข้อความล่าสุด · ปุ่มกรองรอตอบ", () => {
+  const t = (m) => new Date(Date.parse("2026-11-18T10:00:00Z") - m * 60_000).toISOString();
+  const rows = [
+    { id: "replied", status: "open", last_direction: "out", last_message_at: t(1) },
+    { id: "wait5", status: "open", last_direction: "in", waiting_since: t(5), last_message_at: t(5) },
+    { id: "done-new", status: "closed", last_direction: "out", last_message_at: t(2) },
+    { id: "wait40", status: "open", last_direction: "in", waiting_since: t(40), last_message_at: t(40) },
+    { id: "booking", status: "open", last_direction: "out", booking_pending: true, last_message_at: t(3) },
+    { id: "done-old", status: "closed", last_direction: "in", last_message_at: t(90) },
+    { id: "wait5", status: "open", last_direction: "in", waiting_since: t(5), last_message_at: t(5) },
+  ];
+  assert.deepEqual(inboxOrder(rows).map((r) => r.id), ["wait40", "wait5", "booking", "replied", "done-new", "done-old"],
+    "รอนานสุดบนสุด · รอเพราะนัดต่อท้ายชั้นบน · ชั้นล่างเรียงข้อความล่าสุด รวมเสร็จแล้ว · ไม่ซ้ำ");
+  assert.deepEqual(inboxOrder(rows, { onlyWaiting: true }).map((r) => r.id), ["wait40", "wait5", "booking"]);
+});
+
+test("กดเสร็จแล้ว: แชทไม่หายจากรายการ แค่ลงชั้นล่าง · ลูกค้าทักใหม่กลับขึ้นชั้นรอตอบ", async () => {
+  const s = await customer();
+  assert.deepEqual(inboxOrder(state.tables.conversations).map((c) => c.id), [s.conversationId]);
+  await closeViaDb();
+  const after = inboxOrder(state.tables.conversations);
+  assert.deepEqual(after.map((c) => c.id), [s.conversationId], "ยังอยู่ในรายการ");
+  assert.equal(after[0].status, "closed");
+  assert.equal(inboxOrder(state.tables.conversations, { onlyWaiting: true }).length, 0);
+  await customer("ขอสอบถามเพิ่มค่ะ");
+  assert.deepEqual(tabs(), WAITING, "เปิดเองแล้วอยู่ชั้นรอตอบ");
+  assert.deepEqual(inboxOrder(state.tables.conversations, { onlyWaiting: true }).map((c) => c.id), [s.conversationId]);
 });
