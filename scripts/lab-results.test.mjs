@@ -560,3 +560,23 @@ test("ยังไม่ได้ตั้ง LIFF: ไม่ส่ง LINE (ป
   assert.equal(row("2201").notify_status, "sent");
   assert.equal(row("2201").notify_error, null);
 });
+
+test("เริ่มระบบที่ LN 26129150: รอบแรก LN ที่น้อยกว่าเป็นผลเก่า (ไม่แจ้ง) · ตั้งแต่ LN นี้แจ้งได้ในรอบแรก", async () => {
+  assert.equal(rules.labBeforeStart("26129149"), true);
+  assert.equal(rules.labBeforeStart("26129150"), false);
+  assert.equal(rules.labBeforeStart("LN26129151"), false);
+  assert.equal(rules.labBeforeStart(null), true, "ไม่มี LN = ถือเป็นผลเก่า");
+  labs = [
+    item("2301", { ln: "26129150" }),
+    item("2302", { ln: "26129151", location_hn: "555" }),
+    item("2303", { ln: "26129149" }),
+  ];
+  const s = await store.runLabSync(Date.now());
+  assert.equal(s.backfill, true);
+  assert.equal(row("2303").notify_status, "skipped");
+  assert.ok(row("2303").notified_at);
+  assert.equal(row("2301").notify_status, "sent", "LN 26129150 แจ้งในรอบแรก");
+  assert.equal(row("2302").notify_status, "unreachable");
+  assert.deepEqual(pushes().map((p) => p.to), [LINE_USER]);
+  assert.equal(s.notified, 1);
+});

@@ -1852,3 +1852,41 @@ button.lab-card { cursor: pointer; }
 .lab-table tr.lab-row-unmatched td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
 .btn.lab-match-btn { background: var(--warning-strong-soft); color: var(--warning-ink); border: 1px solid var(--warning-border); }
 .badge.nav-count.lab-badge { background: var(--warning-strong-soft); color: var(--warning-ink); }
+
+/* ผลแล็บ: หัวหน้า + ตาราง (รอบจัด UI ใหม่) */
+.lab-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; justify-content: space-between; }
+.lab-head h1 { margin: 0 0 2px; }
+.lab-head p { margin: 0; }
+.lab-sync { font-size: 13px; padding: 4px 12px; border-radius: 999px; background: var(--neutral-soft); color: var(--muted-strong); white-space: nowrap; }
+.lab-sync.ok { background: var(--success-soft); color: var(--success-ink); }
+.lab-sync.bad { background: var(--danger-soft); color: var(--danger-ink); font-weight: 600; }
+.lab-who b { font-size: 15px; }
+.lab-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.lab-viewed { color: var(--success-ink); }
+.lab-table th.lab-act, .lab-table td.lab-act { text-align: right; }
+.lab-act .lab-actions { justify-content: flex-end; align-items: center; min-width: 0; }
+.lab-act .lab-match { justify-content: flex-end; }
+@media (max-width: 760px) {
+  .lab-head { align-items: flex-start; }
+  .lab-table thead { display: none; }
+  .lab-table, .lab-table tbody, .lab-table tr, .lab-table td { display: block; width: 100%; box-sizing: border-box; }
+  .lab-table tr { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: var(--card); }
+  .lab-table td { border: 0; padding: 3px 0; }
+  .lab-table td[data-label]::before { content: attr(data-label) " · "; color: var(--muted); font-size: 12px; }
+  .lab-table td.lab-act { text-align: left; padding-top: 8px; }
+  .lab-act .lab-actions, .lab-act .lab-match { justify-content: flex-start; }
+  .lab-table tr.lab-row-unmatched { background: var(--warning-soft); border-color: var(--warning-border); }
+  .lab-table tr.lab-row-unmatched td { background: transparent; }
+  .lab-table tr.lab-row-unmatched td:first-child { box-shadow: none; }
+}
+
+/* แถวค้นหาผลแล็บ: แท็บ + ค้นหา + วันที่ อยู่แถวเดียวบนจอกว้าง */
+@media (min-width: 1100px) {
+  .lab-toolbar { flex-wrap: nowrap; }
+  .lab-tabs { flex: none; flex-wrap: nowrap; }
+  .lab-tabs .btn { white-space: nowrap; }
+  .lab-filters { flex: 1 1 auto; flex-wrap: nowrap; justify-content: flex-end; min-width: 0; }
+}
+.lab-filters .lab-search { flex: 1 1 160px; min-width: 140px; max-width: 240px; }
+.lab-date { white-space: nowrap; }
+.lab-date input { width: 140px; }

@@ -5,7 +5,7 @@ import { BmlError, bmlEnabled, bmlLabPdf, bmlListLabs, sameCursor, type BmlCurso
 import { lineSendMessages } from "./channels/line";
 import { LineQuotaError } from "./channels/line-log";
 import {
-  isUpdateNotice, LAB_BUCKET, LAB_COLUMNS, LAB_SENDER_NAME, LAB_SIGNED_URL_SECONDS, LAB_SYNC_LOOKBACK_DAYS, LAB_SYNC_MAX_PAGES,
+  isUpdateNotice, labBeforeStart, LAB_BUCKET, LAB_COLUMNS, LAB_SENDER_NAME, LAB_SIGNED_URL_SECONDS, LAB_SYNC_LOOKBACK_DAYS, LAB_SYNC_MAX_PAGES,
   LAB_SYNC_STATE_KEY, LAB_TEAM_GROUP_KEY, labHn, labMineUrl, labViewUrl, inLabTab, bangkokDateRange, labSummary, patientNoticeFlex, patientNoticeText,
   resultHearingAppointment, shouldAutoNotify, syncAction, syncDue, teamNoticeText, versionOf,
   apptWhen, type LabAppointment, type LabResult, type LabSummary, type LabSyncState, type LabTab,
@@ -102,13 +102,15 @@ async function upsertItem(item: BmlLabItem, opts: { backfill: boolean; allowPdf:
     }
   }
   const versionBump = !!existing && version > existing.version_number;
+  // เริ่มระบบ: เฉพาะผลก่อนคนไข้รายแรก (LAB_NOTIFY_FROM_LN) เป็นผลเก่า ไม่แจ้ง
+  const oldLab = opts.backfill && labBeforeStart(item.ln);
   if (!existing) {
     const { data, error } = await db.from("lab_results").upsert({
       bml_id: bmlId, ...base, ...match, ...pdf, version_number: version, view_count: 0,
       // เริ่มระบบครั้งแรก: ผลเก่าที่มีอยู่แล้วไม่แจ้งคนไข้/ทีม
-      notify_status: opts.backfill ? "skipped" : "pending",
+      notify_status: oldLab ? "skipped" : "pending",
       // ผลเก่าตอนเริ่มระบบ: ถือว่าแจ้งแล้ว (notified_at = ตอนนำเข้า) ไม่ส่ง LINE ใด ๆ
-      ...(opts.backfill ? { team_notified_version: version, notified_at: nowIso(), notified_version: version } : {}),
+      ...(oldLab ? { team_notified_version: version, notified_at: nowIso(), notified_version: version } : {}),
       updated_at: nowIso(),
     }, { onConflict: "bml_id" }).select(LAB_COLUMNS);
     if (error) throw error;
@@ -168,7 +170,8 @@ export async function runLabSync(now = Date.now()): Promise<LabSyncSummary> {
       touched.push(r);
     }
 
-    if (!backfill) {
+    // รอบแรกก็แจ้ง: ผลเก่า (skipped) ไม่ผ่าน shouldAutoNotify และ team_notified_version ตั้งไว้แล้ว จึงไม่ถูกส่ง
+    {
       for (const { row } of touched) {
         // แจ้งทีม: ผลใหม่ทุกรายการ + ทุกครั้งที่แล็บแก้ผล (เมื่อมีไฟล์แล้ว)
         let reachable: boolean | null = null;
@@ -230,6 +233,24 @@ async function hearingAppointment(hn: string, now: number): Promise<LabAppointme
     .select("id, appoint_date, time_mode, time_start, time_end, status, purpose_text")
     .in("hn", hnVariants(hn)).in("status", OPEN_STATUSES).gte("appoint_date", today).lte("appoint_date", addDays(today, 120));
   return resultHearingAppointment((data ?? []) as unknown as LabAppointment[], today);
+}
+
+/** หน้าผลแล็บของเจ้าหน้าที่: นัดฟังผลที่ยังเปิดอยู่ของแต่ละ HN (query เดียว) → ข้อความวัน/เวลา */
+export async function hearingAppointmentsByHn(hns: string[], now = Date.now()): Promise<Record<string, string>> {
+  const ids = [...new Set(hns.filter(Boolean))];
+  if (!ids.length) return {};
+  const today = bangkokToday(now);
+  const { data } = await supabaseAdmin().from("appointments")
+    .select("id, hn, appoint_date, time_mode, time_start, time_end, status, purpose_text")
+    .in("hn", ids.flatMap(hnVariants)).in("status", OPEN_STATUSES).gte("appoint_date", today).lte("appoint_date", addDays(today, 120));
+  const rows = (data ?? []) as unknown as (LabAppointment & { hn: string })[];
+  const bare = (h: string) => String(h ?? "").trim().replace(/^0+/, "");
+  const out: Record<string, string> = {};
+  for (const id of ids) {
+    const a = resultHearingAppointment(rows.filter((r) => bare(r.hn) === bare(id)), today);
+    if (a) out[id] = apptWhen(a);
+  }
+  return out;
 }
 
 async function clinicName(): Promise<string> {

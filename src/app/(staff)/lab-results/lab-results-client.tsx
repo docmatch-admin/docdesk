@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { LAB_TABS, MATCH_LABEL, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
+import { LAB_TABS, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
 
 interface SyncInfo { last_ok_at: string | null; last_run_at: string | null; last_error: string | null }
 interface GroupInfo { group_id?: string | null; candidate_id?: string | null; candidate_at?: string | null }
@@ -38,6 +38,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
   const [rows, setRows] = useState<LabResult[]>([]);
   const [sync, setSync] = useState<SyncInfo | null>(null);
   const [group, setGroup] = useState<GroupInfo | null>(null);
+  const [appts, setAppts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [matching, setMatching] = useState<string | null>(null);
@@ -57,6 +58,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
     setSync(j?.sync ?? null);
     setSummary(j?.summary ?? null);
     setGroup(j?.group ?? null);
+    setAppts(j?.appointments ?? {});
     setLoading(false);
   }, [tab, q, from, to, onlyId]);
 
@@ -87,11 +89,16 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
 
   return (
     <div className="page lab-page">
-      <h1>ผลแล็บ</h1>
-      <p className="muted small">
-        ดึงจาก Bangkok Medical Lab ชั่วโมงละครั้ง 13:00–18:00 น. · ดึงสำเร็จล่าสุด {whenTh(sync?.last_ok_at ?? null)}
-        {sync?.last_error && <span className="error"> · รอบล่าสุดผิดพลาด: {sync.last_error}</span>}
-      </p>
+      <div className="lab-head">
+        <div>
+          <h1>ผลแล็บ</h1>
+          <p className="muted small">Bangkok Medical Lab · ดึงอัตโนมัติชั่วโมงละครั้ง 13:00–18:00 น.</p>
+        </div>
+        <span className={`lab-sync ${sync?.last_error ? "bad" : sync?.last_ok_at ? "ok" : ""}`} title={sync?.last_error ?? undefined}>
+          {sync?.last_error ? "ดึงรอบล่าสุดไม่สำเร็จ" : sync?.last_ok_at ? `ดึงสำเร็จล่าสุด ${whenTh(sync.last_ok_at)}` : "ยังไม่เคยดึงผล"}
+        </span>
+      </div>
+      {sync?.last_error && <p className="error small">รอบล่าสุดผิดพลาด: {sync.last_error}</p>}
 
       {summary && (
         <div className="lab-cards">
@@ -114,7 +121,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
         </div>
         <div className="lab-filters">
           <input className="lab-search" type="search" placeholder="ค้นชื่อ / HN / LN" value={q} onChange={(e) => { setOnlyId(null); setQ(e.target.value); }} />
-          <label className="lab-date">ตรวจตั้งแต่<input type="date" value={from} onChange={(e) => { setOnlyId(null); setFrom(e.target.value); }} /></label>
+          <label className="lab-date">ตั้งแต่<input type="date" value={from} onChange={(e) => { setOnlyId(null); setFrom(e.target.value); }} /></label>
           <label className="lab-date">ถึง<input type="date" value={to} onChange={(e) => { setOnlyId(null); setTo(e.target.value); }} /></label>
           {(from || to) && <button type="button" className="link-btn small" onClick={() => { setFrom(""); setTo(""); }}>ล้างวันที่</button>}
         </div>
@@ -128,59 +135,78 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
           <div className="report-table-wrap">
             <table className="report-table lab-table">
               <thead>
-                <tr><th scope="col">ชื่อ</th><th scope="col">HN</th><th scope="col">สั่งตรวจ</th><th scope="col">จับคู่</th><th scope="col">แจ้งคนไข้</th><th scope="col">คนไข้เปิดดู</th><th scope="col">จัดการ</th></tr>
+                <tr><th scope="col">คนไข้</th><th scope="col">สั่งตรวจ</th><th scope="col">แจ้งคนไข้</th><th scope="col">คนไข้เปิดดู</th><th scope="col">นัดฟังผล</th><th scope="col" className="lab-act">จัดการ</th></tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className={r.match_status === "unmatched" ? "lab-row-unmatched" : undefined}>
-                    <td>
-                      <b>{r.patient_name || "–"}</b>
-                      <div className="muted small">{r.ln ? `LN ${r.ln}` : ""}</div>
-                      {r.version_number > 1 && <span className="lab-chip wait">แก้ผล v{r.version_number}</span>}
-                    </td>
-                    <td>{hnOf(r) ?? "–"}</td>
-                    <td>{whenTh(r.order_datetime)}</td>
-                    <td>
-                      <span className={`lab-chip ${r.match_status === "unmatched" ? "bad" : "ok"}`}>{MATCH_LABEL[r.match_status]}</span>
-                      {r.match_status === "unmatched" && r.location_hn && <div className="muted small">แล็บอ่านได้: {r.location_hn}</div>}
-                    </td>
-                    <td>
-                      <span className={NOTIFY_CLASS[r.notify_status]} title={r.notify_error ?? undefined}>{NOTIFY_LABEL[r.notify_status]}</span>
-                      {r.notified_at && <div className="muted small">{whenTh(r.notified_at)}</div>}
-                      {r.notify_error && (r.notify_status === "failed" || r.notify_status === "sent") && (
-                        <details className="lab-error"><summary>{r.notify_status === "failed" ? "ดู error" : "ส่งไม่ถึงบางบัญชี"}</summary><div>{r.notify_error}</div></details>
-                      )}
-                    </td>
-                    <td>{r.first_viewed_at ? <>{whenTh(r.first_viewed_at)}<div className="muted small">{r.view_count} ครั้ง</div></> : <span className="muted">ยังไม่เปิด</span>}</td>
-                    <td>
-                      <div className="lab-actions">
-                        {r.pdf_path
-                          ? <a className="btn ghost small" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
-                          : <span className="muted small" title={r.pdf_error ?? undefined}>{r.pdf_error ? "โหลดไฟล์ไม่สำเร็จ" : "รอไฟล์"}</span>}
-                        <button type="button" className={`btn small ${r.patient_id ? "ghost" : "primary lab-match-btn"}`}
-                          onClick={() => { setMatching(matching === r.id ? null : r.id); setHn(r.patient_id?.replace(/^0+/, "") ?? (r.location_hn ?? "").replace(/\D/g, "").slice(0, 9)); }}>
-                          {r.patient_id ? "เปลี่ยนคนไข้" : "จับคู่คนไข้"}
-                        </button>
-                        {matching === r.id && (
-                          <form className="lab-match" onSubmit={(e) => {
-                            e.preventDefault();
-                            patch(r.id, { action: "match", hn }, (j) => (j.matched ? `จับคู่แล้ว · ${notifyText(j.notify)}` : "ยกเลิกการจับคู่แล้ว"));
-                          }}>
-                            <input inputMode="numeric" placeholder="HN" value={hn} onChange={(e) => setHn(e.target.value.replace(/\D/g, "").slice(0, 9))} aria-label="HN คนไข้" />
-                            <button type="submit" className="btn primary small" disabled={busy === r.id}>{hn ? "บันทึก" : "ยกเลิกจับคู่"}</button>
-                          </form>
+                {rows.map((r) => {
+                  const unmatched = r.match_status === "unmatched";
+                  const hnText = hnOf(r);
+                  return (
+                    <tr key={r.id} className={unmatched ? "lab-row-unmatched" : undefined}>
+                      <td className="lab-who">
+                        <b>{r.patient_name || "–"}</b>
+                        <div className="muted small">{r.patient_id ? `HN ${hnText}` : "ยังไม่รู้ HN"}{r.ln ? ` · LN ${r.ln}` : ""}</div>
+                        {(unmatched || r.version_number > 1 || r.match_status === "manual") && (
+                          <div className="lab-tags">
+                            {unmatched && <span className="lab-chip bad">รอจับคู่</span>}
+                            {unmatched && r.location_hn && <span className="muted small">แล็บอ่านได้: {r.location_hn}</span>}
+                            {r.match_status === "manual" && <span className="lab-chip">จับคู่เอง</span>}
+                            {r.version_number > 1 && <span className="lab-chip wait">แก้ผล v{r.version_number}</span>}
+                          </div>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td data-label="สั่งตรวจ">{whenTh(r.order_datetime)}</td>
+                      <td data-label="แจ้งคนไข้">
+                        <span className={NOTIFY_CLASS[r.notify_status]} title={r.notify_error ?? undefined}>{NOTIFY_LABEL[r.notify_status]}</span>
+                        {r.notified_at && r.notify_status === "sent" && <div className="muted small">{whenTh(r.notified_at)}</div>}
+                        {r.notify_error && (r.notify_status === "failed" || r.notify_status === "sent") && (
+                          <details className="lab-error"><summary>{r.notify_status === "failed" ? "ดูสาเหตุ" : "ส่งไม่ถึงบางบัญชี"}</summary><div>{r.notify_error}</div></details>
+                        )}
+                      </td>
+                      <td data-label="คนไข้เปิดดู">
+                        {r.first_viewed_at
+                          ? <span className="lab-viewed">{whenTh(r.first_viewed_at)}{r.view_count > 1 && <span className="muted small"> · {r.view_count} ครั้ง</span>}</span>
+                          : <span className="muted">{r.notify_status === "sent" ? "ยังไม่เปิด" : "–"}</span>}
+                      </td>
+                      <td data-label="นัดฟังผล">{r.patient_id && appts[r.patient_id] ? appts[r.patient_id] : <span className="muted">–</span>}</td>
+                      <td className="lab-act">
+                        <div className="lab-actions">
+                          {unmatched && (
+                            <button type="button" className="btn small primary lab-match-btn"
+                              onClick={() => { setMatching(matching === r.id ? null : r.id); setHn((r.location_hn ?? "").replace(/\D/g, "").slice(0, 9)); }}>
+                              จับคู่คนไข้
+                            </button>
+                          )}
+                          {r.pdf_path
+                            ? <a className="btn ghost small" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
+                            : <span className="muted small" title={r.pdf_error ?? undefined}>{r.pdf_error ? "โหลดไฟล์ไม่สำเร็จ" : "รอไฟล์"}</span>}
+                          {!unmatched && (
+                            <button type="button" className="link-btn small"
+                              onClick={() => { setMatching(matching === r.id ? null : r.id); setHn(r.patient_id?.replace(/^0+/, "") ?? ""); }}>
+                              เปลี่ยนคนไข้
+                            </button>
+                          )}
+                          {matching === r.id && (
+                            <form className="lab-match" onSubmit={(e) => {
+                              e.preventDefault();
+                              patch(r.id, { action: "match", hn }, (j) => (j.matched ? `จับคู่แล้ว · ${notifyText(j.notify)}` : "ยกเลิกการจับคู่แล้ว"));
+                            }}>
+                              <input inputMode="numeric" placeholder="HN" value={hn} onChange={(e) => setHn(e.target.value.replace(/\D/g, "").slice(0, 9))} aria-label="HN คนไข้" />
+                              <button type="submit" className="btn primary small" disabled={busy === r.id}>{hn ? "บันทึก" : "ยกเลิกจับคู่"}</button>
+                            </form>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
 
-      {isAdmin && (
+      {isAdmin && group && (
         <section className="card lab-group">
           <h3>แจ้งทีมในกลุ่ม LINE</h3>
           <p className="muted small">ผลใหม่ทุกรายการ (และฉบับที่แล็บแก้) ส่งชื่อ, HN และลิงก์ดูใน DocDesk เข้ากลุ่ม ให้แพทย์ดูก่อน ไม่ส่งค่าผลตรวจ</p>

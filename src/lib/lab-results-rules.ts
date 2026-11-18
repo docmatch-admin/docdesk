@@ -14,6 +14,12 @@ export const LAB_SYNC_LOOKBACK_DAYS = 45;
 export const LAB_SYNC_MAX_PAGES = 5;
 /** ผลที่สั่งตรวจนานกว่านี้ ไม่แจ้งคนไข้อัตโนมัติ (กดส่งเองได้) */
 export const LAB_AUTO_NOTIFY_MAX_AGE_DAYS = 30;
+/** คนไข้รายแรกของระบบ: LN 26129150 (HN 4807, สั่งตรวจ 17 พ.ย. 69) — ตอนเริ่มระบบ ผลที่ LN น้อยกว่านี้นำเข้าเป็น "ผลเก่า (ไม่แจ้ง)" ตั้งแต่ LN นี้ขึ้นไปแจ้งตามปกติ */
+export const LAB_NOTIFY_FROM_LN = 26129150;
+export function labBeforeStart(ln: string | null | undefined): boolean {
+  const n = Number(String(ln ?? "").replace(/\D/g, ""));
+  return !n || n < LAB_NOTIFY_FROM_LN;
+}
 export const LAB_SYNC_STATE_KEY = "lab_sync_state";
 export const LAB_TEAM_GROUP_KEY = "lab_team_line_group";
 
