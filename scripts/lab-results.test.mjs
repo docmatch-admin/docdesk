@@ -21,7 +21,7 @@ const OTHER_USER = "Ubbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const GROUP = "C0123456789abcdef0123456789abcdef";
 const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
 
-let labs, pdfVersion, outbound, loginCount, listCalls, labStatus;
+let labs, pdfVersion, outbound, loginCount, listCalls, labStatus, labPages, listQueries, cursorShape;
 const item = (id, extra = {}) => ({
   id, ln: `LN${id}`, lis_ln: null, hn: "BML1", location_hn: "4714", location_hn_extraction_status: "ok",
   patient_name: "สมชาย ใจดี", gender: "M", order_datetime: iso(2 * 3_600_000), status: "completed",
@@ -66,6 +66,9 @@ beforeEach(() => {
   loginCount = 0;
   listCalls = 0;
   labStatus = 200;
+  labPages = null;
+  listQueries = [];
+  cursorShape = (last) => ({ cursor_value: last.order_datetime, cursor_id: String(last.id) });
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
     const method = init.method ?? "GET";
@@ -84,6 +87,15 @@ beforeEach(() => {
         const q = new URL(u).searchParams;
         assert.equal(q.get("page_size"), "100");
         assert.equal(q.get("location_id"), "177");
+        listQueries.push(Object.fromEntries(q));
+        if (labPages) {
+          // แบ่งหน้าแบบเว็บแล็บ: next_cursor เป็น object → ส่งกลับมาเป็น cursor_value + cursor_id
+          const cid = q.get("cursor_id");
+          const idx = cid ? labPages.findIndex((pg) => String(pg.at(-1).id) === cid) + 1 : 0;
+          const items = labPages[idx] ?? [];
+          const more = idx < labPages.length - 1;
+          return Response.json({ items, has_more: more, next_cursor: more ? cursorShape(items.at(-1)) : null });
+        }
         return Response.json({ items: labs, has_more: false, next_cursor: null });
       }
       const m = u.match(/\/api\/labs\/([^/]+)\/pdf$/);
@@ -502,4 +514,34 @@ test("ไม่มีปุ่มส่งผลซ้ำ: API ไม่รั�
   const res = await idRoute.PATCH(new Request("https://app.test/x", { method: "PATCH", body: JSON.stringify({ action: "resend" }) }), { params: Promise.resolve({ id: row("1501").id }) });
   assert.equal(res.status, 400);
   assert.doesNotMatch(readFileSync("src/app/(staff)/lab-results/lab-results-client.tsx", "utf8"), /ส่งแจ้งซ้ำ|resend/);
+});
+
+test("แบ่งหน้า /api/labs: next_cursor (object) → cursor_value + cursor_id · has_more=false หยุด", async () => {
+  const h = 3_600_000;
+  labPages = [
+    [item("2001", { order_datetime: iso(1 * h) }), item("2002", { order_datetime: iso(2 * h) })],
+    [item("2003", { order_datetime: iso(3 * h) })],
+    [item("2004", { order_datetime: iso(4 * h) })],
+  ];
+  await store.runLabSync(Date.now());
+  assert.equal(listQueries.length, 3);
+  assert.equal(listQueries[0].cursor_value, undefined);
+  assert.equal(listQueries[0].cursor, undefined);
+  assert.equal(listQueries[1].cursor_id, "2002");
+  assert.equal(listQueries[1].cursor_value, labPages[0][1].order_datetime);
+  assert.equal(listQueries[2].cursor_id, "2003");
+  for (const qy of listQueries) assert.ok(!("cursor" in qy) && !("before_datetime" in qy) && !("before_id" in qy));
+  assert.equal(state.tables.lab_results.length, 4);
+
+  // ชื่อ field อื่นที่เป็นไปได้ · อ่านไม่ได้ = หยุด ไม่วนซ้ำ
+  assert.deepEqual(bml.parseBmlCursor({ value: "2026-11-18T05:00:00Z", id: 7 }), { value: "2026-11-18T05:00:00Z", id: "7" });
+  assert.deepEqual(bml.parseBmlCursor({ order_datetime: "x", id: "a" }), { value: "x", id: "a" });
+  for (const bad of [null, "abc", {}, { cursor_value: "x" }, []]) assert.equal(bml.parseBmlCursor(bad), null);
+});
+
+test("แบ่งหน้า: cursor อ่านไม่ได้ หยุดหลังหน้าแรก (ไม่วนไม่จบ)", async () => {
+  labPages = [[item("2101")], [item("2102")]];
+  cursorShape = () => ({ something_else: 1 });
+  await store.runLabSync(Date.now());
+  assert.equal(listQueries.length, 1);
 });

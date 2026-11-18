@@ -23,7 +23,24 @@ export interface BmlLabItem {
   version_count?: number | null;
 }
 
-export interface BmlPage { items: BmlLabItem[]; has_more?: boolean; next_cursor?: string | null }
+/** ตำแหน่งหน้าถัดไป: ส่งกลับเป็น query cursor_value + cursor_id */
+export interface BmlCursor { value: string; id: string }
+export interface BmlPage { items: BmlLabItem[]; has_more: boolean; next_cursor: BmlCursor | null }
+
+const str = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : null);
+
+/**
+ * next_cursor ของแล็บเป็น object: อ่านค่าตำแหน่ง (เวลาที่ใช้เรียง) + id ของรายการสุดท้าย
+ * รองรับชื่อ field ที่น่าจะเป็น (cursor_value/cursor_id, value/id, order_datetime/id) · อ่านไม่ได้ = null (หยุดแบ่งหน้า)
+ */
+export function parseBmlCursor(raw: unknown): BmlCursor | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const c = raw as Record<string, unknown>;
+  const value = str(c.cursor_value) ?? str(c.value) ?? str(c.order_datetime) ?? str(c.sort_value);
+  const id = str(c.cursor_id) ?? str(c.id) ?? str(c.lab_id);
+  return value && id ? { value, id } : null;
+}
+export const sameCursor = (a: BmlCursor | null, b: BmlCursor | null) => !!a && !!b && a.value === b.value && a.id === b.id;
 
 export class BmlError extends Error {
   readonly status?: number;
@@ -69,11 +86,15 @@ async function bmlGet(path: string, timeoutMs = 20000): Promise<Response> {
 }
 
 /** รายการผลล่าสุดของคลินิก เรียงตามเวลาสั่งตรวจใหม่→เก่า */
-export async function bmlListLabs(cursor?: string | null): Promise<BmlPage> {
+export async function bmlListLabs(cursor?: BmlCursor | null): Promise<BmlPage> {
   const q = new URLSearchParams({ page_size: String(BML_PAGE_SIZE), location_id: BML_LOCATION_ID, sort_by: "order_datetime", sort_dir: "desc" });
-  if (cursor) q.set("cursor", cursor);
-  const body = (await (await bmlGet(`/api/labs?${q}`)).json()) as BmlPage;
-  return { items: Array.isArray(body?.items) ? body.items : [], has_more: !!body?.has_more, next_cursor: body?.next_cursor ?? null };
+  if (cursor) { q.set("cursor_value", cursor.value); q.set("cursor_id", cursor.id); }
+  const body = (await (await bmlGet(`/api/labs?${q}`)).json()) as { items?: unknown; has_more?: unknown; next_cursor?: unknown } | null;
+  return {
+    items: Array.isArray(body?.items) ? (body.items as BmlLabItem[]) : [],
+    has_more: body?.has_more === true,
+    next_cursor: parseBmlCursor(body?.next_cursor),
+  };
 }
 
 export const MAX_PDF_BYTES = 25 * 1024 * 1024;

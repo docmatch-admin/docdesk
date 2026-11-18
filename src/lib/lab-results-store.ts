@@ -1,7 +1,7 @@
 // ผลแล็บจากแล็บนอก: sync → เก็บ PDF ใน Storage (private) → จับคู่ HN → แจ้งคนไข้ทาง LINE + แจ้งทีมในกลุ่ม LINE
 // ข้อมูลผลแล็บไม่ส่งเข้า AI: ไม่มีค่าผลในข้อความแชท ข้อความแจ้งเป็น sender_type 'system' ที่ suggest.ts ข้ามอยู่แล้ว
 import { addDays, bangkokToday, OPEN_STATUSES } from "./appointment-rules";
-import { BmlError, bmlEnabled, bmlLabPdf, bmlListLabs, type BmlLabItem } from "./bml-client";
+import { BmlError, bmlEnabled, bmlLabPdf, bmlListLabs, sameCursor, type BmlCursor, type BmlLabItem } from "./bml-client";
 import { lineSendMessages } from "./channels/line";
 import { LineQuotaError } from "./channels/line-log";
 import {
@@ -141,12 +141,13 @@ export async function runLabSync(now = Date.now()): Promise<LabSyncSummary> {
 
   try {
     const items: BmlLabItem[] = [];
-    let cursor: string | null = null;
+    let cursor: BmlCursor | null = null;
     for (let page = 0; page < LAB_SYNC_MAX_PAGES; page++) {
       const res = await bmlListLabs(cursor);
       items.push(...res.items);
       const oldest = res.items.at(-1)?.order_datetime;
-      if (!res.has_more || !res.next_cursor || res.next_cursor === cursor || (oldest && oldest < cutoff)) break;
+      // has_more=false หยุด · cursor อ่านไม่ได้/ซ้ำเดิม หยุด (กันวนไม่จบ) · เลยช่วงที่ดูย้อนหลังแล้ว หยุด
+      if (!res.has_more || !res.next_cursor || sameCursor(res.next_cursor, cursor) || (oldest && oldest < cutoff)) break;
       cursor = res.next_cursor;
     }
     summary.fetched = items.length;
