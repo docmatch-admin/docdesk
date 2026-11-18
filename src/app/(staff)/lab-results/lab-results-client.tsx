@@ -13,6 +13,15 @@ export const whenTh = (iso: string | null) => {
   const t = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }).format(new Date(iso));
   return `${dateTh(iso)} ${t}`;
 };
+/** ในตาราง: "17 พ.ย. 14:50" (ปีปัจจุบันไม่แสดงปี) ให้อยู่บรรทัดเดียว */
+const shortTh = (iso: string | null) => {
+  if (!iso) return "–";
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const day = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", ...(sameYear ? {} : { year: "2-digit" }), timeZone: "Asia/Bangkok" }).format(d);
+  const t = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }).format(d);
+  return `${day} ${t}`;
+};
 const hnOf = (r: LabResult) => (r.patient_id ? r.patient_id.replace(/^0+/, "") : r.location_hn?.trim() || null);
 export const NOTIFY_CLASS: Record<LabResult["notify_status"], string> = {
   pending: "lab-chip wait", sent: "lab-chip ok", unreachable: "lab-chip", failed: "lab-chip bad", skipped: "lab-chip",
@@ -40,6 +49,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
   const [sync, setSync] = useState<SyncInfo | null>(null);
   const [group, setGroup] = useState<GroupInfo | null>(null);
   const [appts, setAppts] = useState<Record<string, string>>({});
+  const [lineReady, setLineReady] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(initialId);
@@ -59,6 +69,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
     setSummary(j?.summary ?? null);
     setGroup(j?.group ?? null);
     setAppts(j?.appointments ?? {});
+    setLineReady(j?.lineReady ?? {});
     setLoading(false);
   }, [tab, q, from, to, onlyId]);
 
@@ -103,7 +114,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
         <div className="lab-cards">
           <div className="card lab-card"><span className="muted small">ผลใหม่วันนี้</span><b>{summary.today}</b></div>
           <button type="button" className={`card lab-card warn ${tab === "unmatched" ? "on" : ""}`} onClick={() => { setOnlyId(null); setTab("unmatched"); }}>
-            <span className="muted small">รอจับคู่</span><b>{summary.unmatched}</b>
+            <span className="muted small">ไม่พบ HN</span><b>{summary.unmatched}</b>
           </button>
           <button type="button" className={`card lab-card ${tab === "unviewed" ? "on" : ""}`} onClick={() => { setOnlyId(null); setTab("unviewed"); }}>
             <span className="muted small">คนไข้ยังไม่เปิดดู</span><b>{summary.unviewed}</b>
@@ -119,7 +130,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
           ))}
         </div>
         <div className="lab-filters">
-          <input className="lab-search" type="search" placeholder="ค้นชื่อ / HN / LN" value={q} onChange={(e) => { setOnlyId(null); setQ(e.target.value); }} />
+          <input className="lab-search" type="search" placeholder="ค้นชื่อ / HN" value={q} onChange={(e) => { setOnlyId(null); setQ(e.target.value); }} />
           <label className="lab-date">ตั้งแต่<input type="date" value={from} onChange={(e) => { setOnlyId(null); setFrom(e.target.value); }} /></label>
           <label className="lab-date">ถึง<input type="date" value={to} onChange={(e) => { setOnlyId(null); setTo(e.target.value); }} /></label>
           {(from || to) && <button type="button" className="link-btn small" onClick={() => { setFrom(""); setTo(""); }}>ล้างวันที่</button>}
@@ -144,24 +155,21 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
                     <tr key={r.id} className={cls} onClick={() => setSelected(r.id)}>
                       <td className="lab-who">
                         <button type="button" className="lab-open" onClick={(e) => { e.stopPropagation(); setSelected(r.id); }}>{r.patient_name || "–"}</button>
-                        <div className="muted small">{r.patient_id ? `HN ${hnOf(r)}` : "ยังไม่รู้ HN"}{r.ln ? ` · LN ${r.ln}` : ""}</div>
-                        {(unmatched || r.version_number > 1 || r.match_status === "manual" || !r.pdf_path) && (
-                          <div className="lab-tags">
-                            {unmatched && <span className="lab-chip bad">รอจับคู่</span>}
-                            {r.match_status === "manual" && <span className="lab-chip">จับคู่เอง</span>}
-                            {r.version_number > 1 && <span className="lab-chip wait">แก้ผล v{r.version_number}</span>}
-                            {!r.pdf_path && <span className="lab-chip">{r.pdf_error ? "โหลดไฟล์ไม่สำเร็จ" : "รอไฟล์"}</span>}
-                          </div>
-                        )}
+                        <span className="muted small">{r.patient_id ? ` · HN ${hnOf(r)}` : ""}</span>
+                        {unmatched && <span className="lab-chip bad">ไม่พบ HN</span>}
+                        {r.version_number > 1 && <span className="lab-chip wait">แก้ผล v{r.version_number}</span>}
+                        {!r.pdf_path && <span className="lab-chip">{r.pdf_error ? "ไฟล์มีปัญหา" : "รอไฟล์"}</span>}
                       </td>
-                      <td data-label="สั่งตรวจ">{whenTh(r.order_datetime)}</td>
+                      <td data-label="สั่งตรวจ">{shortTh(r.order_datetime)}</td>
                       <td data-label="แจ้งคนไข้">
-                        <span className={NOTIFY_CLASS[r.notify_status]}>{NOTIFY_LABEL[r.notify_status]}</span>
-                        {r.notified_at && r.notify_status === "sent" && <div className="muted small">{whenTh(r.notified_at)}</div>}
+                        {r.notify_status === "unreachable" && r.patient_id && lineReady[r.patient_id]
+                          ? <span className="lab-chip wait">ผูก LINE แล้ว · รอส่ง</span>
+                          : <span className={NOTIFY_CLASS[r.notify_status]}>{NOTIFY_LABEL[r.notify_status]}</span>}
+                        {r.notified_at && r.notify_status === "sent" && <span className="muted small"> {shortTh(r.notified_at)}</span>}
                       </td>
                       <td data-label="คนไข้เปิดดู">
                         {r.first_viewed_at
-                          ? <span className="lab-viewed">{whenTh(r.first_viewed_at)}{r.view_count > 1 && <span className="muted small"> · {r.view_count} ครั้ง</span>}</span>
+                          ? <span className="lab-viewed">{shortTh(r.first_viewed_at)}{r.view_count > 1 && <span className="muted small"> · {r.view_count} ครั้ง</span>}</span>
                           : <span className="muted">{r.notify_status === "sent" ? "ยังไม่เปิด" : "–"}</span>}
                       </td>
                       <td data-label="นัดฟังผล">{r.patient_id && appts[r.patient_id] ? appts[r.patient_id] : <span className="muted">–</span>}</td>
@@ -198,7 +206,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
       {(() => {
         const cur = selected ? rows.find((x) => x.id === selected) : null;
         return cur ? (
-          <LabDrawer r={cur} appt={cur.patient_id ? appts[cur.patient_id] ?? null : null} busy={busy === cur.id}
+          <LabDrawer r={cur} lineReady={!!(cur.patient_id && lineReady[cur.patient_id])} appt={cur.patient_id ? appts[cur.patient_id] ?? null : null} busy={busy === cur.id}
             onClose={() => setSelected(null)} onPatch={patch} whenTh={whenTh} notifyClass={NOTIFY_CLASS[cur.notify_status]} notifyText={notifyText} />
         ) : null;
       })()}

@@ -5,7 +5,7 @@ import { BmlError, bmlEnabled, bmlLabPdf, bmlListLabs, sameCursor, type BmlCurso
 import { lineSendMessages } from "./channels/line";
 import { LineQuotaError } from "./channels/line-log";
 import {
-  isUpdateNotice, labBeforeStart, LAB_BUCKET, LAB_COLUMNS, LAB_SENDER_NAME, LAB_SIGNED_URL_SECONDS, LAB_SYNC_LOOKBACK_DAYS, LAB_SYNC_MAX_PAGES,
+  bmlTime, isUpdateNotice, labBeforeStart, LAB_BUCKET, LAB_COLUMNS, LAB_SENDER_NAME, LAB_SIGNED_URL_SECONDS, LAB_SYNC_LOOKBACK_DAYS, LAB_SYNC_MAX_PAGES,
   LAB_SYNC_STATE_KEY, LAB_TEAM_GROUP_KEY, labHn, labMineUrl, labViewUrl, inLabTab, bangkokDateRange, labSummary, patientNoticeFlex, patientNoticeText,
   resultHearingAppointment, shouldAutoNotify, syncAction, syncDue, teamNoticeText, versionOf,
   apptWhen, type LabAppointment, type LabResult, type LabSummary, type LabSyncState, type LabTab,
@@ -72,7 +72,7 @@ async function upsertItem(item: BmlLabItem, opts: { backfill: boolean; allowPdf:
     ln: item.ln ?? null, lis_ln: item.lis_ln ?? null,
     location_hn: item.location_hn ?? null, hn_extraction_status: item.location_hn_extraction_status ?? null,
     patient_name: item.patient_name ?? null, gender: item.gender ?? null,
-    order_datetime: item.order_datetime ?? null, status: item.status ?? null, bml_imported_at: item.imported_at ?? null,
+    order_datetime: bmlTime(item.order_datetime), status: item.status ?? null, bml_imported_at: bmlTime(item.imported_at),
   };
   // จับคู่อัตโนมัติ (ไม่แตะแถวที่เจ้าหน้าที่จับคู่เอง)
   let match: Partial<LabResult> = {};
@@ -159,7 +159,7 @@ export async function runLabSync(now = Date.now()): Promise<LabSyncSummary> {
     for (const item of items) {
       // ระบบเริ่มที่ LN 26129150 (HN 4807): ผลก่อนหน้านั้นไม่นำเข้าเลย
       if (labBeforeStart(item.ln)) continue;
-      if (item.order_datetime && item.order_datetime < cutoff && !backfill) continue;
+      if (item.order_datetime && (bmlTime(item.order_datetime) ?? "") < cutoff && !backfill) continue;
       const allowPdf = pdfs < LAB_PDF_PER_RUN && Date.now() - started < 35_000;
       const r = await upsertItem(item, { backfill, allowPdf });
       if (r?.pdfTried) pdfs++;
@@ -536,6 +536,15 @@ export async function staffNotifyLabResult(id: string, now = Date.now()) {
   if (!r) throw new LabError("ไม่พบผลแล็บ", 404);
   if (!r.patient_id) throw new LabError("ยังไม่ได้จับคู่คนไข้");
   return { notify: await notifyLabResult(id, { now }) };
+}
+
+/** หน้าผลแล็บ: HN ไหนตอนนี้มี LINE ที่ส่งได้แล้ว (คนไข้ผูกทีหลัง → ขึ้น "ผูก LINE แล้ว · รอส่ง" ให้เจ้าหน้าที่กดส่ง) */
+export async function lineReadyHns(hns: (string | null)[]): Promise<Record<string, boolean>> {
+  const out: Record<string, boolean> = {};
+  for (const hn of [...new Set(hns.filter((h): h is string => !!h))].slice(0, 100)) {
+    out[hn] = (await lineTargetsOf(hn).catch(() => ({ targets: [] as LineTarget[] }))).targets.length > 0;
+  }
+  return out;
 }
 
 export async function labSyncStatus() {

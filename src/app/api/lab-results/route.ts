@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { denySensitiveChat, requireStaff } from "@/lib/auth";
 import { parseLabTab } from "@/lib/lab-results-rules";
-import { hearingAppointmentsByHn, labResultSummary, labSyncStatus, labTeamNotifyEnabled, labUnmatchedCount, listLabResults, teamGroupSetting } from "@/lib/lab-results-store";
+import { hearingAppointmentsByHn, lineReadyHns, labResultSummary, labSyncStatus, labTeamNotifyEnabled, labUnmatchedCount, listLabResults, teamGroupSetting } from "@/lib/lab-results-store";
 
 export const runtime = "nodejs";
 
@@ -30,9 +30,12 @@ export async function GET(req: Request) {
     labSyncStatus(),
     role === "admin" && labTeamNotifyEnabled() ? teamGroupSetting() : Promise.resolve(null),
   ]);
-  const appointments = await hearingAppointmentsByHn(results.map((r) => r.patient_id ?? "")).catch(() => ({}));
+  const [appointments, lineReady] = await Promise.all([
+    hearingAppointmentsByHn(results.map((r) => r.patient_id ?? "")).catch(() => ({})),
+    lineReadyHns(results.filter((r) => r.notify_status === "unreachable").map((r) => r.patient_id)).catch(() => ({})),
+  ]);
   return NextResponse.json({
-    results, summary, group, appointments,
+    results, summary, group, appointments, lineReady,
     sync: { last_ok_at: sync.last_ok_at ?? null, last_run_at: sync.last_run_at ?? null, last_error: sync.last_error ?? null },
   }, noStore);
 }

@@ -485,7 +485,7 @@ test("คนไข้ขอผลแล็บในแชท: ตอบแค่
 });
 
 test("หน้า admin: ตัวกรองสถานะ · ช่วงวันที่ · การ์ดสรุป · badge รอจับคู่", async () => {
-  assert.deepEqual(rules.LAB_TABS.map((t) => t.label), ["ทั้งหมด", "รอจับคู่", "ยังไม่เปิดดู", "ไม่ได้ผูก LINE", "ส่งไม่สำเร็จ"]);
+  assert.deepEqual(rules.LAB_TABS.map((t) => t.label), ["ทั้งหมด", "ไม่พบ HN", "ยังไม่เปิดดู", "ไม่ได้ผูก LINE", "ส่งไม่สำเร็จ"]);
   labs = [item("1401", { order_datetime: "2026-01-05T03:00:00Z" })];
   const next = await initialize(Date.now());
   labs = [item("1401", { order_datetime: "2026-01-05T03:00:00Z" }), item("1402"), item("1403", { location_hn: null, location_hn_extraction_status: "failed" })];
@@ -580,4 +580,12 @@ test("ไม่ได้ผูก LINE ตอนผลออก: ผูกที
   const base = { patient_id: "4807", pdf_path: "x.pdf", status: "final", order_datetime: new Date().toISOString(), notified_version: null, version_number: 1 };
   assert.equal(rules.shouldAutoNotify({ ...base, notify_status: "pending" }), true);
   assert.equal(rules.shouldAutoNotify({ ...base, notify_status: "unreachable" }), false);
+});
+
+test("เวลาจากระบบแล็บไม่มีโซนเวลา = เวลาไทย (+07:00)", () => {
+  assert.equal(rules.bmlTime("2026-11-17T14:50:00"), "2026-11-17T14:50:00+07:00");
+  assert.equal(rules.bmlTime("2026-11-17 14:50:00"), "2026-11-17T14:50:00+07:00");
+  assert.equal(rules.bmlTime("2026-11-17T07:50:00Z"), "2026-11-17T07:50:00Z");
+  assert.equal(rules.bmlTime("2026-11-17T14:50:00+07:00"), "2026-11-17T14:50:00+07:00");
+  assert.equal(rules.bmlTime(null), null);
 });

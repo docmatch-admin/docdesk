@@ -1904,3 +1904,10 @@ button.lab-card { cursor: pointer; }
 .lab-drawer-match form { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
 .lab-drawer-match input { max-width: 200px; }
 .lab-drawer-match p { margin: 0; }
+
+/* ผลแล็บ: ทุกอย่างในแถวอยู่บรรทัดเดียว */
+@media (min-width: 761px) {
+  .lab-table th, .lab-table td { white-space: nowrap; vertical-align: middle; }
+  .lab-table td.lab-who { display: table-cell; }
+  .lab-who .lab-chip { margin-left: 8px; }
+}

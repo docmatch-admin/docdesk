@@ -14,6 +14,14 @@ export const LAB_SYNC_LOOKBACK_DAYS = 45;
 export const LAB_SYNC_MAX_PAGES = 5;
 /** ผลที่สั่งตรวจนานกว่านี้ ไม่แจ้งคนไข้อัตโนมัติ (กดส่งเองได้) */
 export const LAB_AUTO_NOTIFY_MAX_AGE_DAYS = 30;
+/** เวลาจากระบบแล็บไม่มีโซนเวลา (เช่น "2026-11-17T14:50:00") = เวลาไทย → ต่อท้าย +07:00 ก่อนเก็บลง timestamptz */
+export function bmlTime(v: string | null | undefined): string | null {
+  const t = (v ?? "").trim();
+  if (!t) return null;
+  const iso = t.replace(" ", "T");
+  return /(Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}+07:00`;
+}
+
 /** คนไข้รายแรกของระบบ: LN 26129150 (HN 4807, สั่งตรวจ 17 พ.ย. 69) — ผลที่ LN น้อยกว่านี้ไม่นำเข้าระบบเลย ตั้งแต่ LN นี้ขึ้นไปนำเข้าและแจ้งตามปกติ */
 export const LAB_NOTIFY_FROM_LN = 26129150;
 /** LN เป็นตัวเลขและน้อยกว่าจุดเริ่ม = ผลก่อนเริ่มระบบ (ไม่นำเข้า) · ไม่มี LN/อ่านไม่ได้ = นำเข้าตามปกติ (ไม่ทิ้งผลใหม่) */
@@ -219,7 +227,6 @@ export function teamNoticeText(r: Pick<LabResult, "patient_name" | "patient_id" 
     opts.updated ? "🔄 ผลแล็บปรับปรุง (แล็บแก้ผล)" : "🧪 ผลแล็บใหม่",
     `ชื่อ: ${r.patient_name?.trim() || "-"}`,
     `HN: ${hn ?? "-"}${r.match_status === "unmatched" ? " (ยังไม่ได้จับคู่คนไข้)" : ""}`,
-    ...(r.ln ? [`LN: ${r.ln}`] : []),
     ...(opts.reachable === false ? ["คนไข้ไม่ได้ผูก LINE (ไม่ได้ส่งแจ้งคนไข้)"] : []),
     `ดูผล: ${opts.appUrl.replace(/\/$/, "")}/lab-results?id=${r.id}`,
   ].join("\n");
@@ -231,7 +238,7 @@ export function teamNoticeText(r: Pick<LabResult, "patient_name" | "patient_id" 
 export type LabTab = "all" | "unmatched" | "failed" | "nolink" | "unviewed";
 export const LAB_TABS: { key: LabTab; label: string }[] = [
   { key: "all", label: "ทั้งหมด" },
-  { key: "unmatched", label: "รอจับคู่" },
+  { key: "unmatched", label: "ไม่พบ HN" },
   { key: "unviewed", label: "ยังไม่เปิดดู" },
   { key: "nolink", label: "ไม่ได้ผูก LINE" },
   { key: "failed", label: "ส่งไม่สำเร็จ" },
@@ -249,7 +256,7 @@ export function inLabTab(r: LabResult, tab: LabTab): boolean {
 export const NOTIFY_LABEL: Record<LabNotifyStatus, string> = {
   pending: "รอแจ้ง", sent: "แจ้งแล้ว", unreachable: "ไม่ได้ผูก LINE", failed: "ส่งไม่สำเร็จ", skipped: "ผลเก่า (ไม่แจ้ง)",
 };
-export const MATCH_LABEL: Record<LabMatchStatus, string> = { matched: "จับคู่อัตโนมัติ", unmatched: "รอจับคู่", manual: "จับคู่เอง" };
+export const MATCH_LABEL: Record<LabMatchStatus, string> = { matched: "จับคู่อัตโนมัติ", unmatched: "ไม่พบ HN", manual: "เจ้าหน้าที่ผูกเอง" };
 
 /** วันที่ตามเวลาไทย → ช่วงเวลา UTC สำหรับกรอง order_datetime (from ≤ t < to+1 วัน) */
 export function bangkokDateRange(from: string | null | undefined, to: string | null | undefined): { gte?: string; lt?: string } {

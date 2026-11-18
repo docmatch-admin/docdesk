@@ -127,7 +127,7 @@ export function LabResultViewer({ liffId }: { liffId: string }) {
         <>
           <div>
             {view.patientName && <b>{view.patientName}</b>}
-            <div className="muted small">วันที่ตรวจ {dateTh(view.orderDate)}{view.ln ? ` · LN ${view.ln}` : ""}</div>
+            <div className="muted small">วันที่ตรวจ {dateTh(view.orderDate)}</div>
             {view.updated && <div className="small" style={{ color: "var(--warning-ink)" }}>ฉบับแก้ไข v{view.version} (แล็บแก้ผล)</div>}
           </div>
           {apptBox(view.appointment)}
@@ -150,7 +150,6 @@ export function LabResultViewer({ liffId }: { liffId: string }) {
             <div key={it.id} className="card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 4 }}>
               {it.patientName && <b>{it.patientName}</b>}
               <div><b>วันที่ตรวจ {dateTh(it.orderDate)}</b>{it.updated && <span className="lab-chip wait" style={{ marginLeft: 6 }}>แก้ผล v{it.version}</span>}</div>
-              {it.ln && <div className="muted small">LN {it.ln}</div>}
               {it.appointment && <div className="small">นัดฟังผล: {it.appointment.when}</div>}
               <div><button type="button" className="btn primary small" onClick={() => { if (!liff) return; setId(it.id); window.history.replaceState(null, "", `${window.location.pathname}?id=${encodeURIComponent(it.id)}`); openOne(liff, it.id); }}>ดูผล</button></div>
             </div>
