@@ -136,3 +136,30 @@ export function inboxSections<T extends InboxRow & { assigned_to?: string | null
   if (opts.filter === "work") return { waiting: [] as T[], work: pending, recent: [] as T[] };
   return { waiting, work: pending, recent };
 }
+
+// ---------------------------------------------------------------------------
+// รายการแชทจาก /api/inbox/list: แต่ละแถวบอกช่วงมาเอง (queue) — หน้าจอจัดกลุ่ม/เรียงเท่านั้น
+// ---------------------------------------------------------------------------
+export interface QueueRowLike extends InboxRow { queue?: InboxSection | null; work_since?: string | null; assigned_to?: string | null }
+
+/**
+ * ช่วงของแถว: รอตอบตัดสินจากแถวเองเสมอ (แก้ในเครื่องแล้วย้ายทันที) · นอกนั้นตาม queue ที่ server คำนวณ
+ * (เคยรอตอบ แล้วเพิ่งตอบไป = ล่าสุด จนกว่า server จะบอกว่ามีงานค้าง)
+ */
+export function queueOf(r: QueueRowLike): InboxSection {
+  if (r.status === "open" && r.last_direction === "in") return "waiting";
+  return r.queue === "work" ? "work" : "recent";
+}
+
+/** จัด 3 ช่วง + เรียงแบบเดียวกับ inboxSections · filter ของฉัน = มอบหมายให้ฉัน */
+export function queueSections<T extends QueueRowLike>(rows: T[], opts: { filter?: InboxFilter; meId?: string } = {}) {
+  const uniq = [...new Map(rows.map((r) => [r.id, r])).values()];
+  const mine = opts.filter === "mine" ? uniq.filter((r) => !!opts.meId && r.assigned_to === opts.meId) : uniq;
+  const by = (sec: InboxSection) => mine.filter((r) => queueOf(r) === sec);
+  const waiting = by("waiting").sort((a, b) => tsOr(a.waiting_since ?? a.last_inbound_at, Infinity) - tsOr(b.waiting_since ?? b.last_inbound_at, Infinity));
+  const work = by("work").sort((a, b) => tsOr(a.work_since, Infinity) - tsOr(b.work_since, Infinity));
+  const recent = by("recent").sort((a, b) => tsOr(b.last_message_at, 0) - tsOr(a.last_message_at, 0));
+  if (opts.filter === "waiting") return { waiting, work: [] as T[], recent: [] as T[] };
+  if (opts.filter === "work") return { waiting: [] as T[], work, recent: [] as T[] };
+  return { waiting, work, recent };
+}

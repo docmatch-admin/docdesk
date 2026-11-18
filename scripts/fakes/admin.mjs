@@ -128,7 +128,7 @@ function refreshBookingPending() {
 
 function query(name) {
   const filters = [];
-  let op = "select", payload = null, conflict = null, sort = null, max = Infinity;
+  let op = "select", payload = null, conflict = null, sort = null, max = Infinity, skip = 0;
   const sorts = [];
   const rows = () => {
     const table = (state.tables[name] ??= []);
@@ -141,7 +141,7 @@ function query(name) {
       };
       out = [...out].sort((a, b) => { for (const o of sorts) { const c = cmp(a[o.key], b[o.key]) * o.dir; if (c) return c; } return 0; });
     } else if (sort) out = [...out].sort((a, b) => (Date.parse(a[sort.key]) - Date.parse(b[sort.key])) * sort.dir);
-    return out.slice(0, max);
+    return out.slice(skip, skip + max);
   };
   const run = () => {
     const table = (state.tables[name] ??= []);
@@ -210,6 +210,7 @@ function query(name) {
         op === "is" ? (r[col] ?? null) === null
         : op === "not" ? (r[col] ?? null) !== null
         : op === "gt" ? (r[col] ?? 0) > Number(value)
+        : op === "eq" ? String(r[col] ?? (value === "false" ? false : "")) === value
         : r[col] != null && Date.parse(r[col]) < Date.parse(value)));
       return b;
     },
@@ -224,7 +225,7 @@ function query(name) {
     like(k, v) { const prefix = v.replace(/%$/, ""); filters.push((r) => String(r[k]).startsWith(prefix)); return b; },
     order(key, o) { sort = { key, dir: o?.ascending === false ? -1 : 1 }; sorts.push(sort); return b; },
     limit(n) { max = n; return b; },
-    range(a, z) { max = z - a + 1; return b; },
+    range(a, z) { skip = a; max = z - a + 1; return b; },
     async single() { return { data: run()[0] ?? null, error: null }; },
     async maybeSingle() { return { data: run()[0] ?? null, error: null }; },
     then(resolve) { const data = run(); return resolve({ data, error: null, count: data.length }); },

@@ -533,3 +533,106 @@ test("หน้าแชทไม่ยิงซ้ำ: realtime แก้เฉ
     assert.match(readFileSync(`src/app/(staff)/inbox/${f}.tsx`, "utf8"), /chatBundle\(conversationId\)/, f);
   }
 });
+
+// ---------------------------------------------------------------------------
+// รอบ 2: /api/inbox/list (server ดึงครั้งเดียว ทีละหน้า) + migration 063
+// ---------------------------------------------------------------------------
+const list = await import("../src/lib/inbox-list.ts");
+const listRoute = await import("../src/app/api/inbox/list/route.ts");
+function queueDb(rows) {
+  resetDb({
+    staff: [{ id: "me", role: "agent", active: true, display_name: "ฉัน", must_change_password: false }],
+    conversations: rows.map((r) => ({ archived: false, tags: [], status: "open", ...r })),
+    bookings: [], appointments: [], lab_results: [], chat_tasks: [], patient_links: [],
+  });
+  state.currentUser = { id: "me" };
+}
+const getList = async (qs) => (await listRoute.GET(new Request(`https://app.test/api/inbox/list?${qs}`))).json();
+
+test("queueSections: ช่วงจากแถว (รอตอบตัดสินจากแถวเอง · ตอบแล้วยังไม่รู้งาน = ล่าสุด) + เรียงเหมือนเดิม + ของฉัน", () => {
+  const rows = [
+    { id: "w2", status: "open", last_direction: "in", waiting_since: "2026-11-19T02:00:00Z", queue: "waiting" },
+    { id: "w1", status: "open", last_direction: "in", waiting_since: "2026-11-19T01:00:00Z", queue: "waiting" },
+    { id: "k2", status: "open", last_direction: "out", work_since: "2026-11-18T02:00:00Z", queue: "work", assigned_to: "me" },
+    { id: "k1", status: "closed", last_direction: "out", work_since: "2026-11-18T01:00:00Z", queue: "work" },
+    { id: "r1", status: "closed", last_direction: "out", last_message_at: "2026-11-19T03:00:00Z", queue: "recent" },
+    // เพิ่งตอบในเครื่องนี้ (server ยังไม่บอกช่วงใหม่)
+    { id: "x", status: "open", last_direction: "out", last_message_at: "2026-11-19T04:00:00Z", queue: "waiting" },
+  ];
+  const s = flow.queueSections(rows);
+  assert.deepEqual(s.waiting.map((r) => r.id), ["w1", "w2"]);
+  assert.deepEqual(s.work.map((r) => r.id), ["k1", "k2"]);
+  assert.deepEqual(s.recent.map((r) => r.id), ["x", "r1"]);
+  assert.deepEqual(flow.queueSections(rows, { filter: "mine", meId: "me" }).work.map((r) => r.id), ["k2"]);
+  assert.deepEqual(flow.queueSections(rows, { filter: "waiting" }).recent, []);
+});
+
+test("/api/inbox/list (มี migration 063): ทีละหน้า ข้ามช่วง รอตอบ → งานค้าง → ล่าสุด · ตัวเลข/badge · แถวเดียวด้วย id · Server-Timing", async () => {
+  queueDb([
+    { id: "w1", last_direction: "in", queue: "waiting", sort_key: "2026-11-19T01:00:00Z" },
+    { id: "w2", last_direction: "in", queue: "waiting", sort_key: "2026-11-19T02:00:00Z" },
+    { id: "k1", last_direction: "out", queue: "work", work_kind: "booking", work_label: "ยืนยันนัด 20 พ.ย. 09:00", sort_key: "2026-11-18T01:00:00Z", assigned_to: "me" },
+    { id: "r1", status: "closed", last_direction: "out", queue: "recent", sort_key: "2026-11-19T05:00:00Z" },
+    { id: "r2", status: "closed", last_direction: "out", queue: "recent", sort_key: "2026-11-19T04:00:00Z", archived: true },
+  ]);
+  list.resetInboxListCache(true);
+  const p1 = await getList("limit=3");
+  assert.equal(p1.mode, "queue");
+  assert.deepEqual(p1.rows.map((r) => r.id), ["w1", "w2", "k1"]);
+  assert.equal(p1.rows[2].work_label, "ยืนยันนัด 20 พ.ย. 09:00");
+  assert.equal(p1.next, "recent:0");
+  assert.deepEqual(p1.counts, { waiting: 2, work: 1 });
+  assert.deepEqual(p1.badge, { waiting: 2, work: 1, total: 3 });
+  const p2 = await getList(`limit=3&cursor=${p1.next}`);
+  assert.deepEqual(p2.rows.map((r) => r.id), ["r1", "r2"], "แชทเก่าที่ปิดแล้วอยู่ช่วงล่าสุด");
+  assert.equal(p2.next, null);
+  const p3 = await getList("limit=1&cursor=waiting:1");
+  assert.deepEqual(p3.rows.map((r) => r.id), ["w2"]);
+  assert.equal(p3.next, "work:0");
+  assert.deepEqual((await getList("filter=work")).rows.map((r) => r.id), ["k1"]);
+  assert.deepEqual((await getList("filter=mine")).rows.map((r) => r.id), ["k1"]);
+  assert.deepEqual((await getList("id=r1")).rows.map((r) => r.id), ["r1"]);
+  const res = await listRoute.GET(new Request("https://app.test/api/inbox/list"));
+  const timing = res.headers.get("Server-Timing") ?? "";
+  for (const k of ["auth", "rows", "counts", "total"]) assert.match(timing, new RegExp(`${k};dur=`), k);
+  list.resetInboxListCache();
+});
+
+test("/api/inbox/list (ยังไม่ได้รัน 063): คำนวณกติกาเดิมที่ server ใน request เดียว · แถวบอกช่วง + ป้ายงานค้าง", async () => {
+  queueDb([
+    { id: "w1", last_direction: "in", waiting_since: "2026-11-19T01:00:00Z", last_message_at: "2026-11-19T01:00:00Z" },
+    { id: "k1", last_direction: "out", last_message_at: "2026-11-19T02:00:00Z" },
+    { id: "r1", status: "closed", last_direction: "out", last_message_at: "2026-11-19T03:00:00Z" },
+  ]);
+  state.tables.bookings = [{ conversation_id: "k1", status: "ai_confirmed", created_at: "2026-11-18T00:00:00Z", date: "2026-11-20", time: "09:00:00" }];
+  list.resetInboxListCache(false);
+  const j = await getList("limit=2");
+  assert.equal(j.mode, "compute");
+  assert.deepEqual(j.rows.map((r) => [r.id, r.queue]), [["w1", "waiting"], ["k1", "work"]]);
+  assert.equal(j.rows[1].work_label, "ยืนยันนัด 20 พ.ย. 09:00");
+  assert.equal(j.next, "recent:0");
+  assert.deepEqual(j.counts, { waiting: 1, work: 1 });
+  assert.deepEqual((await getList(`cursor=${j.next}`)).rows.map((r) => r.id), ["r1"]);
+  list.resetInboxListCache();
+});
+
+test("migration 063: คอลัมน์ queue + trigger ทุกตารางที่เป็นที่มาของงานค้าง + index + ป้ายเหมือน workLabel + ค้นหาใช้ trigram", async () => {
+  const { readFileSync } = await import("node:fs");
+  const sql = readFileSync("supabase/migrations/063_inbox_queue_columns.sql", "utf8");
+  for (const col of ["queue", "work_kind", "work_label", "work_since", "sort_key", "ai_review_at"]) {
+    assert.match(sql, new RegExp(`add column if not exists ${col} `), col);
+  }
+  for (const t of ["bookings", "chat_tasks", "patient_links", "appointments", "lab_results"]) {
+    assert.match(sql, new RegExp(`create trigger ${t}_queue after insert or delete or update`), t);
+  }
+  assert.match(sql, /create trigger conversations_queue_upd before update on conversations/);
+  assert.match(sql, /conversations \(queue, sort_key, id\)/);
+  assert.match(sql, /where queue = 'waiting'/);
+  assert.match(sql, /where queue = 'work'/);
+  // ป้ายเหมือนหน้าเว็บ (case-flow.workLabel)
+  for (const label of ["'ยืนยันนัด'", "'ขอเลื่อนนัด'", "' → '", "'ส่งไม่สำเร็จ'", "'งานทีม '", "'AI ตอบแล้ว รอตรวจ'"]) assert.ok(sql.includes(label), label);
+  assert.match(sql, /'ม\.ค\.','ก\.พ\.'.*'พ\.ย\.','ธ\.ค\.'/);
+  assert.match(sql, /gin_trgm_ops/);
+  assert.match(sql, /hits as \(/);
+  assert.match(sql, /update conversations set queue_touch_at = now\(\);/, "backfill");
+});

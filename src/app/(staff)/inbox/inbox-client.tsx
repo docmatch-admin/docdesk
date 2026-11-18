@@ -7,7 +7,8 @@ import { useLiveChannel } from "@/lib/use-live-channel";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
 import { staffInitial } from "@/lib/assignment";
-import { inboxSections, isWaitingForReply, nextOpenChat, topWork, waitBadge, workLabel, type InboxFilter, type WorkMap } from "@/lib/case-flow";
+import { isWaitingForReply, nextOpenChat, queueOf, queueSections, waitBadge, type InboxFilter, type InboxSection } from "@/lib/case-flow";
+import type { InboxListResult, QueueRow } from "@/lib/inbox-list";
 import { SENSITIVE_TAG } from "@/lib/sensitive-rules";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { formatFileSize, isPdfName, MAX_FILE_BYTES } from "@/lib/files";
@@ -34,17 +35,18 @@ import {
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
 } from "@/lib/types";
 
-const CONV_COLUMNS = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source, patient_relation, name_locked), channels(type, name, ai_mode)";
-/** realtime เปลี่ยนติดกันหลายครั้ง → ถามงานค้าง/ตัวเลข badge ใหม่ครั้งเดียว */
+/** ยังไม่ได้รัน migration 063: realtime เปลี่ยนติดกันหลายครั้ง → ถามรายการหน้าแรกใหม่ครั้งเดียว */
 const WORK_DEBOUNCE_MS = 2_000;
+/** แถวต่อหน้า (เลื่อนลงสุด = โหลดหน้าถัดไป) */
+const PAGE_SIZE = 50;
 /** โหลดรายการทั้งก้อนใหม่ไม่บ่อยกว่านี้ (นอกจากเปลี่ยนตัวกรอง/ค้นหา) — ระหว่างนั้น realtime แก้เฉพาะแถว */
 const FULL_RELOAD_MS = 55_000;
 /** ฟิลด์ที่ทำให้แชทย้ายช่วง หรือมีงานค้างเปลี่ยน */
 const QUEUE_FIELDS = ["status", "last_direction", "booking_pending", "open_tasks", "ai_review_at", "archived"] as const;
-type ConvPatch = Partial<Conversation> & { ai_review_at?: string | null };
+type ConvPatch = Partial<QueueRow> & { ai_review_at?: string | null };
 
 /** รวมแถวใหม่เข้ารายการ (id ซ้ำ = แทนที่) */
-const mergeRows = (prev: Conversation[], rows: Conversation[]) => {
+const mergeRows = (prev: QueueRow[], rows: QueueRow[]) => {
   const byId = new Map(prev.map((c) => [c.id, c]));
   for (const r of rows) byId.set(r.id, r);
   return [...byId.values()];
@@ -78,11 +80,17 @@ const IMAGE_LOADING_MAX_MS = 2 * 60 * 1000;
 export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent"; displayName: string; canViewSensitive: boolean; sensitiveAcked: boolean } }) {
   const isAdmin = me.role === "admin";
   const sb = useMemo(() => supabaseBrowser(), []);
-  const [convs, setConvs] = useState<Conversation[]>([]);
+  const [convs, setConvs] = useState<QueueRow[]>([]);
   // รายการเดียวแบบคิวงาน 3 ช่วง (รอตอบ / งานค้าง / ล่าสุด) · ปุ่มกรอง ทั้งหมด / รอตอบ / งานค้าง / ของฉัน
   const [qfilter, setQfilter] = useState<InboxFilter>("all");
-  const [work, setWork] = useState<WorkMap>({});
-  const convsRef = useRef<Conversation[]>([]);
+  // ตัวเลขปุ่มกรอง (ทั้งหมดใน server ไม่ใช่แค่ที่โหลดมา) · หน้าถัดไป · โหมดของ server (queue = migration 063)
+  const [qcounts, setQcounts] = useState({ waiting: 0, work: 0 });
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const modeRef = useRef<InboxListResult["mode"]>("queue");
+  const badgeRef = useRef({ waiting: 0, work: 0, total: 0 });
+  const qfilterRef = useRef<InboxFilter>("all");
+  qfilterRef.current = qfilter;
+  const convsRef = useRef<QueueRow[]>([]);
   convsRef.current = convs;
   // หน้าแชทเป็นเจ้าของตัวเลข badge เมนูแชท (badge ไม่ยิงเองซ้ำ)
   useChatCountsOwner();
@@ -170,105 +178,109 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   }, [tagKey, loadTagSources]);
 
   // ---------- โหลดรายการแชท ----------
-  // โหลดทั้งก้อน: เปิดหน้า · เปลี่ยนตัวกรอง/ค้นหา · ทุก ~60 วิ (สำรอง realtime) — นอกนั้น realtime แก้เฉพาะแถวที่เปลี่ยน
+  // server ดึงครั้งเดียวต่อหน้า (/api/inbox/list ทีละ 50 แถว) · โหลดทั้งก้อน: เปิดหน้า · เปลี่ยนตัวกรอง/ค้นหา · ทุก ~60 วิ
+  // นอกนั้น realtime แก้เฉพาะแถวที่เปลี่ยน (แถวบอกช่วงของตัวเองมาด้วย)
   const lastFull = useRef(0);
+  const fetchList = useCallback(async (extra: Record<string, string>) => {
+    const u = new URLSearchParams({ filter: qfilterRef.current, ...extra });
+    const term = searchRef.current.trim();
+    if (term) u.set("q", term);
+    if (tagFilterRef.current.length) u.set("tags", tagFilterRef.current.join(","));
+    return (await fetch(`/api/inbox/list?${u}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)) as InboxListResult | null;
+  }, []);
+  const applyCounts = useCallback((j: InboxListResult) => {
+    modeRef.current = j.mode;
+    setQcounts(j.counts);
+    badgeRef.current = j.badge;
+    publishChatCounts(j.badge);
+  }, []);
   const loadConvs = useCallback(async () => {
-    // กรองที่ฐานข้อมูล ไม่อย่างนั้นจะเห็นแค่ใน 200 แชทล่าสุด
     const seq = ++loadSeq.current;
     lastFull.current = Date.now();
-    const term = searchRef.current.trim();
-    const matched = term
-      ? (((await sb.rpc("search_conversations", { p_query: term })).data ?? []) as { id: string }[]).map((r) => r.id)
-      : null;
-    // แยกดึงแต่ละช่วง แชทจำนวนมากในช่วงหนึ่งจะได้ไม่เบียดอีกช่วงออกจาก 200 แถวแรก (ไม่นับจำนวน: ตัวเลขมาจาก /api/inbox/work)
-    const base = (status: "open" | "closed") => {
-      // แชทเก่าปิดอยู่เสมอ จึงอยู่ในเสร็จแล้วเท่านั้น
-      let query = sb.from("conversations").select(CONV_COLUMNS).eq("status", status);
-      if (status === "open") query = query.eq("archived", false);
-      if (matched) query = query.in("id", matched);
-      return tagFilterRef.current.length ? query.contains("tags", tagFilterRef.current) : query;
-    };
-    const workReq = fetch("/api/inbox/work").then((r) => (r.ok ? r.json() : { work: {} })).catch(() => ({ work: {} })) as Promise<{ work?: WorkMap; counts?: ChatCounts }>;
-    const [waiting, open_, closed, workRes] = await Promise.all([
-      base("open").eq("last_direction", "in").order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
-      base("open").order("last_message_at", { ascending: false }).limit(200),
-      // แชทที่เสร็จแล้วอยู่ในรายการเดียวกัน เรียงตามข้อความล่าสุด (ค้นหาได้เสมอ)
-      base("closed").order("last_message_at", { ascending: false, nullsFirst: false }).limit(200),
-      workReq,
-    ]);
-    if (seq !== loadSeq.current) return; // ผลของการค้นหาเก่าที่ตอบช้าต้องไม่ทับผลล่าสุด
-    const asRows = (r: { data: unknown }) => (r.data ?? []) as Conversation[];
-    // แชทที่มีงานค้างแต่ไม่อยู่ใน 200 แถวล่าสุด: ดึงเพิ่มด้วยตัวกรองเดียวกัน
-    const workMap = workRes.work ?? {};
-    const loaded = new Set([...asRows(waiting), ...asRows(open_), ...asRows(closed)].map((c) => c.id));
-    const missing = Object.keys(workMap).filter((id) => !loaded.has(id)).slice(0, 200);
-    let extra: Conversation[] = [];
-    if (missing.length) {
-      let q = sb.from("conversations").select(CONV_COLUMNS).in("id", missing);
-      if (tagFilterRef.current.length) q = q.contains("tags", tagFilterRef.current);
-      extra = ((await q).data ?? []) as unknown as Conversation[];
-      if (matched) extra = extra.filter((c) => matched.includes(c.id));
-    }
-    if (seq !== loadSeq.current) return;
-    setWork(workMap);
-    if (workRes.counts) publishChatCounts(workRes.counts);
-    const rows = [...new Map([...asRows(waiting), ...asRows(open_), ...asRows(closed), ...extra].map((c) => [c.id, c])).values()];
-    setConvs(rows);
+    // โหลดใหม่เท่าที่เลื่อนดูไว้แล้ว (ไม่เด้งกลับขึ้นบน)
+    const limit = Math.min(200, Math.max(PAGE_SIZE, convsRef.current.length));
+    const j = await fetchList({ limit: String(limit) });
+    if (!j || seq !== loadSeq.current) return; // ผลของการค้นหาเก่าที่ตอบช้าต้องไม่ทับผลล่าสุด
+    applyCounts(j);
+    setConvs(j.rows);
+    setNextCursor(j.next);
     const open = selectedRef.current;
-    if (open && !rows.some((c) => c.id === open)) {
-      const { data: one } = await sb.from("conversations").select(CONV_COLUMNS).eq("id", open).maybeSingle();
-      setOpenConv((one as Conversation | null) ?? null);
+    if (open && !j.rows.some((c) => c.id === open)) {
+      const one = await fetchList({ id: open });
+      setOpenConv((one?.rows[0] as Conversation | undefined) ?? null);
     }
-  }, [sb]);
+  }, [fetchList, applyCounts]);
 
-  // งานค้าง + ตัวเลข badge (request เดียว ใช้ร่วมกัน) · หน่วงรวมการเปลี่ยนแปลงติดกัน
+  // เลื่อนลงสุด: หน้าถัดไป
+  const loadingMore = useRef(false);
+  const loadMore = useCallback(async () => {
+    if (!nextCursor || loadingMore.current) return;
+    loadingMore.current = true;
+    const seq = loadSeq.current;
+    const j = await fetchList({ cursor: nextCursor, limit: String(PAGE_SIZE) });
+    loadingMore.current = false;
+    if (!j || seq !== loadSeq.current) return;
+    setConvs((prev) => mergeRows(prev, j.rows));
+    setNextCursor(j.next);
+  }, [nextCursor, fetchList]);
+  const moreRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = moreRef.current;
+    if (!el || !nextCursor) return;
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) loadMore(); }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [nextCursor, loadMore]);
+
+  // ยังไม่ได้รัน migration 063: งานค้างคำนวณที่ server ตอนขอรายการ → ขอหน้าแรกใหม่ (รวมการเปลี่ยนแปลงติดกัน)
+  // มี 063 แล้ว: trigger คำนวณช่วงใหม่ลงแถว realtime ส่งมาเอง ไม่ต้องขออะไรเพิ่ม
   const workTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const refreshWork = useCallback(async () => {
-    const j = (await fetch("/api/inbox/work").then((r) => (r.ok ? r.json() : null)).catch(() => null)) as { work?: WorkMap; counts?: ChatCounts } | null;
-    if (!j?.work) return;
-    const workMap = j.work;
-    setWork(workMap);
-    if (j.counts) publishChatCounts(j.counts);
-    // แชทที่เพิ่งมีงานค้างแต่ยังไม่อยู่ในรายการ (ค้นหาอยู่ = รอรอบโหลดเต็ม)
-    const have = new Set(convsRef.current.map((c) => c.id));
-    const missing = Object.keys(workMap).filter((id) => !have.has(id)).slice(0, 50);
-    if (!missing.length || searchRef.current.trim()) return;
-    let q = sb.from("conversations").select(CONV_COLUMNS).in("id", missing);
-    if (tagFilterRef.current.length) q = q.contains("tags", tagFilterRef.current);
-    const { data } = await q;
-    if (data?.length) setConvs((prev) => mergeRows(prev, data as unknown as Conversation[]));
-  }, [sb]);
   const scheduleWork = useCallback(() => {
+    if (modeRef.current === "queue") return;
     if (workTimer.current) clearTimeout(workTimer.current);
-    workTimer.current = setTimeout(() => { workTimer.current = null; refreshWork(); }, WORK_DEBOUNCE_MS);
-  }, [refreshWork]);
+    workTimer.current = setTimeout(async () => {
+      workTimer.current = null;
+      const seq = loadSeq.current;
+      const j = await fetchList({ limit: String(PAGE_SIZE) });
+      if (!j || seq !== loadSeq.current) return;
+      applyCounts(j);
+      setConvs((prev) => mergeRows(prev, j.rows));
+    }, WORK_DEBOUNCE_MS);
+  }, [fetchList, applyCounts]);
   useEffect(() => () => { if (workTimer.current) clearTimeout(workTimer.current); }, []);
+
+  // แถวย้ายช่วง: ปรับตัวเลขปุ่มกรอง + badge ในเครื่องทันที (รอบโหลดเต็มถัดไปแก้ให้ตรงอีกที)
+  const shiftCount = useCallback((from: InboxSection, to: InboxSection) => {
+    if (from === to) return;
+    const d = (k: "waiting" | "work", c: { waiting: number; work: number }) => (from === k ? -1 : 0) + (to === k ? 1 : 0) + c[k];
+    setQcounts((c) => ({ waiting: Math.max(0, d("waiting", c)), work: Math.max(0, d("work", c)) }));
+    const b = badgeRef.current;
+    const nb = { waiting: Math.max(0, d("waiting", b)), work: Math.max(0, d("work", b)) };
+    badgeRef.current = { ...nb, total: nb.waiting + nb.work };
+    publishChatCounts(badgeRef.current);
+  }, []);
 
   /** แก้แถวในหน้าจอทันที (การกระทำในเครื่องนี้ / realtime) ไม่ต้องโหลดรายการใหม่ */
   const patchLocal = useCallback((id: string, patch: ConvPatch) => {
     const cur = convsRef.current.find((c) => c.id === id);
-    const apply = (c: Conversation) => ({ ...c, ...patch, contacts: patch.contacts ?? c.contacts, channels: c.channels }) as Conversation;
+    const apply = <R extends Conversation>(c: R) => ({ ...c, ...patch, contacts: patch.contacts ?? c.contacts, channels: c.channels }) as R;
+    if (cur) {
+      const next = apply(cur);
+      convsRef.current = convsRef.current.map((c) => (c.id === id ? next : c));
+      shiftCount(queueOf(cur), queueOf(next));
+    }
     setConvs((prev) => prev.map((c) => (c.id === id ? apply(c) : c)));
     setOpenConv((o) => (o?.id === id ? apply(o) : o));
-    if ("ai_review_at" in patch) {
-      setWork((w) => {
-        const items = (w[id] ?? []).filter((i) => i.kind !== "ai_review");
-        if (patch.ai_review_at) items.push({ kind: "ai_review", since: patch.ai_review_at });
-        if (items.length === (w[id]?.length ?? 0) && !patch.ai_review_at) return w;
-        const next = { ...w };
-        if (items.length) next[id] = items; else delete next[id];
-        return next;
-      });
-    }
     if (cur && queueChanged(cur, patch)) scheduleWork();
-  }, [scheduleWork]);
+  }, [scheduleWork, shiftCount]);
 
   // realtime ของ conversations: แก้เฉพาะแถวที่เปลี่ยน ห้ามโหลดทั้งก้อน
   const fetchingRow = useRef(new Set<string>());
   const onConvChange = useCallback((p: { eventType?: string; new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
     if (p.eventType === "DELETE") {
       const id = p.old?.id as string | undefined;
-      if (id) { setConvs((prev) => prev.filter((c) => c.id !== id)); scheduleWork(); }
+      const cur = id ? convsRef.current.find((c) => c.id === id) : null;
+      if (id && cur) { setConvs((prev) => prev.filter((c) => c.id !== id)); shiftCount(queueOf(cur), "recent"); }
       return;
     }
     const n = (p.new ?? {}) as ConvPatch & { id?: string };
@@ -280,7 +292,9 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       const next = { ...cur, ...n };
       // แชทเปิดที่ถูกย้ายเป็นแชทเก่า / ไม่ตรงแท็กที่กรองแล้ว: เอาออก (แชทที่เปิดดูอยู่ไม่ปิดกะทันหัน)
       if (id !== selectedRef.current && ((next.status === "open" && next.archived) || !tagsOk(next.tags))) {
+        convsRef.current = convsRef.current.filter((c) => c.id !== id);
         setConvs((prev) => prev.filter((c) => c.id !== id));
+        shiftCount(queueOf(cur), "recent");
         if (queueChanged(cur, n)) scheduleWork();
         return;
       }
@@ -288,15 +302,19 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       return;
     }
     setOpenConv((o) => (o?.id === id ? ({ ...o, ...n, contacts: o.contacts, channels: o.channels } as Conversation) : o));
-    // แชทใหม่ / ยังไม่อยู่ในรายการ: ดึงแถวเดียว (ค้นหาอยู่ = รอรอบโหลดเต็ม)
+    // แชทใหม่ / ยังไม่อยู่ในรายการ: ขอแถวเดียว (ได้ตัวเลขล่าสุดมาด้วย) · ค้นหาอยู่ = รอรอบโหลดเต็ม
     if (searchRef.current.trim() || !tagsOk(n.tags) || (n.status === "open" && n.archived) || fetchingRow.current.has(id)) return;
+    if (qfilterRef.current === "mine" && n.assigned_to !== me.id) return;
+    // ช่วงล่าสุดที่ยังเลื่อนไม่ถึง: ไม่ต้องดึงมาแทรก
+    if (n.queue === "recent" && !(n.status === "open" && n.last_direction === "in") && nextCursor) return;
     fetchingRow.current.add(id);
-    sb.from("conversations").select(CONV_COLUMNS).eq("id", id).maybeSingle().then(({ data }) => {
+    fetchList({ id }).then((j) => {
       fetchingRow.current.delete(id);
-      if (data) setConvs((prev) => mergeRows(prev, [data as unknown as Conversation]));
+      if (!j) return;
+      applyCounts(j);
+      if (j.rows.length) setConvs((prev) => mergeRows(prev, j.rows));
     });
-    scheduleWork();
-  }, [sb, patchLocal, scheduleWork]);
+  }, [patchLocal, scheduleWork, shiftCount, fetchList, applyCounts, nextCursor, me.id]);
 
   const loadBookings = useCallback(async (convId: string) => {
     const { data } = await sb.from("bookings").select('id, service, "date", "time", name, phone, status')
@@ -310,7 +328,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     setTags((data ?? []) as Tag[]);
   }, [sb]);
 
-  useEffect(() => { loadConvs(); }, [tagFilter, loadConvs]);
+  useEffect(() => { loadConvs(); }, [tagFilter, qfilter, loadConvs]);
 
   // แถวที่ไม่มีสิทธิ์ไม่ส่ง realtime มาให้ จึงต้องถามซ้ำเอง
   useEffect(() => {
@@ -793,8 +811,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
   const allRows = convs;
-  const sections = useMemo(() => inboxSections(allRows, work, { filter: qfilter, meId: me.id }), [allRows, work, qfilter, me.id]);
-  const totals = useMemo(() => inboxSections(allRows, work), [allRows, work]);
+  const sections = useMemo(() => queueSections(allRows, { filter: qfilter, meId: me.id }), [allRows, qfilter, me.id]);
   // แชทลับที่คนไม่มีสิทธิ์มองไม่เห็นชื่อ แต่ต้องรู้ว่ามีคนรอ (นับในช่วงรอตอบ)
   const showMasked = qfilter === "all" || qfilter === "waiting";
   useEffect(() => { setMtab("chat"); setApptSummary(null); setNoteCount(0); }, [selectedId]);
@@ -837,8 +854,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         <div className="q-filters" role="group" aria-label="กรองแชท">
           {([
             ["all", "ทั้งหมด", 0],
-            ["waiting", "รอตอบ", totals.waiting.length + maskedWaiting.length],
-            ["work", "งานค้าง", totals.work.length],
+            ["waiting", "รอตอบ", qcounts.waiting + maskedWaiting.length],
+            ["work", "งานค้าง", qcounts.work],
             ["mine", "ของฉัน", 0],
           ] as [InboxFilter, string, number][]).map(([key, label, n]) => (
             <button key={key} type="button" aria-pressed={qfilter === key} className={`q-filter ${key} ${qfilter === key ? "on" : ""}`} onClick={() => setQfilter(key)}>
@@ -866,10 +883,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           if (qfilter === "waiting" && sec !== "waiting") return null;
           if (qfilter === "work" && sec !== "work") return null;
           const title = sec === "waiting" ? "รอตอบ" : sec === "work" ? "งานค้าง" : "ล่าสุด";
-          const n = rows.length + masked.length;
+          // ตัวเลขทั้งหมดใน server (โหลดมาทีละหน้า) · ล่าสุด = ที่โหลดแล้ว + "+" ถ้ายังมีอีก
+          const n = qfilter !== "mine" && sec !== "recent" ? Math.max(qcounts[sec], rows.length) + masked.length : rows.length + masked.length;
+          const more = sec === "recent" && !!nextCursor ? "+" : "";
           return (
             <section key={sec} className={`q-section ${sec}`} aria-label={title}>
-              <h3 className="q-head">{title} <span className="q-count">{n}</span></h3>
+              <h3 className="q-head">{title} <span className="q-count">{n}{more}</span></h3>
               {masked.map((m) => (
                 <div key={m.key} className="conv q-row masked" aria-label="แชทลับรอตอบ">
                   <span className="conv-avatar"><div className="avatar">🔒</div></span>
@@ -883,7 +902,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 <div className="q-empty">{sec === "waiting" ? "🎉 ตอบครบแล้ว" : sec === "work" ? "ไม่มีงานค้าง" : search.trim() || tagFilter.length ? "ไม่พบแชทที่ตรงกับการค้นหา" : "ยังไม่มีแชท"}</div>
               )}
               {rows.map((c) => {
-                const top = sec === "work" ? topWork(work[c.id]) : null;
+                const top = sec === "work" && c.work_label ? { kind: c.work_kind ?? "", label: c.work_label } : null;
                 const hn = c.contacts?.hn ? String(c.contacts.hn).replace(/^0+/, "") : null;
                 return (
                   <button key={c.id} type="button" className={`conv q-row ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""}`}
@@ -903,7 +922,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                       {/* บรรทัด 2: สิ่งที่ต้องทำ + แท็กของแชท (เกินตัดทิ้ง ไม่ขึ้นบรรทัดใหม่) */}
                       <div className="q-line2">
                         {sec === "waiting" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
-                        {top && <span className={`chip q-work ${top.kind}`}>{workLabel(top)}</span>}
+                        {top && <span className={`chip q-work ${top.kind}`}>{top.label}</span>}
                         {sec === "recent" && c.status === "closed" && <span className="chip done-chip">เสร็จ</span>}
                         {c.tags.map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
                       </div>
@@ -914,6 +933,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             </section>
           );
         })}
+        {/* เลื่อนถึงตรงนี้ = โหลดหน้าถัดไป */}
+        {nextCursor && <div ref={moreRef} className="q-more muted small">กำลังโหลด…</div>}
       </aside>
 
       {/* ---------- ห้องแชท + กล่องทีม ---------- */}

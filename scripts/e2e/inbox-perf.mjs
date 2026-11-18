@@ -105,6 +105,15 @@ window.__db = {
   messages: [...Array(40)].map((_, i) => ({ id: "m" + i, conversation_id: "c0", direction: i % 2 ? "out" : "in", body: "ข้อความ " + i, body_th: null, created_at: iso(120 - i), sender_type: i % 2 ? "staff" : "customer", imported: false })),
   tags: [], staff: [{ id: "me", display_name: "ฉัน", active: true, role: "admin" }], settings: [], quick_media: [], suggestions: [], bookings: [], assignment_log: [], chat_tasks: [], chat_notes: [],
 };
+// /api/inbox/list (รอบ 2): server ตอบแถวพร้อมช่วง (queue) + ตัวเลข
+window.__inboxList = (url) => {
+  const all = window.__db.conversations.map((c) => ({ ...c, queue: c.status === "open" && c.last_direction === "in" ? "waiting" : "recent" }));
+  const counts = { waiting: all.filter((c) => c.queue === "waiting").length, work: 0 };
+  const badge = { ...counts, total: counts.waiting };
+  const id = url.searchParams.get("id");
+  if (id) return { rows: all.filter((c) => c.id === id), next: null, counts, badge, mode: "queue" };
+  return { rows: all.slice(0, Number(url.searchParams.get("limit") || 50)), next: null, counts, badge, mode: "queue" };
+};
 window.__req = [];
 const json = (b) => new Response(JSON.stringify(b), { status: 200, headers: { "Content-Type": "application/json" } });
 window.fetch = async (input, init) => {

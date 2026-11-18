@@ -123,10 +123,12 @@ test("แถบถามรวมประวัติไม่ถูกซ่�
 });
 
 // ---- ตัวกรองของฉัน (รายการแบบคิวงาน) ----
-test("ของฉัน: เฉพาะแชทที่มอบหมายให้ฉัน ทั้ง 3 ช่วง (กรองในหน้า ไม่ตัดแชทออกตอนดึง)", () => {
+test("ของฉัน: เฉพาะแชทที่มอบหมายให้ฉัน ทั้ง 3 ช่วง (server กรองตอนดึงทีละหน้า + หน้าจอกรองซ้ำหลัง realtime)", () => {
   const src = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
-  assert.match(src, /inboxSections\(allRows, work, \{ filter: qfilter, meId: me\.id \}\)/);
+  assert.match(src, /queueSections\(allRows, \{ filter: qfilter, meId: me\.id \}\)/);
   assert.doesNotMatch(src, /assigned_to\.eq\.\$\{me\.id\}/);
+  const server = readFileSync("src/lib/inbox-list.ts", "utf8");
+  assert.match(server, /if \(p\.filter === "mine"\) q = q\.eq\("assigned_to", p\.meId\);/);
 });
 
 test("ตัวกรองเริ่มที่ทุกคน และไม่จำค่าของฉันไว้", () => {
