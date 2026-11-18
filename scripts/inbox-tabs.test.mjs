@@ -429,9 +429,9 @@ test("งานค้างจากฐานข้อมูล: ยืนยั
       { id: "c-wait", status: "open", last_direction: "in", archived: false },
       { id: "c-none", status: "open", last_direction: "out", archived: false },
     ],
-    bookings: [{ conversation_id: "c-book", status: "ai_confirmed", created_at: "2026-11-18T01:00:00Z" }, { conversation_id: "c-none", status: "recorded", created_at: "2026-11-18T01:00:00Z" }],
+    bookings: [{ conversation_id: "c-book", status: "ai_confirmed", created_at: "2026-11-18T01:00:00Z", date: "2026-11-20", time: "09:00:00" }, { conversation_id: "c-none", status: "recorded", created_at: "2026-11-18T01:00:00Z" }],
     appointments: [
-      { hn: "000000111", conversation_id: null, status: "reschedule_requested", appoint_date: day, called_at: null, last_send_error: null, updated_at: "2026-11-18T02:00:00Z" },
+      { hn: "000000111", conversation_id: null, status: "reschedule_requested", appoint_date: day, called_at: null, last_send_error: null, updated_at: "2026-11-18T02:00:00Z", reschedule_request: { date: "2026-11-25" } },
       { hn: null, conversation_id: "c-fail", status: "scheduled", appoint_date: day, called_at: null, last_send_error: "ส่งไม่ได้", updated_at: "2026-11-18T02:00:00Z" },
       { hn: null, conversation_id: "c-none", status: "scheduled", appoint_date: day, called_at: null, last_send_error: null, updated_at: "2026-11-18T02:00:00Z" },
     ],
@@ -443,6 +443,8 @@ test("งานค้างจากฐานข้อมูล: ยืนยั
   const kinds = (id) => (w[id] ?? []).map((i) => i.kind);
   assert.deepEqual(kinds("c-book"), ["booking"]);
   assert.deepEqual(kinds("c-res"), ["reschedule"]);
+  assert.equal(flow.workLabel(w["c-book"][0]), "ยืนยันนัด 20 พ.ย. 09:00");
+  assert.equal(flow.workLabel(w["c-res"][0]), "ขอเลื่อนนัด → 25 พ.ย.");
   assert.deepEqual(kinds("c-fail"), ["failed"]);
   assert.deepEqual(kinds("c-lab"), ["failed"]);
   assert.deepEqual(w["c-task"], [{ kind: "tasks", since: "2026-11-18T00:30:00Z", count: 2 }]);
@@ -464,4 +466,10 @@ test("AI ตอบเอง → งานค้าง \"AI ตอบแล้ว
   await read.POST(new Request("https://app.test/x", { method: "POST" }), { params: Promise.resolve({ id: s.conversationId }) });
   assert.equal(conv().ai_review_at, null);
   assert.equal(flow.sectionOf(conv(), (await inboxWork())[s.conversationId]), "recent");
+});
+
+test("ป้ายงานค้างมีวันเวลา: ยืนยันนัด <วัน เวลา> · ขอเลื่อนนัด → <วัน>", () => {
+  assert.equal(flow.workLabel({ kind: "booking", since: "x", date: "2026-11-19", time: "10:30" }), "ยืนยันนัด 19 พ.ย. 10:30");
+  assert.equal(flow.workLabel({ kind: "reschedule", since: "x", date: "2026-12-02" }), "ขอเลื่อนนัด → 2 ธ.ค.");
+  assert.equal(flow.workLabel({ kind: "booking", since: "x" }), "ยืนยันนัด");
 });

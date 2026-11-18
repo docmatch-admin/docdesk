@@ -728,9 +728,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               <h3 className="q-head">{title} <span className="q-count">{n}</span></h3>
               {masked.map((m) => (
                 <div key={m.key} className="conv q-row masked" aria-label="แชทลับรอตอบ">
-                  <span className="q-dot" aria-hidden="true" />
-                  <div className="q-main"><div className="q-line1"><span className="name">🔒 แชทลับ</span></div><div className="conv-preview">รอเจ้าหน้าที่ที่มีสิทธิ์ตอบ</div></div>
-                  <div className="q-side"><WaitChip since={m.waiting_since} /></div>
+                  <span className="conv-avatar"><div className="avatar">🔒</div></span>
+                  <div className="q-main">
+                    <div className="q-line1"><span className="name">แชทลับ</span></div>
+                    <div className="q-line2"><WaitChip since={m.waiting_since} /><span className="muted small">รอเจ้าหน้าที่ที่มีสิทธิ์ตอบ</span></div>
+                  </div>
                 </div>
               ))}
               {n === 0 && (
@@ -742,19 +744,25 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 return (
                   <button key={c.id} type="button" className={`conv q-row ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""}`}
                     onClick={() => setSelectedId(c.id)}>
-                    <span className={`q-dot ch-${c.channels?.type ?? "other"}`} title={c.channels ? CHANNEL_LABEL[c.channels.type] : ""} aria-label={c.channels ? CHANNEL_LABEL[c.channels.type] : undefined} />
+                    {/* รูปโปรไฟล์เดิม + จุดสีช่องทางมุมขวาล่าง */}
+                    <span className="conv-avatar" title={c.channels ? CHANNEL_LABEL[c.channels.type] : ""}>
+                      {c.sensitive ? <div className="avatar">🔒</div> : <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />}
+                      <span className={`ch-dot q-ch ch-${c.channels?.type ?? "other"}`} aria-hidden="true" />
+                    </span>
                     <div className="q-main">
+                      {/* บรรทัด 1: ชื่อ · HN ··· เวลา */}
                       <div className="q-line1">
-                        <span className={`name ${c.sensitive ? "sensitive-text" : ""}`}>{c.sensitive ? "🔒 " : ""}{contactName(c.contacts)}</span>
-                        {hn && !c.sensitive && <span className="q-hn">HN {hn}</span>}
+                        <span className={`name ${c.sensitive ? "sensitive-text" : ""}`}>{contactName(c.contacts)}</span>
+                        {hn && !c.sensitive && <span className="q-hn">· HN {hn}</span>}
+                        <span className="q-time">{timeTh(c.last_message_at)}</span>
                       </div>
-                      <div className="conv-preview">{c.sensitive ? "ข้อความลับ" : c.last_message_preview}</div>
-                    </div>
-                    <div className="q-side">
-                      {sec === "waiting" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
-                      {top && <span className={`chip q-work ${top.kind}`}>{workLabel(top)}</span>}
-                      {sec === "recent" && c.status === "closed" && <span className="chip done-chip">เสร็จ</span>}
-                      <span className="muted small">{timeTh(c.last_message_at)}</span>
+                      {/* บรรทัด 2: สิ่งที่ต้องทำ + แท็กของแชท (เกินตัดทิ้ง ไม่ขึ้นบรรทัดใหม่) */}
+                      <div className="q-line2">
+                        {sec === "waiting" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
+                        {top && <span className={`chip q-work ${top.kind}`}>{workLabel(top)}</span>}
+                        {sec === "recent" && c.status === "closed" && <span className="chip done-chip">เสร็จ</span>}
+                        {c.tags.map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
+                      </div>
                     </div>
                   </button>
                 );

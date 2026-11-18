@@ -84,12 +84,19 @@ export function titleWithCount(title: string, count: number): string {
 /** งานค้างของแชท (เรียงตามความด่วน: ตัวแรกด่วนสุด) */
 export type WorkKind = "booking" | "reschedule" | "failed" | "tasks" | "ai_review";
 export const WORK_PRIORITY: WorkKind[] = ["booking", "reschedule", "failed", "tasks", "ai_review"];
-export interface WorkItem { kind: WorkKind; since: string; count?: number }
+/** date/time: วันเวลาที่เกี่ยวกับงาน (นัดที่ขอยืนยัน / วันที่คนไข้ขอเลื่อนไป) */
+export interface WorkItem { kind: WorkKind; since: string; count?: number; date?: string | null; time?: string | null }
 export type WorkMap = Record<string, WorkItem[]>;
 
+const MONTH_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+/** "2026-11-19" → "19 พ.ย." */
+export const shortThaiDate = (d: string | null | undefined) =>
+  d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${Number(d.slice(8, 10))} ${MONTH_SHORT[Number(d.slice(5, 7)) - 1]}` : "";
+
 export function workLabel(item: WorkItem): string {
-  if (item.kind === "booking") return "ยืนยันนัด";
-  if (item.kind === "reschedule") return "ขอเลื่อนนัด";
+  const when = [shortThaiDate(item.date), item.time ? String(item.time).slice(0, 5) : ""].filter(Boolean).join(" ");
+  if (item.kind === "booking") return when ? `ยืนยันนัด ${when}` : "ยืนยันนัด";
+  if (item.kind === "reschedule") return item.date ? `ขอเลื่อนนัด → ${shortThaiDate(item.date)}` : "ขอเลื่อนนัด";
   if (item.kind === "failed") return "ส่งไม่สำเร็จ";
   if (item.kind === "tasks") return `งานทีม ${item.count ?? 1}`;
   return "AI ตอบแล้ว รอตรวจ";

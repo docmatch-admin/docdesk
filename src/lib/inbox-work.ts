@@ -17,21 +17,23 @@ export async function inboxWork(now = Date.now()): Promise<WorkMap> {
   const db = supabaseAdmin();
   const today = bangkokToday(now);
   const out: WorkMap = {};
-  const add = (conversationId: string | null | undefined, kind: WorkKind, since: string | null | undefined, count?: number) => {
+  const add = (conversationId: string | null | undefined, kind: WorkKind, since: string | null | undefined, count?: number, when?: { date?: string | null; time?: string | null }) => {
     if (!conversationId) return;
     const list = (out[conversationId] ??= []);
     const cur = list.find((i) => i.kind === kind);
     const at = since ?? new Date(now).toISOString();
-    if (!cur) list.push({ kind, since: at, ...(count ? { count } : {}) });
+    if (!cur) list.push({ kind, since: at, ...(count ? { count } : {}), ...(when?.date ? { date: when.date, ...(when.time ? { time: when.time } : {}) } : {}) });
     else {
       if (at < cur.since) cur.since = at;
       if (count) cur.count = (cur.count ?? 0) + count;
+      // หลายรายการ: แสดงวันที่ใกล้สุด
+      if (when?.date && (!cur.date || `${when.date}${when.time ?? ""}` < `${cur.date}${cur.time ?? ""}`)) { cur.date = when.date; cur.time = when.time ?? null; }
     }
   };
 
   const [bookings, appts, labs, tasks, ai] = await Promise.all([
-    db.from("bookings").select("conversation_id, created_at").eq("status", "ai_confirmed").limit(MAX_ROWS),
-    db.from("appointments").select("hn, conversation_id, status, last_send_error, called_at, updated_at")
+    db.from("bookings").select('conversation_id, created_at, "date", "time"').eq("status", "ai_confirmed").limit(MAX_ROWS),
+    db.from("appointments").select("hn, conversation_id, status, last_send_error, called_at, updated_at, reschedule_request")
       .gte("appoint_date", today).in("status", OPEN_STATUSES).is("called_at", null).limit(MAX_ROWS),
     db.from("lab_results").select("patient_id, updated_at").eq("notify_status", "failed").limit(MAX_ROWS),
     db.from("chat_tasks").select("conversation_id, created_at").eq("done", false).limit(MAX_ROWS),
@@ -39,12 +41,14 @@ export async function inboxWork(now = Date.now()): Promise<WorkMap> {
     db.from("conversations").select("id, ai_review_at").not("ai_review_at", "is", null).limit(MAX_ROWS),
   ]);
 
-  for (const b of (bookings.data ?? []) as { conversation_id: string; created_at: string }[]) add(b.conversation_id, "booking", b.created_at);
+  for (const b of (bookings.data ?? []) as { conversation_id: string; created_at: string; date?: string; time?: string }[]) {
+    add(b.conversation_id, "booking", b.created_at, undefined, { date: b.date, time: b.time ? String(b.time).slice(0, 5) : null });
+  }
   for (const t of (tasks.data ?? []) as { conversation_id: string; created_at: string }[]) add(t.conversation_id, "tasks", t.created_at, 1);
   if (!ai.error) for (const c of (ai.data ?? []) as { id: string; ai_review_at: string }[]) add(c.id, "ai_review", c.ai_review_at);
 
   // นัด/ผลแล็บผูกกับแชทผ่าน conversation_id ของนัด และทุกบัญชีที่ผูก HN
-  type Appt = { hn: string | null; conversation_id: string | null; status: string; last_send_error: string | null; updated_at: string };
+  type Appt = { hn: string | null; conversation_id: string | null; status: string; last_send_error: string | null; updated_at: string; reschedule_request?: { date?: string } | null };
   const apptRows = ((appts.data ?? []) as Appt[]).filter((a) => a.status === "reschedule_requested" || a.last_send_error);
   const labRows = (labs.data ?? []) as { patient_id: string | null; updated_at: string }[];
   const hns = [...new Set([...apptRows.map((a) => a.hn), ...labRows.map((l) => l.patient_id)].filter((h): h is string => !!h?.trim()))];
@@ -61,7 +65,7 @@ export async function inboxWork(now = Date.now()): Promise<WorkMap> {
     [...new Set([...(direct ? [direct] : []), ...(hn ? byHn.get(hn.trim().replace(/^0+/, "")) ?? [] : [])])];
   for (const a of apptRows) {
     const kind: WorkKind = a.status === "reschedule_requested" ? "reschedule" : "failed";
-    for (const c of convsOf(a.hn, a.conversation_id)) add(c, kind, a.updated_at);
+    for (const c of convsOf(a.hn, a.conversation_id)) add(c, kind, a.updated_at, undefined, kind === "reschedule" ? { date: a.reschedule_request?.date ?? null } : undefined);
   }
   for (const l of labRows) for (const c of convsOf(l.patient_id)) add(c, "failed", l.updated_at);
   return out;
