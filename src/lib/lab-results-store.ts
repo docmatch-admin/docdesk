@@ -102,15 +102,12 @@ async function upsertItem(item: BmlLabItem, opts: { backfill: boolean; allowPdf:
     }
   }
   const versionBump = !!existing && version > existing.version_number;
-  // เริ่มระบบ: เฉพาะผลก่อนคนไข้รายแรก (LAB_NOTIFY_FROM_LN) เป็นผลเก่า ไม่แจ้ง
-  const oldLab = opts.backfill && labBeforeStart(item.ln);
   if (!existing) {
     const { data, error } = await db.from("lab_results").upsert({
       bml_id: bmlId, ...base, ...match, ...pdf, version_number: version, view_count: 0,
       // เริ่มระบบครั้งแรก: ผลเก่าที่มีอยู่แล้วไม่แจ้งคนไข้/ทีม
-      notify_status: oldLab ? "skipped" : "pending",
+      notify_status: "pending",
       // ผลเก่าตอนเริ่มระบบ: ถือว่าแจ้งแล้ว (notified_at = ตอนนำเข้า) ไม่ส่ง LINE ใด ๆ
-      ...(oldLab ? { team_notified_version: version, notified_at: nowIso(), notified_version: version } : {}),
       updated_at: nowIso(),
     }, { onConflict: "bml_id" }).select(LAB_COLUMNS);
     if (error) throw error;
@@ -119,7 +116,8 @@ async function upsertItem(item: BmlLabItem, opts: { backfill: boolean; allowPdf:
   const { data, error } = await db.from("lab_results").update({
     ...base, ...match, ...pdf, version_number: version, updated_at: nowIso(),
     // แล็บแก้ผล: แจ้งคนไข้ใหม่ ("ผลมีการปรับปรุง")
-    ...(versionBump && existing.notify_status !== "skipped" ? { notify_status: "pending" } : {}),
+    // (ไม่ได้ผูก LINE ตอนผลออก ก็ไม่แจ้งฉบับแก้อัตโนมัติ — เจ้าหน้าที่กดส่งเอง)
+    ...(versionBump && existing.notify_status !== "skipped" && existing.notify_status !== "unreachable" ? { notify_status: "pending" } : {}),
   }).eq("id", existing.id).select(LAB_COLUMNS);
   if (error) throw error;
   return { row: ((data ?? [])[0] as unknown as LabResult) ?? existing, action: versionBump ? "updated" : "same", pdfFailed, pdfTried: opts.allowPdf };
@@ -159,6 +157,8 @@ export async function runLabSync(now = Date.now()): Promise<LabSyncSummary> {
     const started = Date.now();
     let pdfs = 0;
     for (const item of items) {
+      // ระบบเริ่มที่ LN 26129150 (HN 4807): ผลก่อนหน้านั้นไม่นำเข้าเลย
+      if (labBeforeStart(item.ln)) continue;
       if (item.order_datetime && item.order_datetime < cutoff && !backfill) continue;
       const allowPdf = pdfs < LAB_PDF_PER_RUN && Date.now() - started < 35_000;
       const r = await upsertItem(item, { backfill, allowPdf });
@@ -528,6 +528,14 @@ export async function matchLabResult(id: string, rawHn: string | null, staffId: 
   }).eq("id", id);
   const notify = already ? null : await notifyLabResult(id, { now });
   return { matched: true as const, notify };
+}
+
+/** เจ้าหน้าที่กด "ส่งแจ้งคนไข้" เอง (เช่น คนไข้เพิ่งผูก LINE หลังผลออก) */
+export async function staffNotifyLabResult(id: string, now = Date.now()) {
+  const r = await loadResult(id);
+  if (!r) throw new LabError("ไม่พบผลแล็บ", 404);
+  if (!r.patient_id) throw new LabError("ยังไม่ได้จับคู่คนไข้");
+  return { notify: await notifyLabResult(id, { now }) };
 }
 
 export async function labSyncStatus() {

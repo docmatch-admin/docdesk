@@ -23,7 +23,7 @@ const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString();
 
 let labs, pdfVersion, outbound, loginCount, listCalls, labStatus, labPages, listQueries, cursorShape;
 const item = (id, extra = {}) => ({
-  id, ln: `LN${id}`, lis_ln: null, hn: "BML1", location_hn: "4714", location_hn_extraction_status: "ok",
+  id, ln: `LN${26200000 + (Number(id) || 0)}`, lis_ln: null, hn: "BML1", location_hn: "4714", location_hn_extraction_status: "ok",
   patient_name: "สมชาย ใจดี", gender: "M", order_datetime: iso(2 * 3_600_000), status: "completed",
   imported_at: iso(3_600_000), current_version_number: 1, version_count: 1, ...extra,
 });
@@ -163,18 +163,16 @@ test("cron: ต้องมี header x-lab-sync-secret = LAB_SYNC_SECRET (ไ�
   assert.equal((await call({ "x-lab-sync-secret": "lab-s3cret" })).status, 503);
 });
 
-test("รอบแรก: เก็บผลที่มีอยู่แล้ว + PDF แต่ไม่แจ้งคนไข้/ทีม · เรียกซ้ำภายใน 15 นาทีไม่แตะระบบแล็บ", async () => {
-  labs = [item("101"), item("102", { location_hn: "", location_hn_extraction_status: "failed" })];
+test("รอบแรก: ผลก่อน LN 26129150 ไม่นำเข้า · ผลตั้งแต่ LN นี้เก็บ + PDF + จับคู่ · เรียกซ้ำภายใน 15 นาทีไม่แตะระบบแล็บ", async () => {
+  labs = [item("101", { ln: "26129001" }), item("102", { location_hn: "", location_hn_extraction_status: "failed" })];
   const now = Date.now();
   await initialize(now);
-  assert.equal(state.tables.lab_results.length, 2);
-  assert.equal(row("101").notify_status, "skipped");
-  assert.equal(row("101").match_status, "matched");
-  assert.equal(row("101").patient_id, "000004714");
+  assert.equal(state.tables.lab_results.length, 1);
+  assert.equal(row("101"), undefined, "LN ก่อนคนไข้รายแรกไม่นำเข้า");
   assert.equal(row("102").match_status, "unmatched");
-  assert.equal(row("101").pdf_path, "101/v1.pdf");
-  assert.ok(state.files[rules.LAB_BUCKET].has("101/v1.pdf"));
-  assert.equal(pushes().length, 0);
+  assert.equal(row("102").pdf_path, "102/v1.pdf");
+  assert.ok(state.files[rules.LAB_BUCKET].has("102/v1.pdf"));
+  assert.equal(pushes().length, 0, "ยังไม่จับคู่ ไม่ส่ง");
 
   const before = outbound.length;
   const again = await store.runLabSync(now + 5 * MIN);
@@ -406,21 +404,18 @@ const addHearing = (status = "scheduled") => state.tables.appointments.push({
   time_mode: "exact", time_start: "09:30:00", time_end: null, status, purpose_text: "ฟังผลเลือด", telemed_id: null,
 });
 
-test("sync ครั้งแรก: ผลเก่าตั้ง notified_at = ตอนนำเข้า ไม่ส่ง LINE ใด ๆ · ผลที่เข้ามาหลังจากนั้นแจ้งตามปกติ", async () => {
-  labs = [item("1001"), item("1002", { location_hn: "555" })];
+test("sync ครั้งแรก: ผลก่อน LN 26129150 ไม่นำเข้า ไม่ส่ง LINE · ผลที่เข้ามาหลังจากนั้นแจ้งตามปกติ", async () => {
+  labs = [item("1001", { ln: "26129001" }), item("1002", { ln: "26129002", location_hn: "555" })];
   const next = await initialize(Date.now());
-  for (const id of ["1001", "1002"]) {
-    assert.ok(row(id).notified_at, `${id} notified_at`);
-    assert.equal(row(id).notified_version, 1);
-    assert.equal(row(id).notify_status, "skipped");
-  }
+  assert.equal(row("1001"), undefined);
+  assert.equal(row("1002"), undefined);
   assert.equal(pushes().length, 0);
   assert.equal(state.tables.messages.length, 0);
-  labs = [item("1001"), item("1002", { location_hn: "555" }), item("1003")];
+  labs = [item("1001", { ln: "26129001" }), item("1002", { ln: "26129002", location_hn: "555" }), item("1003")];
   await store.runLabSync(next);
   assert.deepEqual(pushes().map((p) => p.to), [LINE_USER], "แจ้งเฉพาะผลใหม่ 1003");
   assert.equal(row("1003").notify_status, "sent");
-  assert.equal(row("1001").notify_status, "skipped");
+  assert.equal(row("1001"), undefined);
 });
 
 test("Flex แจ้งผล: มีลิงก์ \"ดูผลแล็บทั้งหมดของฉัน\" ไปหน้า LIFF", async () => {
@@ -441,7 +436,7 @@ test("LIFF ผลแล็บของฉัน: เฉพาะผลของ 
   assert.equal((await postJson(mineRoute, { idToken: "bad" })).status, 401);
   const mine = await (await postJson(mineRoute, { idToken: "tok-owner" })).json();
   assert.equal(mine.linked, true);
-  assert.deepEqual(mine.results.map((r) => r.ln), ["LN1202", "LN1201"]);
+  assert.deepEqual(mine.results.map((r) => r.ln), ["LN26201202", "LN26201201"]);
   assert.ok(mine.results[0].orderDate);
   assert.match(mine.results[0].appointment.when, /09:30/);
   assert.ok(!JSON.stringify(mine).includes("storage.test"), "รายการไม่มีลิงก์ไฟล์ เปิดทีละรายการ");
@@ -458,7 +453,7 @@ test("หน้าดูผล: ปุ่มดาวน์โหลด PDF + �
   assert.ok(v.downloadUrl.startsWith("https://storage.test/signed/lab-results/"));
   assert.equal(v.appointment.id, APPT);
   assert.equal(v.appointment.canConfirm, true);
-  assert.equal(v.ln, "LN1301");
+  assert.equal(v.ln, "LN26201301");
 
   assert.equal((await postJson(confirmRoute, { appointmentId: APPT, idToken: "tok-other" })).status, 404);
   assert.equal(state.tables.appointments[0].status, "scheduled");
@@ -561,11 +556,12 @@ test("ยังไม่ได้ตั้ง LIFF: ไม่ส่ง LINE (ป
   assert.equal(row("2201").notify_error, null);
 });
 
-test("เริ่มระบบที่ LN 26129150: รอบแรก LN ที่น้อยกว่าเป็นผลเก่า (ไม่แจ้ง) · ตั้งแต่ LN นี้แจ้งได้ในรอบแรก", async () => {
+test("เริ่มระบบที่ LN 26129150: LN ที่น้อยกว่าไม่นำเข้า · ตั้งแต่ LN นี้แจ้งได้ในรอบแรก", async () => {
   assert.equal(rules.labBeforeStart("26129149"), true);
   assert.equal(rules.labBeforeStart("26129150"), false);
   assert.equal(rules.labBeforeStart("LN26129151"), false);
-  assert.equal(rules.labBeforeStart(null), true, "ไม่มี LN = ถือเป็นผลเก่า");
+  assert.equal(rules.labBeforeStart(null), false, "ไม่มี LN = นำเข้าตามปกติ (ไม่ทิ้งผลใหม่)");
+  assert.equal(rules.labBeforeStart(""), false);
   labs = [
     item("2301", { ln: "26129150" }),
     item("2302", { ln: "26129151", location_hn: "555" }),
@@ -573,10 +569,15 @@ test("เริ่มระบบที่ LN 26129150: รอบแรก LN �
   ];
   const s = await store.runLabSync(Date.now());
   assert.equal(s.backfill, true);
-  assert.equal(row("2303").notify_status, "skipped");
-  assert.ok(row("2303").notified_at);
+  assert.equal(row("2303"), undefined, "LN ก่อน 26129150 ไม่นำเข้าระบบ");
   assert.equal(row("2301").notify_status, "sent", "LN 26129150 แจ้งในรอบแรก");
   assert.equal(row("2302").notify_status, "unreachable");
   assert.deepEqual(pushes().map((p) => p.to), [LINE_USER]);
   assert.equal(s.notified, 1);
+});
+
+test("ไม่ได้ผูก LINE ตอนผลออก: ผูกทีหลังไม่แจ้งอัตโนมัติ (รอเจ้าหน้าที่กดส่ง)", () => {
+  const base = { patient_id: "4807", pdf_path: "x.pdf", status: "final", order_datetime: new Date().toISOString(), notified_version: null, version_number: 1 };
+  assert.equal(rules.shouldAutoNotify({ ...base, notify_status: "pending" }), true);
+  assert.equal(rules.shouldAutoNotify({ ...base, notify_status: "unreachable" }), false);
 });

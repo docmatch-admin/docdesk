@@ -177,6 +177,12 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
                               จับคู่คนไข้
                             </button>
                           )}
+                          {r.patient_id && r.pdf_path && (r.notify_status === "unreachable" || r.notify_status === "failed") && (
+                            <button type="button" className="btn small primary" disabled={busy === r.id}
+                              onClick={() => patch(r.id, { action: "notify" }, (j) => notifyText(j.notify))}>
+                              ส่งแจ้งคนไข้
+                            </button>
+                          )}
                           {r.pdf_path
                             ? <a className="btn ghost small" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
                             : <span className="muted small" title={r.pdf_error ?? undefined}>{r.pdf_error ? "โหลดไฟล์ไม่สำเร็จ" : "รอไฟล์"}</span>}

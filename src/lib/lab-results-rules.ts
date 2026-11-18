@@ -14,11 +14,12 @@ export const LAB_SYNC_LOOKBACK_DAYS = 45;
 export const LAB_SYNC_MAX_PAGES = 5;
 /** ผลที่สั่งตรวจนานกว่านี้ ไม่แจ้งคนไข้อัตโนมัติ (กดส่งเองได้) */
 export const LAB_AUTO_NOTIFY_MAX_AGE_DAYS = 30;
-/** คนไข้รายแรกของระบบ: LN 26129150 (HN 4807, สั่งตรวจ 17 พ.ย. 69) — ตอนเริ่มระบบ ผลที่ LN น้อยกว่านี้นำเข้าเป็น "ผลเก่า (ไม่แจ้ง)" ตั้งแต่ LN นี้ขึ้นไปแจ้งตามปกติ */
+/** คนไข้รายแรกของระบบ: LN 26129150 (HN 4807, สั่งตรวจ 17 พ.ย. 69) — ผลที่ LN น้อยกว่านี้ไม่นำเข้าระบบเลย ตั้งแต่ LN นี้ขึ้นไปนำเข้าและแจ้งตามปกติ */
 export const LAB_NOTIFY_FROM_LN = 26129150;
+/** LN เป็นตัวเลขและน้อยกว่าจุดเริ่ม = ผลก่อนเริ่มระบบ (ไม่นำเข้า) · ไม่มี LN/อ่านไม่ได้ = นำเข้าตามปกติ (ไม่ทิ้งผลใหม่) */
 export function labBeforeStart(ln: string | null | undefined): boolean {
-  const n = Number(String(ln ?? "").replace(/\D/g, ""));
-  return !n || n < LAB_NOTIFY_FROM_LN;
+  const digits = String(ln ?? "").replace(/\D/g, "");
+  return !!digits && Number(digits) < LAB_NOTIFY_FROM_LN;
 }
 export const LAB_SYNC_STATE_KEY = "lab_sync_state";
 export const LAB_TEAM_GROUP_KEY = "lab_team_line_group";
@@ -83,7 +84,8 @@ export const versionOf = (v: unknown) => (Number.isInteger(Number(v)) && Number(
 
 /** ควรแจ้งคนไข้อัตโนมัติไหม (หลังโหลด PDF และจับคู่แล้ว) */
 export function shouldAutoNotify(r: Pick<LabResult, "patient_id" | "pdf_path" | "status" | "order_datetime" | "notified_version" | "version_number" | "notify_status">, now = Date.now()): boolean {
-  if (!r.patient_id || !r.pdf_path || !isFinalLab(r.status) || r.notify_status === "skipped") return false;
+  // ไม่ได้ผูก LINE ตอนผลออก: ไม่แจ้งอัตโนมัติอีก (ผูกทีหลังก็ไม่ส่งเอง) ให้เจ้าหน้าที่กด "ส่งแจ้งคนไข้" เอง
+  if (!r.patient_id || !r.pdf_path || !isFinalLab(r.status) || r.notify_status === "skipped" || r.notify_status === "unreachable") return false;
   if ((r.notified_version ?? 0) >= r.version_number) return false;
   const ordered = Date.parse(r.order_datetime ?? "");
   return !Number.isFinite(ordered) || now - ordered <= LAB_AUTO_NOTIFY_MAX_AGE_DAYS * 86_400_000;
