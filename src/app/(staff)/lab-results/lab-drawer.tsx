@@ -12,8 +12,9 @@ export function LabDrawer({ r, lineReady, appt, busy, onClose, onPatch, whenTh, 
   whenTh: (iso: string | null) => string; notifyClass: string; notifyText: (n: unknown) => string;
 }) {
   const unmatched = r.match_status === "unmatched";
-  const [hn, setHn] = useState((r.location_hn ?? "").replace(/\D/g, "").slice(0, 9));
-  useEffect(() => { setHn((r.location_hn ?? "").replace(/\D/g, "").slice(0, 9)); }, [r.id, r.location_hn]);
+  const startHn = unmatched ? (r.location_hn ?? "").replace(/\D/g, "").slice(0, 9) : r.patient_id?.replace(/^0+/, "") ?? "";
+  const [hn, setHn] = useState(startHn);
+  useEffect(() => { setHn(startHn); }, [r.id, startHn]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -78,21 +79,23 @@ export function LabDrawer({ r, lineReady, appt, busy, onClose, onPatch, whenTh, 
             <dd>{appt ?? <span className="muted">ไม่มีนัด</span>}</dd>
           </dl>
 
-          <section className={`lab-drawer-match ${unmatched ? "" : "off"}`} aria-label="ผูกคนไข้">
+          {/* กล่อง HN อยู่ที่เดิมเสมอ: ไม่พบ HN = ผูกคนไข้ · มี HN แล้ว = แก้ HN ได้ (ปุ่มกดได้เมื่อเลขเปลี่ยน) */}
+          <section className="lab-drawer-match" aria-label="HN คนไข้">
             <form onSubmit={(e) => {
               e.preventDefault();
-              if (!unmatched) return;
-              onPatch(r.id, { action: "match", hn }, (j) => (j.matched ? `ผูกคนไข้แล้ว · ${notifyText(j.notify)}` : "บันทึกแล้ว"));
+              if (!hn || hn === (hnText ?? "")) return;
+              onPatch(r.id, { action: "match", hn }, (j) => (j.matched ? `บันทึก HN ${hn} แล้ว · ${notifyText(j.notify)}` : "บันทึกแล้ว"));
             }}>
-              <label>ผูกคนไข้ — ใส่ HN
-                <input inputMode="numeric" placeholder="เช่น 4807" disabled={!unmatched} autoFocus={unmatched}
-                  value={unmatched ? hn : hnText ?? ""}
+              <label>{unmatched ? "ผูกคนไข้ — ใส่ HN" : "HN คนไข้ (แก้ได้ถ้าผิด)"}
+                <input inputMode="numeric" placeholder="เช่น 4807" value={hn} autoFocus={unmatched}
                   onChange={(e) => setHn(e.target.value.replace(/\D/g, "").slice(0, 9))} />
               </label>
               <div className="drawer-actions">
-                <button type="submit" className="btn primary small" disabled={!unmatched || busy || !hn}>ผูกคนไข้</button>
+                <button type="submit" className="btn primary small" disabled={busy || !hn || hn === (hnText ?? "")}>{unmatched ? "ผูกคนไข้" : "บันทึก HN ใหม่"}</button>
               </div>
-              {!unmatched && <p className="muted small">ระบบผูกคนไข้จาก HN ให้แล้ว</p>}
+              <p className="muted small">{unmatched
+                ? "ดูชื่อคนไข้ให้ตรงก่อนบันทึก"
+                : "เปลี่ยน HN แล้ว ถ้าคนไข้คนใหม่ผูก LINE ไว้ ระบบจะส่งแจ้งผลให้คนใหม่ทันที"}</p>
             </form>
           </section>
         </div>
