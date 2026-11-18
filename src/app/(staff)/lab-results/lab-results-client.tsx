@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { LabDrawer } from "./lab-drawer";
 import { LAB_TABS, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
 
 interface SyncInfo { last_ok_at: string | null; last_run_at: string | null; last_error: string | null }
@@ -41,8 +42,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
   const [appts, setAppts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
-  const [matching, setMatching] = useState<string | null>(null);
-  const [hn, setHn] = useState("");
+  const [selected, setSelected] = useState<string | null>(initialId);
   const [busy, setBusy] = useState<string | null>(null);
   const [groupInput, setGroupInput] = useState("");
 
@@ -74,7 +74,6 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
     setBusy(null);
     if (!res?.ok) return flash(String(j.error ?? "ทำรายการไม่สำเร็จ"));
     flash(okText(j));
-    setMatching(null);
     load();
   }
 
@@ -135,33 +134,30 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
           <div className="report-table-wrap">
             <table className="report-table lab-table">
               <thead>
-                <tr><th scope="col">คนไข้</th><th scope="col">สั่งตรวจ</th><th scope="col">แจ้งคนไข้</th><th scope="col">คนไข้เปิดดู</th><th scope="col">นัดฟังผล</th><th scope="col" className="lab-act">จัดการ</th></tr>
+                <tr><th scope="col">คนไข้</th><th scope="col">สั่งตรวจ</th><th scope="col">แจ้งคนไข้</th><th scope="col">คนไข้เปิดดู</th><th scope="col">นัดฟังผล</th></tr>
               </thead>
               <tbody>
                 {rows.map((r) => {
                   const unmatched = r.match_status === "unmatched";
-                  const hnText = hnOf(r);
+                  const cls = ["lab-click", unmatched ? "lab-row-unmatched" : "", selected === r.id ? "on" : ""].filter(Boolean).join(" ");
                   return (
-                    <tr key={r.id} className={unmatched ? "lab-row-unmatched" : undefined}>
+                    <tr key={r.id} className={cls} onClick={() => setSelected(r.id)}>
                       <td className="lab-who">
-                        <b>{r.patient_name || "–"}</b>
-                        <div className="muted small">{r.patient_id ? `HN ${hnText}` : "ยังไม่รู้ HN"}{r.ln ? ` · LN ${r.ln}` : ""}</div>
-                        {(unmatched || r.version_number > 1 || r.match_status === "manual") && (
+                        <button type="button" className="lab-open" onClick={(e) => { e.stopPropagation(); setSelected(r.id); }}>{r.patient_name || "–"}</button>
+                        <div className="muted small">{r.patient_id ? `HN ${hnOf(r)}` : "ยังไม่รู้ HN"}{r.ln ? ` · LN ${r.ln}` : ""}</div>
+                        {(unmatched || r.version_number > 1 || r.match_status === "manual" || !r.pdf_path) && (
                           <div className="lab-tags">
                             {unmatched && <span className="lab-chip bad">รอจับคู่</span>}
-                            {unmatched && r.location_hn && <span className="muted small">แล็บอ่านได้: {r.location_hn}</span>}
                             {r.match_status === "manual" && <span className="lab-chip">จับคู่เอง</span>}
                             {r.version_number > 1 && <span className="lab-chip wait">แก้ผล v{r.version_number}</span>}
+                            {!r.pdf_path && <span className="lab-chip">{r.pdf_error ? "โหลดไฟล์ไม่สำเร็จ" : "รอไฟล์"}</span>}
                           </div>
                         )}
                       </td>
                       <td data-label="สั่งตรวจ">{whenTh(r.order_datetime)}</td>
                       <td data-label="แจ้งคนไข้">
-                        <span className={NOTIFY_CLASS[r.notify_status]} title={r.notify_error ?? undefined}>{NOTIFY_LABEL[r.notify_status]}</span>
+                        <span className={NOTIFY_CLASS[r.notify_status]}>{NOTIFY_LABEL[r.notify_status]}</span>
                         {r.notified_at && r.notify_status === "sent" && <div className="muted small">{whenTh(r.notified_at)}</div>}
-                        {r.notify_error && (r.notify_status === "failed" || r.notify_status === "sent") && (
-                          <details className="lab-error"><summary>{r.notify_status === "failed" ? "ดูสาเหตุ" : "ส่งไม่ถึงบางบัญชี"}</summary><div>{r.notify_error}</div></details>
-                        )}
                       </td>
                       <td data-label="คนไข้เปิดดู">
                         {r.first_viewed_at
@@ -169,40 +165,6 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
                           : <span className="muted">{r.notify_status === "sent" ? "ยังไม่เปิด" : "–"}</span>}
                       </td>
                       <td data-label="นัดฟังผล">{r.patient_id && appts[r.patient_id] ? appts[r.patient_id] : <span className="muted">–</span>}</td>
-                      <td className="lab-act">
-                        <div className="lab-actions">
-                          {unmatched && (
-                            <button type="button" className="btn small primary lab-match-btn"
-                              onClick={() => { setMatching(matching === r.id ? null : r.id); setHn((r.location_hn ?? "").replace(/\D/g, "").slice(0, 9)); }}>
-                              จับคู่คนไข้
-                            </button>
-                          )}
-                          {r.patient_id && r.pdf_path && (r.notify_status === "unreachable" || r.notify_status === "failed") && (
-                            <button type="button" className="btn small primary" disabled={busy === r.id}
-                              onClick={() => patch(r.id, { action: "notify" }, (j) => notifyText(j.notify))}>
-                              ส่งแจ้งคนไข้
-                            </button>
-                          )}
-                          {r.pdf_path
-                            ? <a className="btn ghost small" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
-                            : <span className="muted small" title={r.pdf_error ?? undefined}>{r.pdf_error ? "โหลดไฟล์ไม่สำเร็จ" : "รอไฟล์"}</span>}
-                          {!unmatched && (
-                            <button type="button" className="link-btn small"
-                              onClick={() => { setMatching(matching === r.id ? null : r.id); setHn(r.patient_id?.replace(/^0+/, "") ?? ""); }}>
-                              เปลี่ยนคนไข้
-                            </button>
-                          )}
-                          {matching === r.id && (
-                            <form className="lab-match" onSubmit={(e) => {
-                              e.preventDefault();
-                              patch(r.id, { action: "match", hn }, (j) => (j.matched ? `จับคู่แล้ว · ${notifyText(j.notify)}` : "ยกเลิกการจับคู่แล้ว"));
-                            }}>
-                              <input inputMode="numeric" placeholder="HN" value={hn} onChange={(e) => setHn(e.target.value.replace(/\D/g, "").slice(0, 9))} aria-label="HN คนไข้" />
-                              <button type="submit" className="btn primary small" disabled={busy === r.id}>{hn ? "บันทึก" : "ยกเลิกจับคู่"}</button>
-                            </form>
-                          )}
-                        </div>
-                      </td>
                     </tr>
                   );
                 })}
@@ -233,6 +195,13 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
           </form>
         </section>
       )}
+      {(() => {
+        const cur = selected ? rows.find((x) => x.id === selected) : null;
+        return cur ? (
+          <LabDrawer r={cur} appt={cur.patient_id ? appts[cur.patient_id] ?? null : null} busy={busy === cur.id}
+            onClose={() => setSelected(null)} onPatch={patch} whenTh={whenTh} notifyClass={NOTIFY_CLASS[cur.notify_status]} notifyText={notifyText} />
+        ) : null;
+      })()}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

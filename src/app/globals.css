@@ -1890,3 +1890,17 @@ button.lab-card { cursor: pointer; }
 .lab-filters .lab-search { flex: 1 1 160px; min-width: 140px; max-width: 240px; }
 .lab-date { white-space: nowrap; }
 .lab-date input { width: 140px; }
+
+/* ผลแล็บ: กดแถว → drawer ด้านขวา */
+.lab-table tbody tr.lab-click { cursor: pointer; }
+.lab-table tbody tr.lab-click:hover td { background: var(--hover); }
+.lab-table tbody tr.lab-click.lab-row-unmatched:hover td { background: var(--warning-strong-soft); }
+.lab-table tbody tr.lab-click.on td { background: var(--blue-soft); }
+.lab-open { all: unset; cursor: pointer; font-weight: 600; font-size: 15px; color: var(--ink); }
+.lab-open:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
+.lab-drawer-box { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.lab-drawer-box.warn { border-color: var(--warning-border); background: var(--warning-soft); }
+.lab-drawer-box.warn b { color: var(--warning-ink); }
+.lab-drawer-match form { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; }
+.lab-drawer-match input { max-width: 200px; }
+.lab-drawer-match p { margin: 0; }
