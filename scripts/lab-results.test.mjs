@@ -47,7 +47,7 @@ beforeEach(() => {
       { conversation_id: "conv1", hn: "000004714", role: "patient", linked_at: nextTime() },
       { conversation_id: "conv3", hn: "000000777", role: "patient", linked_at: nextTime() },
     ],
-    appointments: [], lab_results: [], line_sends: [],
+    appointments: [], appointment_events: [], lab_results: [], line_sends: [],
     staff: [{ id: "agent", role: "agent", active: true, display_name: "เอ", must_change_password: false }],
   });
   state.currentUser = { id: "agent", email: "a@test" };
@@ -382,4 +382,124 @@ test("LINE ส่งไม่สำเร็จ (บล็อก/เลิกต
   assert.match(row("912").notify_error, /400/);
   assert.equal(state.tables.messages.filter((m) => m.conversation_id === "conv1").length, 0);
   assert.match(store.lineErrorText(new Error('LINE push failed 403: {"message":"blocked"}')), /บล็อก/);
+});
+
+const mineRoute = await import("../src/app/api/lab-results/mine/route.ts");
+const confirmRoute = await import("../src/app/api/lab-results/confirm/route.ts");
+const labChat = await import("../src/lib/lab-chat-reply.ts");
+const postJson = (route, body) => route.POST(new Request("https://app.test/x", { method: "POST", body: JSON.stringify(body) }));
+const APPT = "22222222-3333-4444-8555-666666666666";
+const addHearing = (status = "scheduled") => state.tables.appointments.push({
+  id: APPT, hn: "000004714", conversation_id: "conv1", appoint_date: new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10),
+  time_mode: "exact", time_start: "09:30:00", time_end: null, status, purpose_text: "ฟังผลเลือด", telemed_id: null,
+});
+
+test("sync ครั้งแรก: ผลเก่าตั้ง notified_at = ตอนนำเข้า ไม่ส่ง LINE ใด ๆ · ผลที่เข้ามาหลังจากนั้นแจ้งตามปกติ", async () => {
+  labs = [item("1001"), item("1002", { location_hn: "555" })];
+  const next = await initialize(Date.now());
+  for (const id of ["1001", "1002"]) {
+    assert.ok(row(id).notified_at, `${id} notified_at`);
+    assert.equal(row(id).notified_version, 1);
+    assert.equal(row(id).notify_status, "skipped");
+  }
+  assert.equal(pushes().length, 0);
+  assert.equal(state.tables.messages.length, 0);
+  labs = [item("1001"), item("1002", { location_hn: "555" }), item("1003")];
+  await store.runLabSync(next);
+  assert.deepEqual(pushes().map((p) => p.to), [LINE_USER], "แจ้งเฉพาะผลใหม่ 1003");
+  assert.equal(row("1003").notify_status, "sent");
+  assert.equal(row("1001").notify_status, "skipped");
+});
+
+test("Flex แจ้งผล: มีลิงก์ \"ดูผลแล็บทั้งหมดของฉัน\" ไปหน้า LIFF", async () => {
+  const next = await initialize(Date.now());
+  labs = [item("1101")];
+  await store.runLabSync(next);
+  const flex = JSON.stringify(pushes()[0].messages);
+  assert.match(flex, /ดูผลแล็บทั้งหมดของฉัน/);
+  assert.match(flex, /https:\/\/liff\.line\.me\/2000000000-abcd\?mine=1/);
+});
+
+test("LIFF ผลแล็บของฉัน: เฉพาะผลของ HN ที่บัญชีนี้ผูก เรียงล่าสุดก่อน + วันที่ตรวจ, LN, นัดฟังผล", async () => {
+  addHearing();
+  const next = await initialize(Date.now());
+  labs = [item("1201", { order_datetime: iso(5 * 86_400_000) }), item("1202", { order_datetime: iso(3_600_000) }), item("1203", { location_hn: "555" })];
+  await store.runLabSync(next);
+  assert.equal((await postJson(mineRoute, {})).status, 400);
+  assert.equal((await postJson(mineRoute, { idToken: "bad" })).status, 401);
+  const mine = await (await postJson(mineRoute, { idToken: "tok-owner" })).json();
+  assert.equal(mine.linked, true);
+  assert.deepEqual(mine.results.map((r) => r.ln), ["LN1202", "LN1201"]);
+  assert.ok(mine.results[0].orderDate);
+  assert.match(mine.results[0].appointment.when, /09:30/);
+  assert.ok(!JSON.stringify(mine).includes("storage.test"), "รายการไม่มีลิงก์ไฟล์ เปิดทีละรายการ");
+  const other = await (await postJson(mineRoute, { idToken: "tok-other" })).json();
+  assert.deepEqual(other, { linked: false, results: [] });
+});
+
+test("หน้าดูผล: ปุ่มดาวน์โหลด PDF + วันนัด + ยืนยันนัดได้เฉพาะบัญชีที่ผูก", async () => {
+  addHearing();
+  const next = await initialize(Date.now());
+  labs = [item("1301")];
+  await store.runLabSync(next);
+  const v = await (await postJson(viewRoute, { id: row("1301").id, idToken: "tok-owner" })).json();
+  assert.ok(v.downloadUrl.startsWith("https://storage.test/signed/lab-results/"));
+  assert.equal(v.appointment.id, APPT);
+  assert.equal(v.appointment.canConfirm, true);
+  assert.equal(v.ln, "LN1301");
+
+  assert.equal((await postJson(confirmRoute, { appointmentId: APPT, idToken: "tok-other" })).status, 404);
+  assert.equal(state.tables.appointments[0].status, "scheduled");
+  const ok = await postJson(confirmRoute, { appointmentId: APPT, idToken: "tok-owner" });
+  assert.equal(ok.status, 200);
+  assert.equal(state.tables.appointments[0].status, "confirmed");
+  assert.ok(state.tables.appointment_events.some((e) => e.appointment_id === APPT && e.kind === "confirmed"));
+});
+
+test("คนไข้ขอผลแล็บในแชท: ตอบแค่ปุ่มลิงก์ \"ผลแล็บของฉัน\" ไม่เรียก AI ไม่มีเนื้อหาผล", async () => {
+  for (const t of ["ขอผลแล็บหน่อยค่ะ", "ผลเลือดออกหรือยังคะ", "อยากดูผลตรวจ", "lab result please"]) assert.ok(rules.isLabResultRequest(t), t);
+  for (const t of ["ตรวจเลือดราคาเท่าไหร่", "ขอนัดเจาะเลือด", "สวัสดีค่ะ"]) assert.ok(!rules.isLabResultRequest(t), t);
+
+  assert.equal(await labChat.replyLabLinkIfAsked("conv1", "สวัสดีค่ะ"), false);
+  assert.equal(await labChat.replyLabLinkIfAsked("conv3", "ขอผลแล็บหน่อย"), false, "Facebook: ไม่ตอบแบบนี้ ให้ AI/เจ้าหน้าที่ตามปกติ");
+  assert.equal(await labChat.replyLabLinkIfAsked("conv1", "ขอผลแล็บหน่อย", "reply-tok"), true);
+  const reply = outbound.find((o) => o.url.endsWith("/message/reply"));
+  const sent = JSON.parse(reply.body);
+  assert.equal(sent.messages.length, 1);
+  assert.match(JSON.stringify(sent.messages), /ผลแล็บของฉัน/);
+  assert.match(JSON.stringify(sent.messages), /\?mine=1/);
+  const m = state.tables.messages.find((x) => x.conversation_id === "conv1");
+  assert.equal(m.sender_type, "ai");
+  assert.doesNotMatch(m.body, /storage|LN\d|%PDF/);
+
+  const pipeline = readFileSync("src/lib/pipeline.ts", "utf8");
+  assert.ok(pipeline.indexOf("replyLabLinkIfAsked(") < pipeline.indexOf("await generateSuggestions(conversationId)"), "ตอบลิงก์ก่อนเรียก LLM");
+  assert.doesNotMatch(readFileSync("src/lib/lab-chat-reply.ts", "utf8"), /lab_results|lab-results-store/, "ตัวตอบลิงก์ไม่อ่านข้อมูลผล");
+});
+
+test("หน้า admin: ตัวกรองสถานะ · ช่วงวันที่ · การ์ดสรุป · badge รอจับคู่", async () => {
+  assert.deepEqual(rules.LAB_TABS.map((t) => t.label), ["ทั้งหมด", "รอจับคู่", "ยังไม่เปิดดู", "ไม่ได้ผูก LINE", "ส่งไม่สำเร็จ"]);
+  labs = [item("1401", { order_datetime: "2026-01-05T03:00:00Z" })];
+  const next = await initialize(Date.now());
+  labs = [item("1401", { order_datetime: "2026-01-05T03:00:00Z" }), item("1402"), item("1403", { location_hn: null, location_hn_extraction_status: "failed" })];
+  await store.runLabSync(next);
+  // ฐานข้อมูลจำลองใช้นาฬิกาของตัวเอง: ให้เวลานำเข้าเป็นตอนนี้ (ผลเก่า 1401 นำเข้าเมื่อวาน)
+  for (const r of state.tables.lab_results) r.created_at = r.bml_id === "1401" ? iso(30 * 3_600_000) : new Date().toISOString();
+  const get = async (qs) => (await listRoute.GET(new Request(`https://app.test/api/lab-results?${qs}`))).json();
+  const all = await get("tab=all");
+  assert.deepEqual(all.summary, { today: 2, unmatched: 1, unviewed: 1 });
+  assert.deepEqual((await get("tab=all&from=2026-01-05&to=2026-01-05")).results.map((r) => r.bml_id), ["1401"]);
+  assert.deepEqual((await get("tab=unmatched")).results.map((r) => r.bml_id), ["1403"]);
+  assert.deepEqual(await get("counts=1"), { unmatched: 1 });
+  assert.deepEqual(rules.bangkokDateRange("2026-01-05", "2026-01-05"), { gte: "2026-01-04T17:00:00.000Z", lt: "2026-01-05T17:00:00.000Z" });
+});
+
+test("ไม่มีปุ่มส่งผลซ้ำ: API ไม่รับ action resend", async () => {
+  const idRoute = await import("../src/app/api/lab-results/[id]/route.ts");
+  const next = await initialize(Date.now());
+  labs = [item("1501")];
+  await store.runLabSync(next);
+  const res = await idRoute.PATCH(new Request("https://app.test/x", { method: "PATCH", body: JSON.stringify({ action: "resend" }) }), { params: Promise.resolve({ id: row("1501").id }) });
+  assert.equal(res.status, 400);
+  assert.doesNotMatch(readFileSync("src/app/(staff)/lab-results/lab-results-client.tsx", "utf8"), /ส่งแจ้งซ้ำ|resend/);
 });

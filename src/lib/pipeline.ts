@@ -4,6 +4,7 @@ import { maskForLearning, saveConfirmedBooking } from "./booking-store";
 import { sendFileToChannel, sendImageToChannel, sendToChannel } from "./channels";
 import { AUTO_CLOSE_EXEMPT_TAGS, CLEARED_ON_REOPEN_TAG, CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "./case-flow";
 import { lineMarkAsRead } from "./channels/line";
+import { replyLabLinkIfAsked } from "./lab-chat-reply";
 import { classifyMetaEcho, metaMarkSeen, metaMessagingType, type MetaEcho } from "./channels/meta";
 import { claimReplyTokenWithAge } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
@@ -260,6 +261,15 @@ export async function processIncoming(conversationId: string, messageId: string,
     .order("created_at", { ascending: false }).limit(20);
   const latest = (recent ?? []).find((m) => isCustomerText(m.body as string));
   if (latest?.id !== messageId) return; // มีข้อความใหม่กว่า ให้รอบของข้อความนั้นทำแทน
+
+  // คนไข้ขอผลแล็บ (LINE): ตอบแค่ปุ่มลิงก์ "ผลแล็บของฉัน" ไม่เรียก LLM — AI ไม่อ่าน/ไม่สรุปผล
+  if (!conv.sensitive && (await replyLabLinkIfAsked(conversationId, latest?.body as string | undefined, replyToken).catch((e) => {
+    console.error("lab link reply failed", e instanceof Error ? e.message : e);
+    return false;
+  }))) {
+    await markConversationRead(conversationId);
+    return;
+  }
 
   // แชทลับตอบรับด้วยเทมเพลต ไม่ต้องเรียก LLM คำแนะนำสร้างตอนเจ้าหน้าที่เปิดแชท
   const suggestion = conv.sensitive

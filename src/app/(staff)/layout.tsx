@@ -4,6 +4,8 @@ import { appointmentCallCounts } from "@/lib/appointment-store";
 import { getStaffContext } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase/server";
 import { AppointmentBadge } from "./appointment-badge";
+import { LabBadge } from "./lab-badge";
+import { labUnmatchedCount } from "@/lib/lab-results-store";
 import { HealthBanner } from "./health-banner";
 import { QuotaBanner } from "./quota-banner";
 import { Icon } from "./icons";
@@ -38,9 +40,10 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   const isAdmin = me.role === "admin";
   // ห้องยาเห็นเฉพาะเมนูนัดหมาย
   const chatStaff = me.role !== "pharmacy";
-  const [calls, prefs] = await Promise.all([
+  const [calls, prefs, labUnmatched] = await Promise.all([
     appointmentCallCounts().catch(() => ({ total: 0, mustCall: 0, reschedule: 0 })),
     loadPreferences(me.id),
+    chatStaff ? labUnmatchedCount().catch(() => 0) : Promise.resolve(0),
   ]);
 
   return (
@@ -56,7 +59,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           <span className="nav-icon" aria-hidden="true"><Icon name="calendar" size={20} /></span><span className="nav-label">นัดหมาย</span>
           <AppointmentBadge initial={calls} />
         </Link>
-        {chatStaff && <Link href="/lab-results" title="ผลแล็บ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ผลแล็บ</span></Link>}
+        {chatStaff && <Link href="/lab-results" title="ผลแล็บ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ผลแล็บ</span><LabBadge initial={labUnmatched} /></Link>}
         {chatStaff && <Link href="/reports" title="รายงาน"><span className="nav-icon" aria-hidden="true"><Icon name="chart" size={20} /></span><span className="nav-label">รายงาน</span></Link>}
         {isAdmin && <Link href="/sensitive-log" title="ประวัติแชทลับ"><span className="nav-icon" aria-hidden="true"><Icon name="lock" size={20} /></span><span className="nav-label">ประวัติแชทลับ</span></Link>}
         {canOpenSettings(me.role) && <Link href="/settings" title="ตั้งค่า"><span className="nav-icon" aria-hidden="true"><Icon name="settings" size={20} /></span><span className="nav-label">ตั้งค่า</span></Link>}

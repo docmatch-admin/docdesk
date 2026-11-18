@@ -6,10 +6,11 @@ import { lineSendMessages } from "./channels/line";
 import { LineQuotaError } from "./channels/line-log";
 import {
   isUpdateNotice, LAB_BUCKET, LAB_COLUMNS, LAB_SENDER_NAME, LAB_SIGNED_URL_SECONDS, LAB_SYNC_LOOKBACK_DAYS, LAB_SYNC_MAX_PAGES,
-  LAB_SYNC_STATE_KEY, LAB_TEAM_GROUP_KEY, labHn, labViewUrl, inLabTab, patientNoticeFlex, patientNoticeText,
+  LAB_SYNC_STATE_KEY, LAB_TEAM_GROUP_KEY, labHn, labMineUrl, labViewUrl, inLabTab, bangkokDateRange, labSummary, patientNoticeFlex, patientNoticeText,
   resultHearingAppointment, shouldAutoNotify, syncAction, syncDue, teamNoticeText, versionOf,
-  type LabAppointment, type LabResult, type LabSyncState, type LabTab,
+  apptWhen, type LabAppointment, type LabResult, type LabSummary, type LabSyncState, type LabTab,
 } from "./lab-results-rules";
+import { logAppointmentEvent, recipientIds } from "./appointment-store";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
 import { hnVariants, linkedConversationsOf, linksOfConversation, normalizeHn, upsertPatient } from "./patient-link-store";
 import { supabaseAdmin } from "./supabase/admin";
@@ -106,7 +107,8 @@ async function upsertItem(item: BmlLabItem, opts: { backfill: boolean; allowPdf:
       bml_id: bmlId, ...base, ...match, ...pdf, version_number: version, view_count: 0,
       // เริ่มระบบครั้งแรก: ผลเก่าที่มีอยู่แล้วไม่แจ้งคนไข้/ทีม
       notify_status: opts.backfill ? "skipped" : "pending",
-      ...(opts.backfill ? { team_notified_version: version } : {}),
+      // ผลเก่าตอนเริ่มระบบ: ถือว่าแจ้งแล้ว (notified_at = ตอนนำเข้า) ไม่ส่ง LINE ใด ๆ
+      ...(opts.backfill ? { team_notified_version: version, notified_at: nowIso(), notified_version: version } : {}),
       updated_at: nowIso(),
     }, { onConflict: "bml_id" }).select(LAB_COLUMNS);
     if (error) throw error;
@@ -261,7 +263,7 @@ export async function notifyLabResult(id: string, opts: { now?: number } = {}): 
   const errors: string[] = [...blocked];
   for (const t of targets) {
     const showName = (await linksOfConversation(t.conversationId)).length > 1;
-    const notice = { clinic, patientName: r.patient_name, showName, updated, orderDate: r.order_datetime, viewUrl: labViewUrl(liffId(), appUrl(), r.id), appointment };
+    const notice = { clinic, patientName: r.patient_name, showName, updated, orderDate: r.order_datetime, viewUrl: labViewUrl(liffId(), appUrl(), r.id), mineUrl: labMineUrl(liffId(), appUrl()), appointment };
     try {
       await lineSendMessages(t.userId, [patientNoticeFlex(notice)], undefined, { kind: "lab", conversationId: t.conversationId });
       await db.from("messages").insert({
@@ -360,24 +362,91 @@ async function lineUserOwnsHn(userId: string, hn: string): Promise<boolean> {
   return (await linkedConversationsOf(hn)).some((l) => convIds.has(l.conversation_id));
 }
 
-async function signedPdfUrl(path: string): Promise<string> {
-  const { data, error } = await supabaseAdmin().storage.from(LAB_BUCKET).createSignedUrls([path], LAB_SIGNED_URL_SECONDS);
+async function signedPdfUrl(path: string, download?: string): Promise<string> {
+  const { data, error } = await supabaseAdmin().storage.from(LAB_BUCKET).createSignedUrls([path], LAB_SIGNED_URL_SECONDS, download ? { download } : undefined);
   const url = (data ?? [])[0]?.signedUrl;
   if (error || !url) throw new LabError("เปิดไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง", 502);
   return url;
 }
 
-export async function patientViewLab(id: string, idToken: string) {
+/** HN ทั้งหมดที่บัญชี LINE นี้ผูกไว้ (คนไข้เองหรือญาติ) + แชทของบัญชีนี้ */
+async function lineUserLinks(userId: string): Promise<{ hns: string[]; conversationIds: string[] }> {
+  const db = supabaseAdmin();
+  const { data: contacts } = await db.from("contacts").select("id, channel_id").eq("external_id", userId);
+  const rows = (contacts ?? []) as { id: string; channel_id: string }[];
+  if (!rows.length) return { hns: [], conversationIds: [] };
+  const { data: channels } = await db.from("channels").select("id, type").in("id", [...new Set(rows.map((c) => c.channel_id))]);
+  const lineChannels = new Set(((channels ?? []) as { id: string; type: string }[]).filter((c) => c.type === "line").map((c) => c.id));
+  const ids = rows.filter((c) => lineChannels.has(c.channel_id)).map((c) => c.id);
+  if (!ids.length) return { hns: [], conversationIds: [] };
+  const { data: convs } = await db.from("conversations").select("id").in("contact_id", ids);
+  const conversationIds = ((convs ?? []) as { id: string }[]).map((c) => c.id);
+  const hns = new Set<string>();
+  for (const c of conversationIds) {
+    for (const l of await linksOfConversation(c)) {
+      const h = normalizeHn(l.hn);
+      if (h) hns.add(h);
+    }
+  }
+  return { hns: [...hns], conversationIds };
+}
+
+export interface PatientAppointment { id: string; when: string; status: string; canConfirm: boolean }
+const patientAppt = (a: LabAppointment | null): PatientAppointment | null =>
+  a ? { id: a.id, when: apptWhen(a), status: a.status, canConfirm: a.status === "scheduled" || a.status === "reschedule_requested" } : null;
+
+export async function patientViewLab(id: string, idToken: string, now = Date.now()) {
   const userId = await verifyLineIdToken(idToken);
   const r = await loadResult(id);
   // ไม่บอกว่ามีผลนี้อยู่หรือไม่ ถ้าไม่ใช่เจ้าของ
   if (!r || !r.patient_id || !r.pdf_path || !(await lineUserOwnsHn(userId, r.patient_id))) {
     throw new LabError("ไม่พบผลแล็บนี้ในบัญชี LINE ของคุณ", 404);
   }
-  const url = await signedPdfUrl(r.pdf_path);
+  const [url, downloadUrl, appointment] = await Promise.all([
+    signedPdfUrl(r.pdf_path),
+    signedPdfUrl(r.pdf_path, `lab-${(r.order_datetime ?? "").slice(0, 10) || r.ln || "result"}.pdf`),
+    hearingAppointment(r.patient_id, now),
+  ]);
   const at = nowIso();
   await supabaseAdmin().from("lab_results").update({ view_count: (r.view_count ?? 0) + 1, first_viewed_at: r.first_viewed_at ?? at, last_viewed_at: at }).eq("id", r.id);
-  return { url, expiresIn: LAB_SIGNED_URL_SECONDS, patientName: r.patient_name, orderDate: r.order_datetime, updated: r.version_number > 1 };
+  return {
+    url, downloadUrl, expiresIn: LAB_SIGNED_URL_SECONDS, patientName: r.patient_name, orderDate: r.order_datetime, ln: r.ln,
+    updated: r.version_number > 1, version: r.version_number, appointment: patientAppt(appointment),
+  };
+}
+
+/** หน้า "ผลแล็บของฉัน": ผลทุกรายการของทุก HN ที่บัญชี LINE นี้ผูก เรียงล่าสุดก่อน (ไม่มี URL ไฟล์ เปิดทีละรายการ) */
+export async function patientLabList(idToken: string, now = Date.now()) {
+  const userId = await verifyLineIdToken(idToken);
+  const { hns } = await lineUserLinks(userId);
+  if (!hns.length) return { linked: false, results: [] };
+  const { data } = await supabaseAdmin().from("lab_results").select(LAB_COLUMNS).in("patient_id", hns).order("order_datetime", { ascending: false }).limit(200);
+  const rows = ((data ?? []) as unknown as LabResult[]).filter((r) => r.pdf_path);
+  const appts = new Map<string, PatientAppointment | null>();
+  for (const hn of new Set(rows.map((r) => r.patient_id as string))) appts.set(hn, patientAppt(await hearingAppointment(hn, now)));
+  return {
+    linked: true,
+    results: rows.map((r) => ({
+      id: r.id, ln: r.ln, orderDate: r.order_datetime, patientName: hns.length > 1 ? r.patient_name : null,
+      updated: r.version_number > 1, version: r.version_number, viewed: !!r.first_viewed_at, appointment: appts.get(r.patient_id as string) ?? null,
+    })),
+  };
+}
+
+/** คนไข้กดยืนยันนัดฟังผลจากหน้า LIFF: ต้องเป็นบัญชีที่รับข้อความของนัดนั้น */
+export async function patientConfirmAppointment(appointmentId: string, idToken: string, now = Date.now()) {
+  const userId = await verifyLineIdToken(idToken);
+  const db = supabaseAdmin();
+  const { data } = await db.from("appointments").select("id, hn, conversation_id, status, appoint_date").eq("id", appointmentId).maybeSingle();
+  const appt = data as { id: string; hn: string | null; conversation_id: string | null; status: string; appoint_date: string } | null;
+  const { conversationIds } = await lineUserLinks(userId);
+  const allowed = appt ? (await recipientIds(appt)).find((c) => conversationIds.includes(c)) : undefined;
+  if (!appt || !allowed) throw new LabError("ไม่พบนัดนี้ในบัญชี LINE ของคุณ", 404);
+  if (appt.status === "confirmed") return { status: "confirmed" };
+  if (!(OPEN_STATUSES as string[]).includes(appt.status) || appt.appoint_date < bangkokToday(now)) throw new LabError("นัดนี้ปิดแล้ว ยืนยันไม่ได้", 409);
+  await db.from("appointments").update({ status: "confirmed", updated_at: nowIso() }).eq("id", appt.id);
+  await logAppointmentEvent(appt.id, "confirmed", "customer", { channel: "line", detail: { conversation_id: allowed, via: "lab_liff" } });
+  return { status: "confirmed" };
 }
 
 // ---------------------------------------------------------------------------
@@ -392,9 +461,12 @@ export async function staffPdfUrl(id: string): Promise<string> {
 const LIST_LIMIT = 300;
 const searchTerm = (q: string) => q.replace(/[,()%*\\:"']/g, " ").trim().slice(0, 60);
 
-export async function listLabResults(opts: { tab?: LabTab; q?: string; id?: string | null; conversationId?: string | null } = {}): Promise<LabResult[]> {
+export async function listLabResults(opts: { tab?: LabTab; q?: string; id?: string | null; conversationId?: string | null; from?: string | null; to?: string | null } = {}): Promise<LabResult[]> {
   let qy = supabaseAdmin().from("lab_results").select(LAB_COLUMNS);
   if (opts.id) qy = qy.eq("id", opts.id);
+  const range = bangkokDateRange(opts.from, opts.to);
+  if (range.gte) qy = qy.gte("order_datetime", range.gte);
+  if (range.lt) qy = qy.lt("order_datetime", range.lt);
   if (opts.conversationId) {
     const hns = [...new Set((await linksOfConversation(opts.conversationId)).map((l) => normalizeHn(l.hn)).filter((h): h is string => !!h))];
     if (!hns.length) return [];
@@ -433,4 +505,28 @@ export async function matchLabResult(id: string, rawHn: string | null, staffId: 
 
 export async function labSyncStatus() {
   return getSetting<LabSyncState>(LAB_SYNC_STATE_KEY, {});
+}
+
+/** การ์ดสรุปหน้าผลแล็บ */
+export async function labResultSummary(now = Date.now()): Promise<LabSummary> {
+  const todayStart = new Date(Date.parse(`${bangkokToday(now)}T00:00:00+07:00`)).toISOString();
+  const db = supabaseAdmin();
+  const cols = "created_at, notify_status, match_status, first_viewed_at";
+  const [{ data: today }, { data: unmatched }, { data: sent }] = await Promise.all([
+    db.from("lab_results").select(cols).gte("created_at", todayStart),
+    db.from("lab_results").select(cols).eq("match_status", "unmatched"),
+    db.from("lab_results").select(cols).eq("notify_status", "sent").is("first_viewed_at", null),
+  ]);
+  type Row = Pick<LabResult, "created_at" | "notify_status" | "match_status" | "first_viewed_at">;
+  return {
+    today: labSummary((today ?? []) as Row[], todayStart).today,
+    unmatched: (unmatched ?? []).length,
+    unviewed: labSummary((sent ?? []) as Row[], todayStart).unviewed,
+  };
+}
+
+/** badge เมนูซ้าย: ผลที่รอจับคู่ */
+export async function labUnmatchedCount(): Promise<number> {
+  const { count, data } = await supabaseAdmin().from("lab_results").select("id", { count: "exact", head: true }).eq("match_status", "unmatched");
+  return count ?? (data ?? []).length;
 }

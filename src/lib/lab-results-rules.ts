@@ -111,6 +111,35 @@ export const apptWhen = (a: Pick<LabAppointment, "appoint_date" | "time_mode" | 
 export function labViewUrl(liffId: string | null | undefined, appUrl: string, labId: string): string {
   return liffId ? `https://liff.line.me/${liffId}?id=${encodeURIComponent(labId)}` : `${appUrl.replace(/\/$/, "")}/lab-result?id=${encodeURIComponent(labId)}`;
 }
+/** หน้า "ผลแล็บของฉัน" (LIFF เดียวกัน ไม่มี id = แสดงรายการ) */
+export function labMineUrl(liffId: string | null | undefined, appUrl: string): string {
+  return liffId ? `https://liff.line.me/${liffId}?mine=1` : `${appUrl.replace(/\/$/, "")}/lab-result?mine=1`;
+}
+
+/** คนไข้พิมพ์ขอ/ถามผลแล็บในแชท (ไม่รวมถามราคาตรวจ) */
+const LAB_REQUEST = [
+  /(?:ขอ|ดู|เช็ค|เช็ก|ส่ง|รับ|อยากได้|อยากดู|อยากทราบ|ทราบ|ถาม)\s*(?:ใบ)?ผล\s*(?:แล็บ|แลบ|แล็ป|แลป|lab|เลือด|ตรวจ)/i,
+  /ผล\s*(?:แล็บ|แลบ|แล็ป|แลป|lab|เลือด|ตรวจ).{0,20}(?:ออก|หรือยัง|รึยัง|ยัง|ได้|ไหม|มั้ย|ยังไง|อย่างไร|ที่ไหน|เมื่อไหร่|เมื่อไร|\?)/i,
+  /\b(?:lab|test|blood)\s*results?\b/i,
+];
+export const isLabResultRequest = (text: string | null | undefined) => {
+  const t = (text ?? "").trim();
+  return !!t && t.length <= 300 && !/ราคา|กี่บาท|เท่าไหร่|เท่าไร|price|cost/i.test(t) && LAB_REQUEST.some((re) => re.test(t));
+};
+export const LAB_LINK_REPLY_TEXT = "ดูผลแล็บของคุณได้ที่ปุ่ม \"ผลแล็บของฉัน\" (เปิดได้เฉพาะบัญชี LINE ที่ผูกกับคลินิก) มีข้อสงสัยเกี่ยวกับผล สอบถามเจ้าหน้าที่ได้เลยค่ะ";
+
+/** ปุ่มลิงก์ไปหน้า "ผลแล็บของฉัน" อย่างเดียว (AI ไม่อ่าน/ไม่สรุปผล) */
+export function labLinkFlex(url: string) {
+  return {
+    type: "flex",
+    altText: "ดูผลแล็บของฉัน",
+    contents: {
+      type: "bubble", size: "kilo",
+      body: { type: "box", layout: "vertical", contents: [{ type: "text", text: LAB_LINK_REPLY_TEXT, size: "sm", wrap: true }] },
+      footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#0f7a5f", height: "sm", action: { type: "uri", label: "ผลแล็บของฉัน", uri: url } }] },
+    },
+  };
+}
 
 export interface PatientNotice {
   clinic: string;
@@ -120,6 +149,7 @@ export interface PatientNotice {
   updated: boolean;
   orderDate: string | null;
   viewUrl: string;
+  mineUrl: string;
   appointment: LabAppointment | null;
 }
 
@@ -130,6 +160,7 @@ export function patientNoticeText(n: PatientNotice): string {
     n.updated ? "แล็บแก้ไขผลตรวจ กรุณาดูฉบับล่าสุด" : "กดลิงก์เพื่อดูผล (ลิงก์ใช้ได้เฉพาะบัญชี LINE นี้)",
     ...(n.appointment ? [`นัดฟังผล: ${apptWhen(n.appointment)}`] : []),
     n.viewUrl,
+    `ดูผลแล็บทั้งหมดของฉัน: ${n.mineUrl}`,
     n.clinic,
   ].join("\n");
 }
@@ -150,6 +181,7 @@ export function patientNoticeFlex(n: PatientNotice) {
   ];
   const buttons: Record<string, unknown>[] = [
     { type: "button", style: "primary", color: "#0f7a5f", height: "sm", action: { type: "uri", label: "ดูผล", uri: n.viewUrl } },
+    { type: "button", style: "link", height: "sm", action: { type: "uri", label: "ดูผลแล็บทั้งหมดของฉัน", uri: n.mineUrl } },
   ];
   // ปุ่มยืนยัน/เลื่อนนัด ใช้ postback เดิมของระบบนัด (นัดออนไลน์เลื่อนเองไม่ได้ จึงมีแค่ยืนยัน)
   if (a) {
@@ -191,10 +223,10 @@ export function teamNoticeText(r: Pick<LabResult, "patient_name" | "patient_id" 
 export type LabTab = "all" | "unmatched" | "failed" | "nolink" | "unviewed";
 export const LAB_TABS: { key: LabTab; label: string }[] = [
   { key: "all", label: "ทั้งหมด" },
-  { key: "unmatched", label: "ยังไม่จับคู่" },
-  { key: "failed", label: "ส่งไม่สำเร็จ" },
+  { key: "unmatched", label: "รอจับคู่" },
+  { key: "unviewed", label: "ยังไม่เปิดดู" },
   { key: "nolink", label: "ไม่ได้ผูก LINE" },
-  { key: "unviewed", label: "แจ้งแล้ว ยังไม่เปิด" },
+  { key: "failed", label: "ส่งไม่สำเร็จ" },
 ];
 export const parseLabTab = (v: string | null | undefined): LabTab => (LAB_TABS.some((t) => t.key === v) ? (v as LabTab) : "all");
 
@@ -207,6 +239,26 @@ export function inLabTab(r: LabResult, tab: LabTab): boolean {
 }
 
 export const NOTIFY_LABEL: Record<LabNotifyStatus, string> = {
-  pending: "รอแจ้ง", sent: "แจ้งแล้ว", unreachable: "ไม่ได้ผูก LINE", failed: "ส่งไม่สำเร็จ", skipped: "ไม่แจ้งอัตโนมัติ",
+  pending: "รอแจ้ง", sent: "แจ้งแล้ว", unreachable: "ไม่ได้ผูก LINE", failed: "ส่งไม่สำเร็จ", skipped: "ผลเก่า (ไม่แจ้ง)",
 };
-export const MATCH_LABEL: Record<LabMatchStatus, string> = { matched: "จับคู่อัตโนมัติ", unmatched: "ยังไม่จับคู่", manual: "จับคู่เอง" };
+export const MATCH_LABEL: Record<LabMatchStatus, string> = { matched: "จับคู่อัตโนมัติ", unmatched: "รอจับคู่", manual: "จับคู่เอง" };
+
+/** วันที่ตามเวลาไทย → ช่วงเวลา UTC สำหรับกรอง order_datetime (from ≤ t < to+1 วัน) */
+export function bangkokDateRange(from: string | null | undefined, to: string | null | undefined): { gte?: string; lt?: string } {
+  const ok = (d: string | null | undefined): d is string => !!d && /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(`${d}T00:00:00+07:00`));
+  return {
+    ...(ok(from) ? { gte: new Date(Date.parse(`${from}T00:00:00+07:00`)).toISOString() } : {}),
+    ...(ok(to) ? { lt: new Date(Date.parse(`${to}T00:00:00+07:00`) + 86_400_000).toISOString() } : {}),
+  };
+}
+
+export interface LabSummary { today: number; unmatched: number; unviewed: number }
+/** การ์ดสรุป: ผลใหม่วันนี้ (เข้า DocDesk วันนี้ ไม่นับผลเก่าตอนเริ่มระบบ) · รอจับคู่ · แจ้งแล้วคนไข้ยังไม่เปิดดู */
+export function labSummary(rows: Pick<LabResult, "created_at" | "notify_status" | "match_status" | "first_viewed_at">[], todayStartIso: string): LabSummary {
+  const start = Date.parse(todayStartIso);
+  return {
+    today: rows.filter((r) => Date.parse(r.created_at) >= start && r.notify_status !== "skipped").length,
+    unmatched: rows.filter((r) => r.match_status === "unmatched").length,
+    unviewed: rows.filter((r) => r.notify_status === "sent" && !r.first_viewed_at).length,
+  };
+}

@@ -55,3 +55,10 @@ on conflict (id) do update set public = false, file_size_limit = excluded.file_s
 -- สรุปโควตา LINE แยกประเภท "ผลแล็บ"
 alter table line_sends drop constraint if exists line_sends_kind_check;
 alter table line_sends add constraint line_sends_kind_check check (kind in ('chat', 'appointment', 'reminder', 'broadcast', 'lab'));
+
+-- badge "รอจับคู่" ที่เมนูอัปเดตเองเมื่อมีผลใหม่
+do $$
+begin
+  alter publication supabase_realtime add table lab_results;
+exception when duplicate_object then null;
+end $$;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { LAB_TABS, MATCH_LABEL, NOTIFY_LABEL, parseLabTab, type LabResult, type LabTab } from "@/lib/lab-results-rules";
+import { LAB_TABS, MATCH_LABEL, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
 
 interface SyncInfo { last_ok_at: string | null; last_run_at: string | null; last_error: string | null }
 interface GroupInfo { group_id?: string | null; candidate_id?: string | null; candidate_at?: string | null }
@@ -30,6 +30,9 @@ export function notifyText(n: unknown): string {
 export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: boolean; initialId: string | null; initialTab: string | null }) {
   const [tab, setTab] = useState<LabTab>(parseLabTab(initialTab));
   const [q, setQ] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [summary, setSummary] = useState<LabSummary | null>(null);
   const [onlyId, setOnlyId] = useState<string | null>(initialId);
   const [rows, setRows] = useState<LabResult[]>([]);
   const [sync, setSync] = useState<SyncInfo | null>(null);
@@ -45,15 +48,16 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
 
   const load = useCallback(async () => {
     setLoading(true);
-    const p = new URLSearchParams({ tab, q });
+    const p = new URLSearchParams({ tab, q, from, to });
     if (onlyId) p.set("id", onlyId);
     const res = await fetch(`/api/lab-results?${p}`).catch(() => null);
     const j = res?.ok ? await res.json() : null;
     setRows(j?.results ?? []);
     setSync(j?.sync ?? null);
+    setSummary(j?.summary ?? null);
     setGroup(j?.group ?? null);
     setLoading(false);
-  }, [tab, q, onlyId]);
+  }, [tab, q, from, to, onlyId]);
 
   useEffect(() => {
     const t = setTimeout(load, 250);
@@ -88,6 +92,18 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
         {sync?.last_error && <span className="error"> · รอบล่าสุดผิดพลาด: {sync.last_error}</span>}
       </p>
 
+      {summary && (
+        <div className="lab-cards">
+          <div className="card lab-card"><span className="muted small">ผลใหม่วันนี้</span><b>{summary.today}</b></div>
+          <button type="button" className={`card lab-card warn ${tab === "unmatched" ? "on" : ""}`} onClick={() => { setOnlyId(null); setTab("unmatched"); }}>
+            <span className="muted small">รอจับคู่</span><b>{summary.unmatched}</b>
+          </button>
+          <button type="button" className={`card lab-card ${tab === "unviewed" ? "on" : ""}`} onClick={() => { setOnlyId(null); setTab("unviewed"); }}>
+            <span className="muted small">คนไข้ยังไม่เปิดดู</span><b>{summary.unviewed}</b>
+          </button>
+        </div>
+      )}
+
       <div className="lab-toolbar">
         <div className="lab-tabs" role="tablist">
           {LAB_TABS.map((t) => (
@@ -95,7 +111,12 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
               onClick={() => { setOnlyId(null); setTab(t.key); }}>{t.label}</button>
           ))}
         </div>
-        <input className="lab-search" type="search" placeholder="ค้นชื่อ / HN / LN" value={q} onChange={(e) => { setOnlyId(null); setQ(e.target.value); }} />
+        <div className="lab-filters">
+          <input className="lab-search" type="search" placeholder="ค้นชื่อ / HN / LN" value={q} onChange={(e) => { setOnlyId(null); setQ(e.target.value); }} />
+          <label className="lab-date">ตรวจตั้งแต่<input type="date" value={from} onChange={(e) => { setOnlyId(null); setFrom(e.target.value); }} /></label>
+          <label className="lab-date">ถึง<input type="date" value={to} onChange={(e) => { setOnlyId(null); setTo(e.target.value); }} /></label>
+          {(from || to) && <button type="button" className="link-btn small" onClick={() => { setFrom(""); setTo(""); }}>ล้างวันที่</button>}
+        </div>
       </div>
       {onlyId && <p className="small">แสดงรายการจากลิงก์ · <button type="button" className="link-btn" onClick={() => setOnlyId(null)}>ดูทั้งหมด</button></p>}
 
@@ -110,10 +131,11 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.id}>
+                  <tr key={r.id} className={r.match_status === "unmatched" ? "lab-row-unmatched" : undefined}>
                     <td>
                       <b>{r.patient_name || "–"}</b>
-                      <div className="muted small">{r.ln ? `LN ${r.ln}` : ""}{r.version_number > 1 ? ` · ฉบับแก้ไข v${r.version_number}` : ""}</div>
+                      <div className="muted small">{r.ln ? `LN ${r.ln}` : ""}</div>
+                      {r.version_number > 1 && <span className="lab-chip wait">แก้ผล v{r.version_number}</span>}
                     </td>
                     <td>{hnOf(r) ?? "–"}</td>
                     <td>{whenTh(r.order_datetime)}</td>
@@ -134,7 +156,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
                         {r.pdf_path
                           ? <a className="btn ghost small" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
                           : <span className="muted small" title={r.pdf_error ?? undefined}>{r.pdf_error ? "โหลดไฟล์ไม่สำเร็จ" : "รอไฟล์"}</span>}
-                        <button type="button" className="btn ghost small"
+                        <button type="button" className={`btn small ${r.patient_id ? "ghost" : "primary lab-match-btn"}`}
                           onClick={() => { setMatching(matching === r.id ? null : r.id); setHn(r.patient_id?.replace(/^0+/, "") ?? (r.location_hn ?? "").replace(/\D/g, "").slice(0, 9)); }}>
                           {r.patient_id ? "เปลี่ยนคนไข้" : "จับคู่คนไข้"}
                         </button>

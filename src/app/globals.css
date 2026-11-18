@@ -1839,3 +1839,16 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .lab-error { font-size: 12px; color: var(--danger-ink); max-width: 260px; }
 .lab-error summary { cursor: pointer; }
 .lab-error div { white-space: pre-wrap; word-break: break-word; margin-top: 2px; }
+.lab-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0; }
+.lab-card { display: flex; flex-direction: column; gap: 2px; text-align: left; font: inherit; color: inherit; cursor: default; }
+button.lab-card { cursor: pointer; }
+.lab-card b { font-size: 24px; font-variant-numeric: tabular-nums; }
+.lab-card.warn b { color: var(--warning-ink); }
+.lab-card.on { border-color: var(--blue); }
+.lab-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lab-date { flex-direction: row; align-items: center; gap: 6px; font-weight: 400; font-size: 13px; }
+.lab-date input { width: auto; }
+.lab-table tr.lab-row-unmatched td { background: var(--warning-soft); }
+.lab-table tr.lab-row-unmatched td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+.btn.lab-match-btn { background: var(--warning-strong-soft); color: var(--warning-ink); border: 1px solid var(--warning-border); }
+.badge.nav-count.lab-badge { background: var(--warning-strong-soft); color: var(--warning-ink); }
