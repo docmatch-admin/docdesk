@@ -33,6 +33,7 @@ export function LabResultsBlock({ conversationId, blurred }: { conversationId: s
             </div>
             <div className="lab-side-meta">
               <span className={NOTIFY_CLASS[r.notify_status]} title={r.notify_error ?? undefined}>{NOTIFY_LABEL[r.notify_status]}</span>
+              {r.notify_status === "failed" && r.notify_error && <span className="error small">{r.notify_error}</span>}
               <span className="muted small">{r.first_viewed_at ? `คนไข้เปิดดูแล้ว ${r.view_count} ครั้ง` : r.notify_status === "sent" ? "ยังไม่เปิด" : ""}</span>
             </div>
             <div className="lab-side-meta">

@@ -345,3 +345,41 @@ test("แจ้งกลุ่มแพทย์พักไว้: ค่าเ
   assert.equal(s.team, 0);
   assert.deepEqual(pushes().map((p) => p.to), [LINE_USER]);
 });
+
+test("ไทม์ไลน์แชท: บันทึกข้อความแจ้งผลพร้อมป้าย \"ส่งอัตโนมัติ · ผลแล็บ\"", async () => {
+  const next = await initialize(Date.now());
+  labs = [item("901")];
+  await store.runLabSync(next);
+  const msgs = state.tables.messages.filter((m) => m.conversation_id === "conv1");
+  assert.equal(msgs.length, 1);
+  assert.equal(msgs[0].imported_sender_name, "ส่งอัตโนมัติ · ผลแล็บ");
+  assert.equal(msgs[0].direction, "out");
+  assert.match(msgs[0].body, /ผลแล็บของคุณออกแล้ว/);
+});
+
+test("LINE ส่งไม่สำเร็จ (บล็อก/เลิกติดตาม/error): สถานะ \"ส่งไม่สำเร็จ\" + เก็บ error + ตัวกรอง", async () => {
+  const next = await initialize(Date.now());
+  // เลิกติดตาม OA แล้ว: ไม่ยิง push แต่ขึ้นส่งไม่สำเร็จ (ไม่ใช่ "ไม่ได้ผูก LINE")
+  state.tables.contacts.find((c) => c.id === "c1").line_unfollowed_at = iso(MIN);
+  labs = [item("911")];
+  await store.runLabSync(next);
+  assert.equal(pushes().length, 0);
+  assert.equal(row("911").notify_status, "failed");
+  assert.match(row("911").notify_error, /บล็อกหรือเลิกติดตาม/);
+  assert.ok(rules.inLabTab(row("911"), "failed"));
+  assert.ok(!rules.inLabTab(row("911"), "nolink"));
+  assert.ok(rules.LAB_TABS.some((t) => t.key === "failed" && t.label === "ส่งไม่สำเร็จ"));
+
+  // LINE ตอบ error: เก็บข้อความจริงไว้ดู ไม่บันทึกลงไทม์ไลน์
+  state.tables.contacts.find((c) => c.id === "c1").line_unfollowed_at = null;
+  const base = globalThis.fetch;
+  globalThis.fetch = async (url, init) => (String(url).endsWith("/message/push")
+    ? new Response('{"message":"Failed to send messages"}', { status: 400 })
+    : base(url, init));
+  labs = [item("912")];
+  await store.runLabSync(next + 60 * MIN);
+  assert.equal(row("912").notify_status, "failed");
+  assert.match(row("912").notify_error, /400/);
+  assert.equal(state.tables.messages.filter((m) => m.conversation_id === "conv1").length, 0);
+  assert.match(store.lineErrorText(new Error('LINE push failed 403: {"message":"blocked"}')), /บล็อก/);
+});

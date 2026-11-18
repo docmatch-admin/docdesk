@@ -124,6 +124,9 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
                     <td>
                       <span className={NOTIFY_CLASS[r.notify_status]} title={r.notify_error ?? undefined}>{NOTIFY_LABEL[r.notify_status]}</span>
                       {r.notified_at && <div className="muted small">{whenTh(r.notified_at)}</div>}
+                      {r.notify_error && (r.notify_status === "failed" || r.notify_status === "sent") && (
+                        <details className="lab-error"><summary>{r.notify_status === "failed" ? "ดู error" : "ส่งไม่ถึงบางบัญชี"}</summary><div>{r.notify_error}</div></details>
+                      )}
                     </td>
                     <td>{r.first_viewed_at ? <>{whenTh(r.first_viewed_at)}<div className="muted small">{r.view_count} ครั้ง</div></> : <span className="muted">ยังไม่เปิด</span>}</td>
                     <td>

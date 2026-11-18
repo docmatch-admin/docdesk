@@ -3,7 +3,8 @@ import { OPEN_STATUSES, postbackData, thaiFullDate, type AppointmentStatus } fro
 import { clock, timeRange } from "./time-format";
 
 export const LAB_BUCKET = "lab-results";
-export const LAB_SENDER_NAME = "ระบบผลแล็บ";
+/** ป้ายในไทม์ไลน์แชท (แสดงเป็น "⚙️ ส่งอัตโนมัติ · ผลแล็บ · …") */
+export const LAB_SENDER_NAME = "ส่งอัตโนมัติ · ผลแล็บ";
 /** คนไข้เปิดดู PDF ผ่าน signed URL อายุไม่เกิน 10 นาที */
 export const LAB_SIGNED_URL_SECONDS = 600;
 /** ห้ามเรียกระบบแล็บถี่กว่า 15 นาที (cron จริงชั่วโมงละครั้ง 13:00–18:00 น.) กันคนกดเรียก route ซ้ำ */
@@ -187,10 +188,11 @@ export function teamNoticeText(r: Pick<LabResult, "patient_name" | "patient_id" 
 // ---------------------------------------------------------------------------
 // หน้ารายการ
 // ---------------------------------------------------------------------------
-export type LabTab = "all" | "unmatched" | "nolink" | "unviewed";
+export type LabTab = "all" | "unmatched" | "failed" | "nolink" | "unviewed";
 export const LAB_TABS: { key: LabTab; label: string }[] = [
   { key: "all", label: "ทั้งหมด" },
   { key: "unmatched", label: "ยังไม่จับคู่" },
+  { key: "failed", label: "ส่งไม่สำเร็จ" },
   { key: "nolink", label: "ไม่ได้ผูก LINE" },
   { key: "unviewed", label: "แจ้งแล้ว ยังไม่เปิด" },
 ];
@@ -198,6 +200,7 @@ export const parseLabTab = (v: string | null | undefined): LabTab => (LAB_TABS.s
 
 export function inLabTab(r: LabResult, tab: LabTab): boolean {
   if (tab === "unmatched") return r.match_status === "unmatched";
+  if (tab === "failed") return r.notify_status === "failed";
   if (tab === "nolink") return r.notify_status === "unreachable";
   if (tab === "unviewed") return r.notify_status === "sent" && !r.first_viewed_at;
   return true;

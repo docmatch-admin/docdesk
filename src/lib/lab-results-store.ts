@@ -193,21 +193,32 @@ export async function runLabSync(now = Date.now()): Promise<LabSyncSummary> {
 // ---------------------------------------------------------------------------
 interface LineTarget { conversationId: string; userId: string }
 
-/** บัญชี LINE ที่ผูกกับ HN นี้และยังติดตาม OA อยู่ */
-async function lineTargetsOf(hn: string): Promise<LineTarget[]> {
+/** บัญชี LINE ที่ผูกกับ HN นี้: ส่งได้ / ส่งไม่ได้เพราะบล็อก·เลิกติดตาม OA หรือแชทถูกเก็บถาวร */
+async function lineTargetsOf(hn: string): Promise<{ targets: LineTarget[]; blocked: string[] }> {
   const links = await linkedConversationsOf(hn);
-  if (!links.length) return [];
+  if (!links.length) return { targets: [], blocked: [] };
   const { data } = await supabaseAdmin().from("conversations")
     .select("id, archived, contacts(external_id, line_unfollowed_at), channels(type)")
     .in("id", links.map((l) => l.conversation_id));
   const out: LineTarget[] = [];
+  const blocked: string[] = [];
   for (const c of (data ?? []) as { id: string; archived?: boolean | null; contacts: unknown; channels: unknown }[]) {
     const contact = (Array.isArray(c.contacts) ? c.contacts[0] : c.contacts) as { external_id?: string; line_unfollowed_at?: string | null } | null;
     const channel = (Array.isArray(c.channels) ? c.channels[0] : c.channels) as { type?: string } | null;
-    if (channel?.type !== "line" || c.archived || contact?.line_unfollowed_at || !contact?.external_id) continue;
+    if (channel?.type !== "line" || !contact?.external_id) continue;
+    if (contact.line_unfollowed_at) { blocked.push("คนไข้บล็อกหรือเลิกติดตาม LINE OA"); continue; }
+    if (c.archived) { blocked.push("แชท LINE นี้เป็นแชทนำเข้า (ส่งไม่ได้)"); continue; }
     out.push({ conversationId: c.id, userId: contact.external_id });
   }
-  return out;
+  return { targets: out, blocked };
+}
+
+/** ข้อความ error ที่เจ้าหน้าที่อ่านเข้าใจ + เก็บข้อความจริงจาก LINE ไว้ต่อท้าย */
+export function lineErrorText(e: unknown): string {
+  if (e instanceof LineQuotaError) return "โควตา LINE เดือนนี้หมด";
+  const raw = errText(e);
+  if (/403|block|not.*friend|hasn't added|unfollow/i.test(raw)) return `คนไข้บล็อกหรือเลิกติดตาม LINE OA — ${raw}`.slice(0, 300);
+  return raw;
 }
 
 async function hearingAppointment(hn: string, now: number): Promise<LabAppointment | null> {
@@ -233,16 +244,21 @@ export async function notifyLabResult(id: string, opts: { now?: number } = {}): 
   if (!r) throw new LabError("ไม่พบผลแล็บ", 404);
   if (!r.patient_id) return { sent: false, reason: "unmatched" };
   if (!r.pdf_path) return { sent: false, reason: "no_pdf" };
-  const targets = await lineTargetsOf(r.patient_id);
+  const { targets, blocked } = await lineTargetsOf(r.patient_id);
+  if (!targets.length && blocked.length) {
+    // ผูก LINE ไว้แต่ส่งไม่ได้ (บล็อก/เลิกติดตาม) = ส่งไม่สำเร็จ ให้เห็นเป็นสีแดงในหน้าผลแล็บ
+    await db.from("lab_results").update({ notify_status: "failed", notify_error: blocked[0], updated_at: nowIso() }).eq("id", r.id);
+    return { sent: false, reason: "failed", error: blocked[0] };
+  }
   if (!targets.length) {
     // ไม่ได้ผูก LINE: ไม่ส่งแจ้งใด ๆ ไม่เข้ารายการโทร แค่แสดงสถานะในหน้าผลแล็บ (ผลยังเก็บไว้ แพทย์เปิดดูได้)
-    await db.from("lab_results").update({ notify_status: "unreachable", notify_error: "ไม่ได้ผูก LINE หรือเลิกติดตาม OA", updated_at: nowIso() }).eq("id", r.id);
+    await db.from("lab_results").update({ notify_status: "unreachable", notify_error: "ไม่ได้ผูก LINE", updated_at: nowIso() }).eq("id", r.id);
     return { sent: false, reason: "unreachable" };
   }
   const [clinic, appointment] = await Promise.all([clinicName(), hearingAppointment(r.patient_id, now)]);
   const updated = isUpdateNotice(r);
   let sent = 0;
-  let lastError: string | null = null;
+  const errors: string[] = [...blocked];
   for (const t of targets) {
     const showName = (await linksOfConversation(t.conversationId)).length > 1;
     const notice = { clinic, patientName: r.patient_name, showName, updated, orderDate: r.order_datetime, viewUrl: labViewUrl(liffId(), appUrl(), r.id), appointment };
@@ -254,16 +270,19 @@ export async function notifyLabResult(id: string, opts: { now?: number } = {}): 
       });
       sent++;
     } catch (e) {
-      lastError = e instanceof LineQuotaError ? "โควตา LINE เดือนนี้หมด" : errText(e);
-      console.error("lab notice send failed", lastError);
+      const err = lineErrorText(e);
+      errors.push(err);
+      console.error("lab notice send failed", err);
     }
   }
   if (!sent) {
-    await db.from("lab_results").update({ notify_status: "failed", notify_error: lastError, updated_at: nowIso() }).eq("id", r.id);
-    return { sent: false, reason: "failed", error: lastError ?? undefined };
+    await db.from("lab_results").update({ notify_status: "failed", notify_error: errors.at(-1) ?? "ส่งไม่สำเร็จ", updated_at: nowIso() }).eq("id", r.id);
+    return { sent: false, reason: "failed", error: errors.at(-1) };
   }
   await db.from("lab_results").update({
-    notify_status: "sent", notified_at: nowIso(), notified_version: r.version_number, notify_error: null, updated_at: nowIso(),
+    notify_status: "sent", notified_at: nowIso(), notified_version: r.version_number, updated_at: nowIso(),
+    // ส่งถึงบางบัญชี: เก็บเหตุผลของบัญชีที่ส่งไม่ถึงไว้ดู
+    notify_error: errors.length ? `ส่งไม่ถึง ${errors.length} บัญชี: ${errors.join(" | ")}`.slice(0, 300) : null,
   }).eq("id", r.id);
   return { sent: true, accounts: sent };
 }
