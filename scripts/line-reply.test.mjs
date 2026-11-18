@@ -178,7 +178,7 @@ test("สรุปเดือนนี้: push แยกประเภท (�
     g("push", "appointment", true, false, "1", "1"), g("reply", "chat", true, false, 10, 13), g("reply", "chat", false, false, 2, 2),
     g("push", "chat", false, false, 1, 1),
   ], "2026-11");
-  assert.deepEqual(s.push, { chat: 6, appointment: 1, reminder: 5, broadcast: 0 });
+  assert.deepEqual(s.push, { chat: 6, appointment: 1, reminder: 5, lab: 0, broadcast: 0 });
   assert.equal(s.pushTotal, 12);
   assert.equal(s.replyMessages, 13);
   assert.equal(s.replyRequests, 10);

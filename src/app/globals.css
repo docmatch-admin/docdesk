@@ -1817,3 +1817,21 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .appt-queue-chip:hover, .appt-queue-chip.on { box-shadow: 0 0 0 2px currentColor inset; }
 .appt-m-queue-head { display: flex; align-items: center; gap: 12px; padding: 0 16px 12px; font-size: 16px; }
 @media (max-width: 899px) { .appt-m-sum .sum { font: inherit; text-align: left; cursor: pointer; } }
+/* ---------- ผลแล็บ ---------- */
+.lab-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin: 12px 0; }
+.lab-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.lab-search { max-width: 260px; }
+.lab-table th, .lab-table td { vertical-align: top; text-align: left; white-space: normal; }
+.lab-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; min-width: 200px; }
+.lab-match { display: flex; gap: 6px; width: 100%; }
+.lab-match input { width: 120px; }
+.lab-chip { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--neutral-soft); color: var(--muted-strong); white-space: nowrap; }
+.lab-chip.ok { background: var(--success-soft); color: var(--success-ink); }
+.lab-chip.wait { background: var(--warning-soft); color: var(--warning-ink); }
+.lab-chip.bad { background: var(--danger-soft); color: var(--danger-ink); }
+.lab-group { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+.lab-side-row { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.lab-side-row:first-of-type { border-top: 0; }
+.lab-side-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.lab-viewer { min-height: 100vh; background: var(--bg); color: var(--ink); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.lab-viewer iframe { width: 100%; flex: 1; min-height: 70vh; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }

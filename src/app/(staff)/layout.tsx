@@ -56,6 +56,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           <span className="nav-icon" aria-hidden="true"><Icon name="calendar" size={20} /></span><span className="nav-label">นัดหมาย</span>
           <AppointmentBadge initial={calls} />
         </Link>
+        {chatStaff && <Link href="/lab-results" title="ผลแล็บ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ผลแล็บ</span></Link>}
         {chatStaff && <Link href="/reports" title="รายงาน"><span className="nav-icon" aria-hidden="true"><Icon name="chart" size={20} /></span><span className="nav-label">รายงาน</span></Link>}
         {isAdmin && <Link href="/sensitive-log" title="ประวัติแชทลับ"><span className="nav-icon" aria-hidden="true"><Icon name="lock" size={20} /></span><span className="nav-label">ประวัติแชทลับ</span></Link>}
         {canOpenSettings(me.role) && <Link href="/settings" title="ตั้งค่า"><span className="nav-icon" aria-hidden="true"><Icon name="settings" size={20} /></span><span className="nav-label">ตั้งค่า</span></Link>}

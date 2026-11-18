@@ -18,6 +18,7 @@ import { AssigneeControl } from "./assignee-control";
 import { contactLabel, contactName, staffMayRename } from "@/lib/patient-name";
 import { lineQuotaHint } from "@/lib/channels/reply-token";
 import { AppointmentsBlock } from "./appointments-block";
+import { LabResultsBlock } from "./lab-results-block";
 import { BookingsBlock, type BookingCardRow } from "./booking-card";
 import { Icon } from "../icons";
 import { LabPanel } from "./lab-panel";
@@ -1080,6 +1081,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 onError={flash} onSaved={() => { loadBookings(selected.id); loadConvs(); }} />
               <AppointmentsBlock onSummary={setApptSummary} conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
                 onMessage={flash} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
+              <LabResultsBlock conversationId={selected.id} blurred={blurred} />
               <TeamPanel onNoteCount={setNoteCount} conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
                 staff={staffList} onChanged={loadConvs} onError={flash} />
             </>

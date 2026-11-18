@@ -7,6 +7,7 @@ import { ingestInboundFile, ingestInboundImage } from "@/lib/media-store";
 import { processIncoming, storeIncoming } from "@/lib/pipeline";
 import { isAppointmentPostbackData, parseLinkCode } from "@/lib/appointment-rules";
 import { handleAppointmentPostback, handleLinkCode, setLineFollow } from "@/lib/appointment-store";
+import { rememberGroupCandidate } from "@/lib/lab-results-store";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,7 +17,7 @@ interface LineEvent {
   webhookEventId?: string;
   replyToken?: string;
   postback?: { data?: string };
-  source?: { type: string; userId?: string };
+  source?: { type: string; userId?: string; groupId?: string };
   message?: { id: string; type: string; text?: string; markAsReadToken?: string; fileName?: string; fileSize?: number };
 }
 
@@ -31,6 +32,11 @@ export async function POST(req: Request) {
   try {
   for (const ev of events) {
     const userId = ev.source?.userId;
+    // OA ถูกเชิญเข้ากลุ่ม LINE: เก็บ Group ID ไว้ให้แอดมินเลือกเป็นกลุ่มแจ้งผลแล็บ (หน้า ผลแล็บ) ข้อความในกลุ่มไม่เข้าระบบแชท
+    if (ev.type === "join" && ev.source?.type === "group" && ev.source.groupId) {
+      await rememberGroupCandidate(ev.source.groupId).catch((e) => logSystemError("webhook:line:join", e));
+      continue;
+    }
     // เลิกติดตาม/บล็อก OA: ข้อความนัดส่งไม่ถึง ให้ทีมโทรแทน ติดตามกลับแล้วล้างสถานะ
     if ((ev.type === "follow" || ev.type === "unfollow") && userId && ev.source?.type === "user") {
       await setLineFollow(userId, ev.type === "follow").catch((e) => logSystemError("webhook:line:follow", e));

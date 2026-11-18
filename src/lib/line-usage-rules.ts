@@ -1,8 +1,8 @@
 /** สรุปการใช้ LINE (ใช้ได้ทั้ง server และหน้าเว็บ) */
-export type LineSendKind = "chat" | "appointment" | "reminder" | "broadcast";
+export type LineSendKind = "chat" | "appointment" | "reminder" | "broadcast" | "lab";
 
-export const LINE_KINDS: LineSendKind[] = ["chat", "appointment", "reminder", "broadcast"];
-export const LINE_KIND_LABEL: Record<LineSendKind, string> = { chat: "ตอบแชท", appointment: "นัด", reminder: "เตือนนัด", broadcast: "บรอดแคสต์" };
+export const LINE_KINDS: LineSendKind[] = ["chat", "appointment", "reminder", "lab", "broadcast"];
+export const LINE_KIND_LABEL: Record<LineSendKind, string> = { chat: "ตอบแชท", appointment: "นัด", reminder: "เตือนนัด", lab: "ผลแล็บ", broadcast: "บรอดแคสต์" };
 
 export interface LineUsageSummary {
   month: string;
