@@ -43,30 +43,29 @@ export function LabDrawer({ r, lineReady, appt, busy, onClose, onPatch, whenTh, 
             </div>
           </div>
 
-          <div className="drawer-actions">
+          {/* ปุ่มอยู่ที่เดิมเสมอ: ใช้ไม่ได้ = สีจาง + บอกเหตุผลใต้ปุ่ม */}
+          <div className="lab-drawer-actions">
             {r.pdf_path
-              ? <a className="btn primary" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
-              : <span className="muted small">{r.pdf_error ? `โหลดไฟล์ไม่สำเร็จ: ${r.pdf_error}` : "ยังไม่มีไฟล์ รอรอบดึงถัดไป"}</span>}
+              ? <a className="btn ghost" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
+              : <button type="button" className="btn ghost" disabled>ดู PDF</button>}
+            <button type="button" className="btn primary" disabled={busy || !canNotify}
+              onClick={() => onPatch(r.id, { action: "notify" }, (j) => notifyText(j.notify))}>ส่งผลแล็บทาง LINE</button>
           </div>
+          <p className="muted small lab-drawer-why">{
+            !r.pdf_path ? (r.pdf_error ? `ยังเปิดไฟล์ไม่ได้: โหลดไฟล์ไม่สำเร็จ (${r.pdf_error})` : "ยังไม่มีไฟล์ผล รอรอบดึงถัดไป")
+              : unmatched ? "ส่งผลไม่ได้: ต้องผูกคนไข้ก่อน"
+              : linkedLater ? "คนไข้ผูก LINE หลังผลออก ระบบยังไม่ได้ส่ง — กดส่งผลได้เลย"
+              : r.notify_status === "failed" ? `ส่งไม่สำเร็จ${r.notify_error ? `: ${r.notify_error}` : ""} — กดส่งใหม่ได้`
+              : r.notify_status === "unreachable" ? "คนไข้ยังไม่ได้ผูก LINE — ไม่ต้องทำอะไร ถ้าคนไข้ผูก LINE ภายหลัง ปุ่มส่งจะกดได้"
+              : r.notify_status === "sent" ? "ส่งแจ้งคนไข้แล้ว คนไข้กดดูผลจากข้อความเดิมได้ตลอด"
+              : "ระบบจะส่งแจ้งคนไข้เองในรอบดึงผลถัดไป"
+          }</p>
 
           {unmatched && (
-            <section className="lab-drawer-box warn" aria-label="จับคู่คนไข้">
+            <section className="lab-drawer-box warn" aria-label="ไม่พบ HN">
               <b>แล็บอ่าน HN จากใบส่งตรวจไม่ได้</b>
               <span className="small">{r.location_hn ? `แล็บอ่านได้ว่า "${r.location_hn}" — ดูชื่อแล้วใส่ HN ที่ถูกด้านล่าง` : "ดูชื่อคนไข้แล้วใส่ HN ด้านล่าง"}</span>
             </section>
-          )}
-
-          {canNotify && (
-            <section className="lab-drawer-box" aria-label="ส่งแจ้งคนไข้">
-              <span className="small">{linkedLater
-                ? "คนไข้ผูก LINE หลังผลออก ระบบยังไม่ได้ส่ง — กดส่งผลได้เลย"
-                : `ส่งไม่สำเร็จ${r.notify_error ? `: ${r.notify_error}` : ""}`}</span>
-              <button type="button" className="btn primary small" disabled={busy} onClick={() => onPatch(r.id, { action: "notify" }, (j) => notifyText(j.notify))}>ส่งผลแล็บทาง LINE</button>
-            </section>
-          )}
-
-          {r.notify_status === "unreachable" && !lineReady && (
-            <p className="muted small">คนไข้ยังไม่ได้ผูก LINE — ไม่ต้องทำอะไร ถ้าคนไข้สแกน QR ผูก LINE ภายหลัง จะกดส่งผลได้ที่นี่</p>
           )}
 
           <dl className="drawer-dl">
@@ -79,22 +78,23 @@ export function LabDrawer({ r, lineReady, appt, busy, onClose, onPatch, whenTh, 
             <dd>{appt ?? <span className="muted">ไม่มีนัด</span>}</dd>
           </dl>
 
-          {unmatched && (
-            <section className="lab-drawer-match" aria-label="ผูกคนไข้">
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                onPatch(r.id, { action: "match", hn }, (j) => (j.matched ? `ผูกคนไข้แล้ว · ${notifyText(j.notify)}` : "บันทึกแล้ว"));
-              }}>
-                <label>ผูกคนไข้ — ใส่ HN
-                  <input inputMode="numeric" placeholder="เช่น 4807" value={hn} autoFocus
-                    onChange={(e) => setHn(e.target.value.replace(/\D/g, "").slice(0, 9))} />
-                </label>
-                <div className="drawer-actions">
-                  <button type="submit" className="btn primary small" disabled={busy || !hn}>ผูกคนไข้</button>
-                </div>
-              </form>
-            </section>
-          )}
+          <section className={`lab-drawer-match ${unmatched ? "" : "off"}`} aria-label="ผูกคนไข้">
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (!unmatched) return;
+              onPatch(r.id, { action: "match", hn }, (j) => (j.matched ? `ผูกคนไข้แล้ว · ${notifyText(j.notify)}` : "บันทึกแล้ว"));
+            }}>
+              <label>ผูกคนไข้ — ใส่ HN
+                <input inputMode="numeric" placeholder="เช่น 4807" disabled={!unmatched} autoFocus={unmatched}
+                  value={unmatched ? hn : hnText ?? ""}
+                  onChange={(e) => setHn(e.target.value.replace(/\D/g, "").slice(0, 9))} />
+              </label>
+              <div className="drawer-actions">
+                <button type="submit" className="btn primary small" disabled={!unmatched || busy || !hn}>ผูกคนไข้</button>
+              </div>
+              {!unmatched && <p className="muted small">ระบบผูกคนไข้จาก HN ให้แล้ว</p>}
+            </form>
+          </section>
         </div>
       </aside>
     </div>

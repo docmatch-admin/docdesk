@@ -1911,3 +1911,10 @@ button.lab-card { cursor: pointer; }
   .lab-table td.lab-who { display: table-cell; }
   .lab-who .lab-chip { margin-left: 8px; }
 }
+
+/* drawer ผลแล็บ: ปุ่มอยู่ที่เดิมเสมอ ใช้ไม่ได้ = จาง */
+.lab-drawer-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.lab-drawer-actions .btn { justify-content: center; text-align: center; }
+.drawer .btn:disabled, .drawer input:disabled { opacity: .4; cursor: not-allowed; }
+.lab-drawer-why { margin: -8px 0 0; }
+.lab-drawer-match.off label { color: var(--muted); }
