@@ -12,7 +12,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const denied = await denySensitiveChat(id, canViewSensitive);
   if (denied) return denied;
-  // ยังไม่ได้รัน migration 062 = ไม่มีคอลัมน์ ข้ามไป
-  await supabaseAdmin().from("conversations").update({ ai_review_at: null }).eq("id", id).not("ai_review_at", "is", null);
+  // ล้างตัวเลขยังไม่อ่าน + "AI ตอบแล้ว รอตรวจ" ในครั้งเดียว (เดิมหน้าเว็บยิงแยกอีก 1 request)
+  // อัปเดตเฉพาะเมื่อมีอะไรเปลี่ยน ไม่อย่างนั้น realtime ยิงไปทุกเครื่องโดยไม่จำเป็น
+  const db = supabaseAdmin();
+  const { error: e1 } = await db.from("conversations").update({ unread_count: 0, ai_review_at: null }).eq("id", id).or("unread_count.gt.0,ai_review_at.not.is.null");
+  // ยังไม่ได้รัน migration 062 = ไม่มีคอลัมน์ ai_review_at
+  if (e1) await db.from("conversations").update({ unread_count: 0 }).eq("id", id).gt("unread_count", 0);
   return NextResponse.json({ result: await markConversationRead(id) });
 }

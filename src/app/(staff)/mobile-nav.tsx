@@ -13,7 +13,7 @@ type Counts = { mustCall: number; reschedule: number; total: number };
  * แถบเมนูลอยด้านล่างบนมือถือ (≤ 899px): แชท · นัดหมาย · เมนู — ปุ่มที่เปิดอยู่แสดงชื่อ ปุ่มอื่นแสดงแค่ไอคอน
  * "เมนู" เปิดเมนูซ้ายเดิมเป็นแผ่นเลื่อนขึ้นจากด้านล่าง (ไม่ render ซ้ำ ใช้ .nav ตัวเดิม → เสียงเตือน/แจ้งเตือนไม่ซ้อน)
  */
-export function MobileNav({ chatStaff, calls, chats }: { chatStaff: boolean; calls: Counts; chats: { waiting: number; work: number; total: number } }) {
+export function MobileNav({ chatStaff, calls }: { chatStaff: boolean; calls: Counts }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -36,7 +36,7 @@ export function MobileNav({ chatStaff, calls, chats }: { chatStaff: boolean; cal
       <nav className="mobile-tabbar" aria-label="เมนูหลัก">
         {chatStaff && (
           <Link href="/inbox" aria-label="แชท" className={on("/inbox") ? "on" : ""} aria-current={on("/inbox") ? "page" : undefined}>
-            <span className="mnav-icon"><Icon name="chat" size={22} /><ChatBadge initial={chats} channel="chat-badge-mobile" /></span><span>แชท</span>
+            <span className="mnav-icon"><Icon name="chat" size={22} /><ChatBadge /></span><span>แชท</span>
           </Link>
         )}
         <Link href="/appointments" aria-label="นัดหมาย" className={on("/appointments") ? "on" : ""} aria-current={on("/appointments") ? "page" : undefined}>

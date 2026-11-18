@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useLiveChannel } from "@/lib/use-live-channel";
+import { chatBundle } from "@/lib/chat-bundle";
 import { AppointmentDrawer } from "../appointments/appointment-drawer";
 import { AppointmentForm, deliveryText, EMPTY_DRAFT, type SaveResult } from "../appointments/appointment-form";
 import type { LinkedAccountRow } from "../appointments/linked-accounts";
@@ -46,7 +47,16 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
   useEffect(() => {
     setGroups([]); setCreatingFor(undefined); setOpen(null);
     setLinking(false); setHnInput(""); setPreview(null); setLinkErr("");
-    load();
+    // ตอนเปิดแชทใช้ข้อมูลชุดเดียวกับห้องแชท (ไม่ยิงแยก)
+    let alive = true;
+    chatBundle(conversationId).then((b) => {
+      if (!alive) return;
+      if (!b?.appointments) return void load();
+      const g = (b.appointments.groups ?? []) as SideGroup[];
+      setGroups(g);
+      onSummary?.(summarize(g));
+    });
+    return () => { alive = false; };
   }, [conversationId, load]);
   useLiveChannel(sb, `appt-${conversationId}`,
     (ch) => ch.on("postgres_changes", { event: "*", schema: "public", table: "appointments", filter: `conversation_id=eq.${conversationId}` }, () => load()),

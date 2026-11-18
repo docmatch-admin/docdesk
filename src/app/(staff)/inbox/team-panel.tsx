@@ -4,6 +4,7 @@ import { thaiDateTime } from "@/lib/time-format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useLiveChannel } from "@/lib/use-live-channel";
+import { chatBundle } from "@/lib/chat-bundle";
 import { Icon } from "../icons";
 
 interface StaffOption { id: string; display_name: string; active: boolean; role?: string; can_view_sensitive?: boolean }
@@ -51,7 +52,15 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
 
   useEffect(() => {
     setTasks([]); setNotes([]); setOpenThread(null); setReply(""); setNewTask(""); setNewNote(""); setAssignee("");
-    load();
+    // ตอนเปิดแชทใช้ข้อมูลชุดเดียวกับห้องแชท (ไม่ยิงแยก)
+    let alive = true;
+    chatBundle(conversationId).then((b) => {
+      if (!alive) return;
+      if (!b?.tasks || !b.notes) return void load();
+      setTasks(b.tasks as Task[]);
+      setNotes(b.notes as Note[]);
+    });
+    return () => { alive = false; };
   }, [conversationId, load]);
   // เจ้าหน้าที่คนอื่นเพิ่มงานหรือคอมเมนต์ก็เห็นทันที (หลุดแล้วต่อใหม่เอง)
   useLiveChannel(sb, `team-${conversationId}`, (ch) => ch

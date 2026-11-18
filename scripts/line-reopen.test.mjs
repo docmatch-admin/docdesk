@@ -131,6 +131,6 @@ test("ของฉัน: เฉพาะแชทที่มอบหมาย
 
 test("ตัวกรองเริ่มที่ทุกคน และไม่จำค่าของฉันไว้", () => {
   const src = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
-  assert.match(src, /useState<"all" \| "mine">\("all"\)/);
+  assert.match(src, /useState<InboxFilter>\("all"\)/);
   assert.doesNotMatch(src, /localStorage\.getItem\(SCOPE_KEY\)/);
 });

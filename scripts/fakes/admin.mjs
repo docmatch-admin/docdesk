@@ -207,9 +207,13 @@ function query(name) {
         return { col, op, value: rest.join(".") };
       });
       filters.push((r) => parts.some(({ col, op, value }) =>
-        op === "is" ? (r[col] ?? null) === null : r[col] != null && Date.parse(r[col]) < Date.parse(value)));
+        op === "is" ? (r[col] ?? null) === null
+        : op === "not" ? (r[col] ?? null) !== null
+        : op === "gt" ? (r[col] ?? 0) > Number(value)
+        : r[col] != null && Date.parse(r[col]) < Date.parse(value)));
       return b;
     },
+    gt(k, v) { filters.push((r) => (typeof v === "number" ? (r[k] ?? 0) > v : r[k] != null && Date.parse(r[k]) > Date.parse(v))); return b; },
     eq(k, v) { filters.push((r) => r[k] === v); return b; },
     neq(k, v) { filters.push((r) => r[k] !== v); return b; },
     is(k, v) { filters.push((r) => (r[k] ?? null) === v); return b; },

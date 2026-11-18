@@ -473,3 +473,63 @@ test("ป้ายงานค้างมีวันเวลา: ยืนย
   assert.equal(flow.workLabel({ kind: "reschedule", since: "x", date: "2026-12-02" }), "ขอเลื่อนนัด → 2 ธ.ค.");
   assert.equal(flow.workLabel({ kind: "booking", since: "x" }), "ยืนยันนัด");
 });
+
+test("เปิดแชท = request เดียว: GET /api/conversations/[id] ได้ข้อความ นัดรอลง งาน/คอมเมนต์ ใครติดแท็ก + Server-Timing · แชทลับไม่ส่งข้อความ", async () => {
+  const s = await customer("ขอนัดค่ะ");
+  state.tables.staff = [{ id: "s1", role: "admin", active: true, display_name: "เอ", must_change_password: false, can_view_sensitive: true }];
+  state.currentUser = { id: "s1" };
+  state.tables.bookings = [{ id: "b1", conversation_id: s.conversationId, status: "ai_confirmed", date: "2026-11-20", time: "09:00", service: "ตรวจ" }];
+  state.tables.chat_tasks = [{ id: "t1", conversation_id: s.conversationId, text: "โทรกลับ", done: false, created_at: nextTime() }];
+  state.tables.chat_notes = [];
+  state.tables.assignment_log = [];
+  state.tables.tag_events = [{ conversation_id: s.conversationId, tag: "นัด", action: "add", by: "ai", created_at: nextTime() }];
+  const route = await import("../src/app/api/conversations/[id]/route.ts");
+  const get = () => route.GET(new Request("https://app.test/x"), { params: Promise.resolve({ id: s.conversationId }) });
+  const res = await get();
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("Server-Timing") ?? "", /auth;dur=.*total;dur=/);
+  const j = await res.json();
+  assert.ok(!j.conv.sensitive);
+  assert.deepEqual(j.messages.map((m) => m.body), ["ขอนัดค่ะ"]);
+  assert.deepEqual(j.bookings.map((b) => b.id), ["b1"]);
+  assert.deepEqual(j.tasks.map((t) => t.id), ["t1"]);
+  assert.deepEqual(j.tagSources, { "นัด": "ai" });
+
+  conv().sensitive = true;
+  assert.equal((await (await get()).json()).messages, null, "แชทลับต้องเปิดผ่าน /messages (บันทึกประวัติการเปิด)");
+});
+
+test("เปิดอ่านแชท: server ล้างตัวเลขยังไม่อ่านให้ (หน้าเว็บไม่ต้องยิงแยก) · /api/inbox/work ให้งานค้าง + ตัวเลข badge ใน request เดียว", async () => {
+  const s = await customer("สวัสดีค่ะ");
+  assert.ok(conv().unread_count > 0);
+  state.tables.staff = [{ id: "s1", role: "agent", active: true, display_name: "เอ", must_change_password: false }];
+  state.currentUser = { id: "s1" };
+  const read = await import("../src/app/api/conversations/[id]/read/route.ts");
+  await read.POST(new Request("https://app.test/x", { method: "POST" }), { params: Promise.resolve({ id: s.conversationId }) });
+  assert.equal(conv().unread_count, 0);
+
+  conv().archived = false;
+  const work = await import("../src/app/api/inbox/work/route.ts");
+  const res = await work.GET(new Request("https://app.test/api/inbox/work"));
+  const j = await res.json();
+  assert.ok(j.work && typeof j.work === "object");
+  assert.deepEqual(j.counts, { waiting: 1, work: 0, total: 1 });
+  assert.match(res.headers.get("Server-Timing") ?? "", /work;dur=/);
+});
+
+test("หน้าแชทไม่ยิงซ้ำ: realtime แก้เฉพาะแถว · badge ใช้ผลเดียวกับรายการแชท · layout ไม่คำนวณ badge ทุกครั้งที่เปลี่ยนหน้า", async () => {
+  const { readFileSync } = await import("node:fs");
+  const inbox = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
+  const badge = readFileSync("src/app/(staff)/chat-badge.tsx", "utf8");
+  const layout = readFileSync("src/app/(staff)/layout.tsx", "utf8");
+  assert.match(inbox, /useChatCountsOwner\(\)/);
+  assert.match(inbox, /publishChatCounts\(/);
+  assert.match(inbox, /chatBundle\(selectedId\)/);
+  assert.doesNotMatch(inbox, /update\(\{ unread_count: 0 \}\)/, "ล้าง unread ที่ server ใน /read แล้ว");
+  assert.match(badge, /if \(owners > 0 \|\| inflight\) return;/);
+  assert.match(badge, /DEBOUNCE_MS = 2_000/);
+  assert.doesNotMatch(layout, /inboxCounts/);
+  for (const f of ["appointments-block", "team-panel", "lab-results-block", "archive-merge-bar"]) {
+    assert.match(readFileSync(`src/app/(staff)/inbox/${f}.tsx`, "utf8"), /chatBundle\(conversationId\)/, f);
+  }
+});

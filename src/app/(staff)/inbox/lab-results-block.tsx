@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { chatBundle } from "@/lib/chat-bundle";
 import { NOTIFY_LABEL, type LabResult } from "@/lib/lab-results-rules";
 import { NOTIFY_CLASS, whenTh } from "../lab-results/lab-results-client";
 
@@ -13,10 +14,15 @@ export function LabResultsBlock({ conversationId, blurred }: { conversationId: s
   useEffect(() => {
     let alive = true;
     setRows([]);
-    fetch(`/api/lab-results?conversation=${encodeURIComponent(conversationId)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (alive) setRows(j?.results ?? []); })
-      .catch(() => {});
+    // ตอนเปิดแชทใช้ข้อมูลชุดเดียวกับห้องแชท ถ้าไม่ได้จึงโหลดเอง
+    chatBundle(conversationId).then((b) => {
+      if (!alive) return;
+      if (b?.labResults) return setRows(b.labResults as LabResult[]);
+      fetch(`/api/lab-results?conversation=${encodeURIComponent(conversationId)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => { if (alive) setRows(j?.results ?? []); })
+        .catch(() => {});
+    });
     return () => { alive = false; };
   }, [conversationId]);
 

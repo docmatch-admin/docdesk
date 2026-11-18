@@ -16,6 +16,7 @@ const BOOKING_REPEAT_MS = 3 * 60_000;
 const EVALUATE_MS = 30_000;
 
 interface WaitingChat { assigned_to: string | null; waiting_since: string | null; last_inbound_at: string | null }
+type Row = WaitingChat & { id: string; last_direction: string | null; booking_pending: boolean };
 
 function beep(ctx: AudioContext) {
   [880, 660].forEach((hz, i) => {
@@ -49,19 +50,37 @@ export function WaitingAlert({ meId }: { meId: string }) {
   const previous = useRef(0);
 
   useEffect(() => {
+    // แชทที่ต้องสนใจ (รอตอบ / นัดรอลง) เก็บเป็น map ตาม id · realtime แก้เฉพาะแถวที่เปลี่ยน ไม่ query ใหม่
+    let rows = new Map<string, Row>();
+    const publish = () => {
+      const list = [...rows.values()];
+      setCount(list.length);
+      setWaiting(list.filter((c) => c.last_direction === "in"));
+      setBookingPending(list.filter((c) => c.booking_pending).length);
+    };
     const load = async () => {
-      const { data, count: n } = await sb.from("conversations").select("assigned_to, waiting_since, last_inbound_at, last_direction, booking_pending", { count: "exact" })
+      const { data } = await sb.from("conversations").select("id, assigned_to, waiting_since, last_inbound_at, last_direction, booking_pending")
         .eq("status", "open").or("last_direction.eq.in,booking_pending.eq.true").limit(500);
-      if (n !== null) setCount(n);
-      const rows = (data ?? []) as (WaitingChat & { last_direction: string | null; booking_pending: boolean })[];
-      setWaiting(rows.filter((c) => c.last_direction === "in"));
-      setBookingPending(rows.filter((c) => c.booking_pending).length);
+      if (!data) return;
+      rows = new Map(((data ?? []) as Row[]).map((r) => [r.id, r]));
+      publish();
+    };
+    const onChange = (p: { eventType?: string; new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+      if (p.eventType === "DELETE") { if (rows.delete(String(p.old?.id))) publish(); return; }
+      const n = p.new as (Row & { status?: string; archived?: boolean }) | undefined;
+      if (!n?.id) return;
+      const had = rows.has(n.id);
+      const next = { ...rows.get(n.id), ...n } as Row & { status?: string };
+      if (next.status === "open" && (next.last_direction === "in" || next.booking_pending)) rows.set(n.id, next);
+      else if (had) rows.delete(n.id);
+      else return;
+      publish();
     };
     load();
     sb.from("settings").select("value").eq("key", "business_hours").maybeSingle()
       .then(({ data }) => { if (data) setHours(data.value as BusinessHoursConfig); });
     const channel = sb.channel("waiting-alert")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, (p) => onChange(p as never))
       .subscribe();
     // เผื่อ realtime หลุด
     const poll = setInterval(load, REPEAT_MS);

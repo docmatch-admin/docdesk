@@ -30,6 +30,10 @@ test("ทุกหน้าที่ใช้ realtime ใช้ hook ที่�
     assert.doesNotMatch(s, /\.subscribe\(\)/, `${f} ยังมี channel ที่ไม่ต่อใหม่เอง`);
   }
   const inbox = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
-  assert.match(inbox, /\(\) => \{ loadConvs\(\); refreshSelected\(\); \}/, "inbox resync: รายการแชท + ข้อความในแชทที่เปิดอยู่");
+  assert.match(inbox, /if \(Date\.now\(\) - lastFull\.current < FULL_RELOAD_MS\) return;\s*loadConvs\(\); refreshSelected\(\);/, "inbox resync: รายการแชท + ข้อความในแชทที่เปิดอยู่ (ไม่ถี่กว่ารอบโหลดเต็ม)");
+  // realtime ของ conversations แก้เฉพาะแถว ไม่โหลดทั้งก้อน
+  assert.match(inbox, /table: "conversations" \}, \(p\) => onConvChange\(p as never\)\)/);
+  assert.doesNotMatch(inbox, /table: "conversations" \}, \(\) => loadConvs\(\)\)/);
+  assert.doesNotMatch(inbox, /count: "exact"/);
   assert.match(inbox, /return same \? prev : rows/, "resync ไม่ล้างหน้าจอถ้าไม่มีอะไรใหม่");
 });

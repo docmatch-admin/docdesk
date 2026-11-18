@@ -72,9 +72,9 @@ export async function inboxWork(now = Date.now()): Promise<WorkMap> {
 }
 
 /** badge เมนู "แชท": รอตอบ + งานค้าง (แชทเดียวนับครั้งเดียว) */
-export async function inboxCounts(now = Date.now()): Promise<{ waiting: number; work: number; total: number }> {
+export async function inboxCounts(now = Date.now(), precomputed?: WorkMap): Promise<{ waiting: number; work: number; total: number }> {
   const db = supabaseAdmin();
-  const work = await inboxWork(now);
+  const work = precomputed ?? await inboxWork(now);
   const { data } = await db.from("conversations").select("id").eq("status", "open").eq("last_direction", "in").eq("archived", false).limit(5000);
   const waiting = new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
   const workIds = Object.keys(work).filter((id) => !waiting.has(id));

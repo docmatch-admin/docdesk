@@ -6,7 +6,6 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { AppointmentBadge } from "./appointment-badge";
 import { LabBadge } from "./lab-badge";
 import { ChatBadge } from "./chat-badge";
-import { inboxCounts } from "@/lib/inbox-work";
 import { labUnmatchedCount } from "@/lib/lab-results-store";
 import { HealthBanner } from "./health-banner";
 import { QuotaBanner } from "./quota-banner";
@@ -42,11 +41,11 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   const isAdmin = me.role === "admin";
   // ห้องยาเห็นเฉพาะเมนูนัดหมาย
   const chatStaff = me.role !== "pharmacy";
-  const [calls, prefs, labUnmatched, chats] = await Promise.all([
+  // ตัวเลข badge แชทไม่คำนวณที่นี่ (layout ทำงานทุกครั้งที่โหลดหน้า) — badge ดึงเองครั้งเดียว หรือรับจากหน้าแชท
+  const [calls, prefs, labUnmatched] = await Promise.all([
     appointmentCallCounts().catch(() => ({ total: 0, mustCall: 0, reschedule: 0 })),
     loadPreferences(me.id),
     chatStaff ? labUnmatchedCount().catch(() => 0) : Promise.resolve(0),
-    chatStaff ? inboxCounts().catch(() => ({ waiting: 0, work: 0, total: 0 })) : Promise.resolve({ waiting: 0, work: 0, total: 0 }),
   ]);
 
   return (
@@ -57,7 +56,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       <div className="shell">
       <nav className="nav">
         <div className="brand"><span className="nav-label">Doc<span>Desk</span></span><span className="brand-short" aria-hidden="true">D</span></div>
-        {chatStaff && <Link href="/inbox" title="แชท"><span className="nav-icon" aria-hidden="true"><Icon name="chat" size={20} /></span><span className="nav-label">แชท</span><ChatBadge initial={chats} /></Link>}
+        {chatStaff && <Link href="/inbox" title="แชท"><span className="nav-icon" aria-hidden="true"><Icon name="chat" size={20} /></span><span className="nav-label">แชท</span><ChatBadge /></Link>}
         <Link href="/appointments" title="นัดหมาย">
           <span className="nav-icon" aria-hidden="true"><Icon name="calendar" size={20} /></span><span className="nav-label">นัดหมาย</span>
           <AppointmentBadge initial={calls} />
@@ -83,7 +82,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       </nav>
       <main className="main">{children}</main>
       </div>
-      <MobileNav chatStaff={chatStaff} calls={calls} chats={chats} />
+      <MobileNav chatStaff={chatStaff} calls={calls} />
     </div>
     </PreferencesProvider>
   );

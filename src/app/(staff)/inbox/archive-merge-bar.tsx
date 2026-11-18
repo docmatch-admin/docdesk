@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { chatBundle } from "@/lib/chat-bundle";
 
 interface Candidate { id: string; messages: number; from: string | null; to: string | null; sensitive: boolean }
 
@@ -21,10 +22,16 @@ export function ArchiveMergeBar({ conversationId, onDone, onError }: {
     let stale = false;
     setCandidates([]);
     setPicked("");
-    fetch(`/api/conversations/${conversationId}/archive`).then((r) => (r.ok ? r.json() : null)).then((j) => {
-      if (stale || !j) return;
-      setCandidates(j.candidates);
-      if (j.candidates.length === 1) setPicked(j.candidates[0].id);
+    const apply = (list: Candidate[]) => {
+      if (stale) return;
+      setCandidates(list);
+      if (list.length === 1) setPicked(list[0].id);
+    };
+    // ตอนเปิดแชทใช้ข้อมูลชุดเดียวกับห้องแชท ถ้าไม่ได้จึงโหลดเอง
+    chatBundle(conversationId).then((b) => {
+      if (stale) return;
+      if (b?.archive) return apply(b.archive as Candidate[]);
+      fetch(`/api/conversations/${conversationId}/archive`).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j) apply(j.candidates); });
     });
     return () => { stale = true; };
   }, [conversationId]);

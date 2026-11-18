@@ -13,6 +13,8 @@ import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { formatFileSize, isPdfName, MAX_FILE_BYTES } from "@/lib/files";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
 import { TagChip } from "../tag-chip";
+import { publishChatCounts, useChatCountsOwner, type ChatCounts } from "../chat-badge";
+import { chatBundle, forgetChatBundle } from "@/lib/chat-bundle";
 import { ArchiveMergeBar } from "./archive-merge-bar";
 import { AssigneeControl } from "./assignee-control";
 import { contactLabel, contactName, staffMayRename } from "@/lib/patient-name";
@@ -32,7 +34,27 @@ import {
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
 } from "@/lib/types";
 
-type Filter = "waiting" | "open" | "closed";
+const CONV_COLUMNS = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source, patient_relation, name_locked), channels(type, name, ai_mode)";
+/** realtime เปลี่ยนติดกันหลายครั้ง → ถามงานค้าง/ตัวเลข badge ใหม่ครั้งเดียว */
+const WORK_DEBOUNCE_MS = 2_000;
+/** โหลดรายการทั้งก้อนใหม่ไม่บ่อยกว่านี้ (นอกจากเปลี่ยนตัวกรอง/ค้นหา) — ระหว่างนั้น realtime แก้เฉพาะแถว */
+const FULL_RELOAD_MS = 55_000;
+/** ฟิลด์ที่ทำให้แชทย้ายช่วง หรือมีงานค้างเปลี่ยน */
+const QUEUE_FIELDS = ["status", "last_direction", "booking_pending", "open_tasks", "ai_review_at", "archived"] as const;
+type ConvPatch = Partial<Conversation> & { ai_review_at?: string | null };
+
+/** รวมแถวใหม่เข้ารายการ (id ซ้ำ = แทนที่) */
+const mergeRows = (prev: Conversation[], rows: Conversation[]) => {
+  const byId = new Map(prev.map((c) => [c.id, c]));
+  for (const r of rows) byId.set(r.id, r);
+  return [...byId.values()];
+};
+const queueChanged = (cur: object, patch: object) =>
+  QUEUE_FIELDS.some((k) => k in patch && ((patch as Record<string, unknown>)[k] ?? null) !== ((cur as Record<string, unknown>)[k] ?? null));
+const bookingsToShow = (rows: BookingCardRow[]) => {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
+  return rows.filter((b) => b.status === "ai_confirmed" || b.date >= today);
+};
 
 const SOURCE_LABEL: Record<SuggestionOption["source"], string> = {
   knowledge: "📚 ฐานข้อมูล",
@@ -60,15 +82,14 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   // รายการเดียวแบบคิวงาน 3 ช่วง (รอตอบ / งานค้าง / ล่าสุด) · ปุ่มกรอง ทั้งหมด / รอตอบ / งานค้าง / ของฉัน
   const [qfilter, setQfilter] = useState<InboxFilter>("all");
   const [work, setWork] = useState<WorkMap>({});
-  const [lists, setLists] = useState<Record<Filter | "work", Conversation[]>>({ waiting: [], open: [], closed: [], work: [] });
-  const [counts, setCounts] = useState({ waiting: 0, open: 0 });
+  const convsRef = useRef<Conversation[]>([]);
+  convsRef.current = convs;
+  // หน้าแชทเป็นเจ้าของตัวเลข badge เมนูแชท (badge ไม่ยิงเองซ้ำ)
+  useChatCountsOwner();
   const [reloadTick, setReloadTick] = useState(0);
   const [confirmSplit, setConfirmSplit] = useState(false);
   /** null = ไม่ได้แก้ชื่อ */
   const [editingName, setEditingName] = useState<string | null>(null);
-  const [scope, setScope] = useState<"all" | "mine">("all");
-  const scopeRef = useRef<"all" | "mine">("all");
-  scopeRef.current = scope;
   const [history, setHistory] = useState<AssignmentEntry[]>([]);
   const [search, setSearch] = useState("");
   const searchRef = useRef("");
@@ -132,35 +153,42 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   // ใครติดแท็กแต่ละอัน ใช้แสดงเครื่องหมาย AI (tag_events อ่านได้เฉพาะ admin จึงถามผ่าน API)
   const [tagSources, setTagSources] = useState<Record<string, string>>({});
   const tagKey = selected ? `${selected.id}:${selected.tags.join(",")}` : "";
+  const loadTagSources = useCallback((id: string) => {
+    fetch(`/api/conversations/${id}/tags`).then((r) => (r.ok ? r.json() : { sources: {} }))
+      .then((j) => { if (selectedRef.current === id) setTagSources((j.sources ?? {}) as Record<string, string>); })
+      .catch(() => { if (selectedRef.current === id) setTagSources({}); });
+  }, []);
+  const prevTagKey = useRef("");
   useEffect(() => {
     if (!tagKey) return;
+    const prev = prevTagKey.current;
+    prevTagKey.current = tagKey;
     const id = tagKey.split(":")[0];
-    let live = true;
-    fetch(`/api/conversations/${id}/tags`).then((r) => (r.ok ? r.json() : { sources: {} }))
-      .then((j) => { if (live) setTagSources((j.sources ?? {}) as Record<string, string>); })
-      .catch(() => { if (live) setTagSources({}); });
-    return () => { live = false; };
-  }, [tagKey]);
+    // เพิ่งเปิดแชท: ได้มากับข้อมูลห้องแชทแล้ว · โหลดเองเฉพาะเมื่อแท็กของแชทเดิมเปลี่ยน
+    if (!prev.startsWith(`${id}:`) || prev === tagKey) return;
+    loadTagSources(id);
+  }, [tagKey, loadTagSources]);
 
   // ---------- โหลดรายการแชท ----------
+  // โหลดทั้งก้อน: เปิดหน้า · เปลี่ยนตัวกรอง/ค้นหา · ทุก ~60 วิ (สำรอง realtime) — นอกนั้น realtime แก้เฉพาะแถวที่เปลี่ยน
+  const lastFull = useRef(0);
   const loadConvs = useCallback(async () => {
-    const columns = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source, patient_relation, name_locked), channels(type, name, ai_mode)";
     // กรองที่ฐานข้อมูล ไม่อย่างนั้นจะเห็นแค่ใน 200 แชทล่าสุด
     const seq = ++loadSeq.current;
+    lastFull.current = Date.now();
     const term = searchRef.current.trim();
     const matched = term
       ? (((await sb.rpc("search_conversations", { p_query: term })).data ?? []) as { id: string }[]).map((r) => r.id)
       : null;
-    // แยกดึงแต่ละแท็บ แชทจำนวนมากในแท็บหนึ่งจะได้ไม่เบียดอีกแท็บออกจาก 200 แถวแรก และนับจำนวนจริงเกิน 200 ได้
+    // แยกดึงแต่ละช่วง แชทจำนวนมากในช่วงหนึ่งจะได้ไม่เบียดอีกช่วงออกจาก 200 แถวแรก (ไม่นับจำนวน: ตัวเลขมาจาก /api/inbox/work)
     const base = (status: "open" | "closed") => {
       // แชทเก่าปิดอยู่เสมอ จึงอยู่ในเสร็จแล้วเท่านั้น
-      let query = sb.from("conversations").select(columns, { count: "exact" }).eq("status", status);
+      let query = sb.from("conversations").select(CONV_COLUMNS).eq("status", status);
       if (status === "open") query = query.eq("archived", false);
       if (matched) query = query.in("id", matched);
-      // ของฉัน = ที่ฉันดูแล และที่ยังไม่มีใครดูแล ไม่อย่างนั้นลูกค้าใหม่จะไม่มีใครเห็น
       return tagFilterRef.current.length ? query.contains("tags", tagFilterRef.current) : query;
     };
-    const workReq = fetch("/api/inbox/work").then((r) => (r.ok ? r.json() : { work: {} })).catch(() => ({ work: {} })) as Promise<{ work?: WorkMap }>;
+    const workReq = fetch("/api/inbox/work").then((r) => (r.ok ? r.json() : { work: {} })).catch(() => ({ work: {} })) as Promise<{ work?: WorkMap; counts?: ChatCounts }>;
     const [waiting, open_, closed, workRes] = await Promise.all([
       base("open").eq("last_direction", "in").order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
       base("open").order("last_message_at", { ascending: false }).limit(200),
@@ -176,30 +204,105 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     const missing = Object.keys(workMap).filter((id) => !loaded.has(id)).slice(0, 200);
     let extra: Conversation[] = [];
     if (missing.length) {
-      let q = sb.from("conversations").select(columns).in("id", missing);
+      let q = sb.from("conversations").select(CONV_COLUMNS).in("id", missing);
       if (tagFilterRef.current.length) q = q.contains("tags", tagFilterRef.current);
       extra = ((await q).data ?? []) as unknown as Conversation[];
       if (matched) extra = extra.filter((c) => matched.includes(c.id));
     }
     if (seq !== loadSeq.current) return;
     setWork(workMap);
-    setLists({ waiting: asRows(waiting), open: asRows(open_), closed: asRows(closed), work: extra });
-    setCounts({ waiting: waiting.count ?? 0, open: open_.count ?? 0 });
+    if (workRes.counts) publishChatCounts(workRes.counts);
     const rows = [...new Map([...asRows(waiting), ...asRows(open_), ...asRows(closed), ...extra].map((c) => [c.id, c])).values()];
     setConvs(rows);
     const open = selectedRef.current;
     if (open && !rows.some((c) => c.id === open)) {
-      const { data: one } = await sb.from("conversations").select(columns).eq("id", open).maybeSingle();
+      const { data: one } = await sb.from("conversations").select(CONV_COLUMNS).eq("id", open).maybeSingle();
       setOpenConv((one as Conversation | null) ?? null);
     }
-  }, [sb, me.id]);
+  }, [sb]);
+
+  // งานค้าง + ตัวเลข badge (request เดียว ใช้ร่วมกัน) · หน่วงรวมการเปลี่ยนแปลงติดกัน
+  const workTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshWork = useCallback(async () => {
+    const j = (await fetch("/api/inbox/work").then((r) => (r.ok ? r.json() : null)).catch(() => null)) as { work?: WorkMap; counts?: ChatCounts } | null;
+    if (!j?.work) return;
+    const workMap = j.work;
+    setWork(workMap);
+    if (j.counts) publishChatCounts(j.counts);
+    // แชทที่เพิ่งมีงานค้างแต่ยังไม่อยู่ในรายการ (ค้นหาอยู่ = รอรอบโหลดเต็ม)
+    const have = new Set(convsRef.current.map((c) => c.id));
+    const missing = Object.keys(workMap).filter((id) => !have.has(id)).slice(0, 50);
+    if (!missing.length || searchRef.current.trim()) return;
+    let q = sb.from("conversations").select(CONV_COLUMNS).in("id", missing);
+    if (tagFilterRef.current.length) q = q.contains("tags", tagFilterRef.current);
+    const { data } = await q;
+    if (data?.length) setConvs((prev) => mergeRows(prev, data as unknown as Conversation[]));
+  }, [sb]);
+  const scheduleWork = useCallback(() => {
+    if (workTimer.current) clearTimeout(workTimer.current);
+    workTimer.current = setTimeout(() => { workTimer.current = null; refreshWork(); }, WORK_DEBOUNCE_MS);
+  }, [refreshWork]);
+  useEffect(() => () => { if (workTimer.current) clearTimeout(workTimer.current); }, []);
+
+  /** แก้แถวในหน้าจอทันที (การกระทำในเครื่องนี้ / realtime) ไม่ต้องโหลดรายการใหม่ */
+  const patchLocal = useCallback((id: string, patch: ConvPatch) => {
+    const cur = convsRef.current.find((c) => c.id === id);
+    const apply = (c: Conversation) => ({ ...c, ...patch, contacts: patch.contacts ?? c.contacts, channels: c.channels }) as Conversation;
+    setConvs((prev) => prev.map((c) => (c.id === id ? apply(c) : c)));
+    setOpenConv((o) => (o?.id === id ? apply(o) : o));
+    if ("ai_review_at" in patch) {
+      setWork((w) => {
+        const items = (w[id] ?? []).filter((i) => i.kind !== "ai_review");
+        if (patch.ai_review_at) items.push({ kind: "ai_review", since: patch.ai_review_at });
+        if (items.length === (w[id]?.length ?? 0) && !patch.ai_review_at) return w;
+        const next = { ...w };
+        if (items.length) next[id] = items; else delete next[id];
+        return next;
+      });
+    }
+    if (cur && queueChanged(cur, patch)) scheduleWork();
+  }, [scheduleWork]);
+
+  // realtime ของ conversations: แก้เฉพาะแถวที่เปลี่ยน ห้ามโหลดทั้งก้อน
+  const fetchingRow = useRef(new Set<string>());
+  const onConvChange = useCallback((p: { eventType?: string; new?: Record<string, unknown>; old?: Record<string, unknown> }) => {
+    if (p.eventType === "DELETE") {
+      const id = p.old?.id as string | undefined;
+      if (id) { setConvs((prev) => prev.filter((c) => c.id !== id)); scheduleWork(); }
+      return;
+    }
+    const n = (p.new ?? {}) as ConvPatch & { id?: string };
+    if (!n.id) return;
+    const id = n.id;
+    const tagsOk = (t?: string[]) => tagFilterRef.current.every((x) => (t ?? []).includes(x));
+    const cur = convsRef.current.find((c) => c.id === id);
+    if (cur) {
+      const next = { ...cur, ...n };
+      // แชทเปิดที่ถูกย้ายเป็นแชทเก่า / ไม่ตรงแท็กที่กรองแล้ว: เอาออก (แชทที่เปิดดูอยู่ไม่ปิดกะทันหัน)
+      if (id !== selectedRef.current && ((next.status === "open" && next.archived) || !tagsOk(next.tags))) {
+        setConvs((prev) => prev.filter((c) => c.id !== id));
+        if (queueChanged(cur, n)) scheduleWork();
+        return;
+      }
+      patchLocal(id, n);
+      return;
+    }
+    setOpenConv((o) => (o?.id === id ? ({ ...o, ...n, contacts: o.contacts, channels: o.channels } as Conversation) : o));
+    // แชทใหม่ / ยังไม่อยู่ในรายการ: ดึงแถวเดียว (ค้นหาอยู่ = รอรอบโหลดเต็ม)
+    if (searchRef.current.trim() || !tagsOk(n.tags) || (n.status === "open" && n.archived) || fetchingRow.current.has(id)) return;
+    fetchingRow.current.add(id);
+    sb.from("conversations").select(CONV_COLUMNS).eq("id", id).maybeSingle().then(({ data }) => {
+      fetchingRow.current.delete(id);
+      if (data) setConvs((prev) => mergeRows(prev, [data as unknown as Conversation]));
+    });
+    scheduleWork();
+  }, [sb, patchLocal, scheduleWork]);
 
   const loadBookings = useCallback(async (convId: string) => {
     const { data } = await sb.from("bookings").select('id, service, "date", "time", name, phone, status')
       .eq("conversation_id", convId).neq("status", "cancelled").order("date").order("time");
     if (selectedRef.current !== convId) return;
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
-    setBookings(((data ?? []) as unknown as BookingCardRow[]).filter((b) => b.status === "ai_confirmed" || b.date >= today));
+    setBookings(bookingsToShow((data ?? []) as unknown as BookingCardRow[]));
   }, [sb]);
 
   const loadTags = useCallback(async () => {
@@ -207,7 +310,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     setTags((data ?? []) as Tag[]);
   }, [sb]);
 
-  useEffect(() => { loadConvs(); }, [tagFilter, scope, loadConvs]);
+  useEffect(() => { loadConvs(); }, [tagFilter, loadConvs]);
 
   // แถวที่ไม่มีสิทธิ์ไม่ส่ง realtime มาให้ จึงต้องถามซ้ำเอง
   useEffect(() => {
@@ -225,9 +328,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   }, []);
 
 
+  // ค้นหา: โหลดใหม่เมื่อคำค้นเปลี่ยนจริงเท่านั้น (ตอนเปิดหน้าไม่โหลดซ้ำ)
+  const prevSearch = useRef("");
   useEffect(() => {
     searchRef.current = search;
-    if (!search.trim() && !loadSeq.current) return;
+    if (search === prevSearch.current) return;
+    prevSearch.current = search;
     const wait = setTimeout(() => loadConvs(), 300);
     return () => clearTimeout(wait);
   }, [search, loadConvs]);
@@ -238,10 +344,18 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     setSuggestion(data ? { id: data.id, options: data.options as SuggestionOption[], needs_human: data.needs_human, suggested_tags: data.suggested_tags as string[] } : null);
   }, [sb]);
 
+  const loadHistory = useCallback((convId: string) => {
+    sb.from("assignment_log").select("id, from_staff, to_staff, by_staff, created_at")
+      .eq("conversation_id", convId).order("created_at", { ascending: false }).limit(20)
+      .then(({ data }) => { if (selectedRef.current === convId) setHistory((data ?? []) as AssignmentEntry[]); });
+  }, [sb]);
+
   // error ห้ามทำให้หน้าแชทพัง ฝั่ง server log ไว้แล้ว
+  // server ล้าง unread_count + "AI ตอบแล้ว รอตรวจ" ให้ในครั้งเดียว · หน้าจอแก้ทันที ไม่รอ realtime
   const markRead = useCallback((convId: string) => {
+    patchLocal(convId, { unread_count: 0, ai_review_at: null });
     fetch(`/api/conversations/${convId}/read`, { method: "POST" }).catch(() => {});
-  }, []);
+  }, [patchLocal]);
 
   // สร้างคำแนะนำเมื่อเจ้าหน้าที่ดูแชทอยู่ server จะไม่เรียก LLM ซ้ำถ้ามีของข้อความล่าสุดแล้ว
   const ensureSuggestion = useCallback(async (convId: string, quiet = false) => {
@@ -275,9 +389,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     const t = setInterval(() => setTick((x) => x + 1), 15_000);
     // ข้อความเข้าตอนหน้าต่างไม่โฟกัส: แจ้งอ่านแล้วเมื่อเจ้าหน้าที่กลับมา (server กันเรียก API ซ้ำให้)
     const onFocus = () => {
-      if (!selectedRef.current) return;
-      markRead(selectedRef.current);
-      ensureSuggestion(selectedRef.current, true);
+      const id = selectedRef.current;
+      if (!id) return;
+      const c = convsRef.current.find((x) => x.id === id);
+      if (c && !c.unread_count) return;
+      markRead(id);
+      ensureSuggestion(id, true);
     };
     window.addEventListener("focus", onFocus);
     return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
@@ -308,7 +425,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   }, [sb, loadBookings]);
 
   useLiveChannel(sb, "inbox", (ch: RealtimeChannel) => ch
-    .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => loadConvs())
+    .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, (p) => onConvChange(p as never))
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (p) => {
         const m = p.new as Message;
         if (m.imported) return; // ข้อความเก่า ต่อท้ายแล้วลำดับจะผิด
@@ -336,6 +453,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       })
     .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, () => {
         if (selectedRef.current) loadBookings(selectedRef.current);
+        scheduleWork();
       })
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "suggestions" }, (p) => {
         const s = p.new as { id: string; conversation_id: string; options: SuggestionOption[]; needs_human: boolean; suggested_tags: string[] };
@@ -344,7 +462,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           setChosen(null);
         }
       }),
-  () => { loadConvs(); refreshSelected(); });
+  // ต่อใหม่ / กลับมาที่หน้าจอ / ทุก 60 วิ: โหลดเต็มไม่บ่อยกว่า FULL_RELOAD_MS
+  () => {
+    if (Date.now() - lastFull.current < FULL_RELOAD_MS) return;
+    loadConvs(); refreshSelected();
+  });
 
   // ---------- เลือกแชท ----------
   useEffect(() => {
@@ -361,7 +483,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     if (draftTimer.current) clearTimeout(draftTimer.current);
     let stale = false;
     (async () => {
-      const { data: conv } = await sb.from("conversations").select("sensitive, archived").eq("id", selectedId).maybeSingle();
+      // ข้อมูลทั้งห้องใน request เดียว (กล่องข้าง ๆ ใช้ผลเดียวกัน) · ส่วนที่ได้ไม่ครบ = โหลดเองตามเดิม
+      const b = await chatBundle(selectedId);
+      if (stale) return;
+      const conv = b?.conv ?? (await sb.from("conversations").select("sensitive, archived").eq("id", selectedId).maybeSingle()).data;
       if (stale) return;
       if (conv?.sensitive) {
         // รอรับทราบข้อกำหนดก่อน ส่วนการเปิดผ่าน API เพื่อบันทึกประวัติ
@@ -369,6 +494,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         const res = await fetch(`/api/conversations/${selectedId}/messages`);
         if (stale || !res.ok) return;
         setMessages(((await res.json()) as { messages: Message[] }).messages);
+      } else if (b?.messages) {
+        setMessages(b.messages as Message[]);
       } else {
         // เอาล่าสุด 300 ข้อความ ประวัติที่นำเข้าต้องไม่ดันข้อความใหม่ตกหล่น
         const { data } = await sb.from("messages").select("*").eq("conversation_id", selectedId).order("created_at", { ascending: false }).limit(300);
@@ -376,14 +503,19 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         setMessages(((data ?? []) as Message[]).reverse());
       }
       // แชทเก่าอ่านอย่างเดียว ไม่มีคำแนะนำหรือสถานะอ่านแล้ว
+      if (b?.history) setHistory(b.history as AssignmentEntry[]); else loadHistory(selectedId);
+      if (b?.tagSources) setTagSources(b.tagSources); else loadTagSources(selectedId);
       if (conv?.archived) return;
-      loadBookings(selectedId);
-      loadSuggestion(selectedId).then(() => ensureSuggestion(selectedId));
-      sb.from("conversations").update({ unread_count: 0 }).eq("id", selectedId).then(() => {});
+      if (b?.bookings) setBookings(bookingsToShow(b.bookings as BookingCardRow[])); else loadBookings(selectedId);
+      if (b && b.suggestion !== undefined) {
+        const sg = b.suggestion;
+        setSuggestion(sg ? { id: sg.id, options: sg.options as SuggestionOption[], needs_human: sg.needs_human, suggested_tags: sg.suggested_tags as string[] } : null);
+        ensureSuggestion(selectedId);
+      } else loadSuggestion(selectedId).then(() => ensureSuggestion(selectedId));
       markRead(selectedId);
     })();
     return () => { stale = true; };
-  }, [selectedId, acked, reloadTick, sb, loadSuggestion, loadBookings, markRead, ensureSuggestion]);
+  }, [selectedId, acked, reloadTick, sb, loadSuggestion, loadBookings, markRead, ensureSuggestion, loadHistory, loadTagSources]);
 
   // เบลอกลับเมื่อไม่ขยับ หรือสลับไปหน้าต่างอื่น
   const isSensitive = !!convs.find((c) => c.id === selectedId)?.sensitive || (openConv?.id === selectedId && !!openConv?.sensitive);
@@ -410,12 +542,16 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   }, [messages]);
 
   const assignedTo = selected?.assigned_to ?? null;
+  const prevHistKey = useRef("");
   useEffect(() => {
     if (!selectedId) return;
-    sb.from("assignment_log").select("id, from_staff, to_staff, by_staff, created_at")
-      .eq("conversation_id", selectedId).order("created_at", { ascending: false }).limit(20)
-      .then(({ data }) => setHistory((data ?? []) as AssignmentEntry[]));
-  }, [sb, selectedId, assignedTo]);
+    const key = `${selectedId}:${assignedTo}`;
+    const prev = prevHistKey.current;
+    prevHistKey.current = key;
+    // เพิ่งเปิดแชท: ได้มากับข้อมูลห้องแชทแล้ว · โหลดเองเฉพาะเมื่อผู้ดูแลของแชทเดิมเปลี่ยน
+    if (!prev.startsWith(`${selectedId}:`) || prev === key) return;
+    loadHistory(selectedId);
+  }, [selectedId, assignedTo, loadHistory]);
 
   const cancelClosing = useCallback(() => setClosing(false), []);
   const flash = (s: string) => { setToast(s); setTimeout(() => setToast(""), 2500); };
@@ -451,6 +587,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       return flash(msg);
     }
     setSendError("");
+    patchLocal(selectedId, { last_direction: "out", waiting_since: null, last_message_at: new Date().toISOString() });
     setText(""); setChosen(null); setSuggestion(null); setCancelBookingId(null);
     if (cancelBookingId) loadBookings(selectedId);
   }
@@ -472,7 +609,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       body: JSON.stringify({ tag, action }),
     });
     if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "บันทึกแท็กไม่สำเร็จ");
-    loadConvs();
+    const cur = convsRef.current.find((c) => c.id === selectedId) ?? openConv;
+    if (cur) patchLocal(selectedId, { tags: action === "add" ? [...new Set([...cur.tags, tag])] : cur.tags.filter((t) => t !== tag) });
   }
 
   async function assign(to: string | null) {
@@ -483,7 +621,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       body: JSON.stringify({ to }),
     });
     if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "เปลี่ยนผู้ดูแลไม่สำเร็จ");
-    loadConvs();
+    patchLocal(selectedId, { assigned_to: to });
   }
 
   useEffect(() => setEditingName(null), [selectedId]);
@@ -497,7 +635,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     if (!res.ok) return flash(j.error ?? "แก้ชื่อไม่สำเร็จ");
     setEditingName(null);
     flash("แก้ชื่อลูกค้าแล้ว");
-    loadConvs();
+    const cur = convsRef.current.find((c) => c.id === selectedId) ?? openConv;
+    if (cur?.contacts) patchLocal(selectedId, { contacts: { ...cur.contacts, display_name: editingName.trim() || cur.contacts.display_name } });
   }
 
   async function splitImported() {
@@ -507,6 +646,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return flash(j.error ?? "แยกประวัติไม่สำเร็จ");
     flash(`แยก ${j.moved} ข้อความไปแชทเก่าแล้ว`);
+    forgetChatBundle(selectedId);
     setReloadTick((t) => t + 1);
     loadConvs();
   }
@@ -582,6 +722,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         return flash(msg);
       }
       setSendError("");
+      patchLocal(selectedId, { last_direction: "out", waiting_since: null, last_message_at: new Date().toISOString() });
       setAttachment(null); setCaption(""); setSuggestion(null); setChosen(null);
     } catch (e) {
       flash(e instanceof Error ? e.message : "ส่งไม่สำเร็จ");
@@ -592,13 +733,15 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   async function setConvMode(mode: AiMode | null) {
     if (!selectedId) return;
-    await sb.from("conversations").update({ ai_mode: mode, ...(mode !== "fallback" ? { ai_due_at: null } : {}) }).eq("id", selectedId);
-    loadConvs();
+    const patch = { ai_mode: mode, ...(mode !== "fallback" ? { ai_due_at: null } : {}) };
+    await sb.from("conversations").update(patch).eq("id", selectedId);
+    patchLocal(selectedId, patch);
   }
 
   async function reopenCase() {
     if (!selected) return;
     await sb.from("conversations").update({ status: "open" }).eq("id", selected.id);
+    patchLocal(selected.id, { status: "open" });
   }
 
   async function closeCase(tag?: string) {
@@ -614,7 +757,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     });
     if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "บันทึกไม่สำเร็จ");
     setSelectedId(nextOpenChat(sections.waiting, id));
-    loadConvs();
+    // เสร็จแล้ว: ลงช่วงล่าสุดทันที (realtime มาทีหลังไม่ต้องโหลดใหม่)
+    patchLocal(id, { status: "closed" });
   }
 
   // ใช้ e.code เพราะ e.key เปลี่ยนตามแป้นพิมพ์ไทย/อังกฤษ
@@ -648,7 +792,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
-  const allRows = useMemo(() => [...lists.waiting, ...lists.open, ...lists.closed, ...lists.work], [lists]);
+  const allRows = convs;
   const sections = useMemo(() => inboxSections(allRows, work, { filter: qfilter, meId: me.id }), [allRows, work, qfilter, me.id]);
   const totals = useMemo(() => inboxSections(allRows, work), [allRows, work]);
   // แชทลับที่คนไม่มีสิทธิ์มองไม่เห็นชื่อ แต่ต้องรู้ว่ามีคนรอ (นับในช่วงรอตอบ)
@@ -862,7 +1006,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
             {!selected.archived && !locked && (
               <ArchiveMergeBar conversationId={selected.id} onError={flash}
-                onDone={() => { flash("รวมประวัติแล้ว"); setReloadTick((t) => t + 1); loadConvs(); }} />
+                onDone={() => { flash("รวมประวัติแล้ว"); forgetChatBundle(selected.id); setReloadTick((t) => t + 1); loadConvs(); }} />
             )}
             {selected.sensitive && (
               <div className="sensitive-banner" role="alert">🔒 ข้อมูลลับผู้ป่วย — ห้ามพูดชื่อหรืออาการต่อหน้าผู้อื่น ห้ามถ่ายหน้าจอ ห้ามส่งต่อ</div>
@@ -1095,14 +1239,14 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           {!selected.archived && (
             <>
               <BookingsBlock conversationId={selected.id} contactName={selected.contacts?.display_name ?? null} bookings={bookings} blurred={blurred}
-                onError={flash} onReschedule={draftReschedule} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
+                onError={flash} onReschedule={draftReschedule} onChanged={() => { loadBookings(selected.id); scheduleWork(); }} />
               <WebBookingCard messages={messages} conversationId={selected.id} bookedDates={apptSummary?.dates ?? []} latestApptAt={apptSummary?.latestCreatedAt ?? null} blurred={blurred}
-                onError={flash} onSaved={() => { loadBookings(selected.id); loadConvs(); }} />
+                onError={flash} onSaved={() => { loadBookings(selected.id); scheduleWork(); }} />
               <AppointmentsBlock onSummary={setApptSummary} conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
-                onMessage={flash} onChanged={() => { loadBookings(selected.id); loadConvs(); }} />
+                onMessage={flash} onChanged={() => { loadBookings(selected.id); scheduleWork(); }} />
               <LabResultsBlock conversationId={selected.id} blurred={blurred} />
               <TeamPanel onNoteCount={setNoteCount} conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
-                staff={staffList} onChanged={loadConvs} onError={flash} />
+                staff={staffList} onChanged={scheduleWork} onError={flash} />
             </>
           )}
         </aside>
