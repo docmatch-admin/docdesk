@@ -56,10 +56,10 @@ export function normalizeAutoCloseHours(value: unknown): number {
   return value !== null && Number.isFinite(hours) && hours >= 0 ? hours : DEFAULT_AUTO_CLOSE_HOURS;
 }
 
-const WAIT_WARN_MINUTES = 10;
-const WAIT_LATE_MINUTES = 30;
+const WAIT_WARN_MINUTES = 5;
+const WAIT_LATE_MINUTES = 15;
 
-/** "รอ 12 นาที" พร้อมระดับสี: เกิน 10 นาทีส้ม เกิน 30 นาทีแดง */
+/** "รอ 12 นาที" พร้อมระดับสี: ไม่ถึง 5 นาทีเทา · 5–15 นาทีเหลือง · เกิน 15 นาทีแดง */
 export function waitBadge(since: string | null, now = Date.now()): { text: string; level: "normal" | "warn" | "late" } | null {
   if (!since) return null;
   const minutes = Math.max(0, Math.floor((now - Date.parse(since)) / 60_000));
@@ -69,11 +69,63 @@ export function waitBadge(since: string | null, now = Date.now()): { text: strin
     : hours >= 1 ? `รอ ${hours} ชม. ${minutes % 60} นาที`
     : minutes < 1 ? "รอไม่ถึงนาที"
     : `รอ ${minutes} นาที`;
-  return { text, level: minutes > WAIT_LATE_MINUTES ? "late" : minutes > WAIT_WARN_MINUTES ? "warn" : "normal" };
+  return { text, level: minutes > WAIT_LATE_MINUTES ? "late" : minutes >= WAIT_WARN_MINUTES ? "warn" : "normal" };
 }
 
 /** ป้ายบนแท็บเบราว์เซอร์ */
 export function titleWithCount(title: string, count: number): string {
   const base = title.replace(/^\(\d+\+?\)\s*/, "");
   return count > 0 ? `(${count > 99 ? "99+" : count}) ${base}` : base;
+}
+
+// ---------------------------------------------------------------------------
+// รายการแชทแบบคิวงาน: 3 ช่วงตายตัว รอตอบ → งานค้าง → ล่าสุด
+// ---------------------------------------------------------------------------
+/** งานค้างของแชท (เรียงตามความด่วน: ตัวแรกด่วนสุด) */
+export type WorkKind = "booking" | "reschedule" | "failed" | "tasks" | "ai_review";
+export const WORK_PRIORITY: WorkKind[] = ["booking", "reschedule", "failed", "tasks", "ai_review"];
+export interface WorkItem { kind: WorkKind; since: string; count?: number }
+export type WorkMap = Record<string, WorkItem[]>;
+
+export function workLabel(item: WorkItem): string {
+  if (item.kind === "booking") return "ยืนยันนัด";
+  if (item.kind === "reschedule") return "ขอเลื่อนนัด";
+  if (item.kind === "failed") return "ส่งไม่สำเร็จ";
+  if (item.kind === "tasks") return `งานทีม ${item.count ?? 1}`;
+  return "AI ตอบแล้ว รอตรวจ";
+}
+
+/** งานที่ด่วนสุดของแชท (ป้ายที่แสดง) */
+export function topWork(items: WorkItem[] | undefined): WorkItem | null {
+  if (!items?.length) return null;
+  return [...items].sort((a, b) => WORK_PRIORITY.indexOf(a.kind) - WORK_PRIORITY.indexOf(b.kind))[0];
+}
+
+/** เวลาที่งานค้างเกิดก่อนสุด (ใช้เรียงช่วงงานค้าง: เก่าสุดก่อน) */
+const workSince = (items: WorkItem[]) => Math.min(...items.map((i) => tsOr(i.since, Infinity)));
+
+export type InboxSection = "waiting" | "work" | "recent";
+/** รอตอบ = ข้อความล่าสุดมาจากลูกค้าและยังไม่มีคนตอบ · งานค้าง = ตอบแล้วแต่ยังมีงาน · ที่เหลือ = ล่าสุด (รวมที่เสร็จแล้ว) */
+export function sectionOf(c: Pick<InboxRow, "status" | "last_direction">, work: WorkItem[] | undefined): InboxSection {
+  if (c.status === "open" && c.last_direction === "in") return "waiting";
+  if (work?.length) return "work";
+  return "recent";
+}
+
+export type InboxFilter = "all" | "waiting" | "work" | "mine";
+
+/**
+ * จัดแชทเป็น 3 ช่วง: รอตอบ (รอนานสุดบน) · งานค้าง (งานเก่าสุดก่อน) · ล่าสุด (ข้อความล่าสุดก่อน)
+ * filter: ทั้งหมด / รอตอบ / งานค้าง / ของฉัน (มอบหมายให้ฉัน ทั้ง 3 ช่วง)
+ */
+export function inboxSections<T extends InboxRow & { assigned_to?: string | null }>(rows: T[], work: WorkMap, opts: { filter?: InboxFilter; meId?: string } = {}) {
+  const uniq = [...new Map(rows.map((r) => [r.id, r])).values()];
+  const mine = opts.filter === "mine" ? uniq.filter((r) => !!opts.meId && r.assigned_to === opts.meId) : uniq;
+  const by = (sec: InboxSection) => mine.filter((r) => sectionOf(r, work[r.id]) === sec);
+  const waiting = by("waiting").sort((a, b) => tsOr(a.waiting_since ?? a.last_inbound_at, Infinity) - tsOr(b.waiting_since ?? b.last_inbound_at, Infinity));
+  const pending = by("work").sort((a, b) => workSince(work[a.id]) - workSince(work[b.id]));
+  const recent = by("recent").sort((a, b) => tsOr(b.last_message_at, 0) - tsOr(a.last_message_at, 0));
+  if (opts.filter === "waiting") return { waiting, work: [] as T[], recent: [] as T[] };
+  if (opts.filter === "work") return { waiting: [] as T[], work: pending, recent: [] as T[] };
+  return { waiting, work: pending, recent };
 }

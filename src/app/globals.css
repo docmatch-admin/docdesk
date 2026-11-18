@@ -1953,3 +1953,30 @@ button.lab-card { cursor: pointer; }
 .lab-book-when { font-size: 18px; font-weight: 600; }
 .lab-book-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; margin-top: 6px; }
 .lab-book-actions .btn { min-height: 48px; justify-content: center; }
+
+/* ---------- รายการแชทแบบคิวงาน: 3 ช่วง รอตอบ / งานค้าง / ล่าสุด ---------- */
+.q-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 6px 10px 8px; border-bottom: 1px solid var(--line); background: var(--card); }
+.q-filter { height: 38px; border: 1px solid var(--line); border-radius: 19px; background: var(--card); color: var(--muted-strong); font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; padding: 0 4px; }
+.q-filter.on { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); font-weight: 600; }
+.q-filter .badge { font-size: 11px; min-width: 18px; height: 18px; }
+.q-section { display: flex; flex-direction: column; }
+.q-head { position: sticky; top: 0; z-index: 1; margin: 0; padding: 6px 12px; font-size: 13px; font-weight: 700; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 6px; }
+.q-section.waiting .q-head { background: var(--danger-soft); color: var(--danger-ink); }
+.q-section.work .q-head { background: var(--info-soft); color: var(--info-ink); }
+.q-section.recent .q-head { background: var(--neutral-soft); color: var(--muted-strong); }
+.q-count { font-weight: 600; }
+.q-empty { padding: 10px 12px; font-size: 13px; color: var(--muted); }
+.conv.q-row { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 60px; text-align: left; }
+.q-dot { width: 12px; height: 12px; border-radius: 6px; background: var(--ch-other); }
+.q-dot.ch-line { background: var(--ch-dot-line); }
+.q-dot.ch-facebook { background: var(--ch-dot-facebook); }
+.q-dot.ch-instagram { background: var(--ch-dot-instagram); }
+.q-main { min-width: 0; }
+.q-line1 { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.q-line1 .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-hn { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.q-row .conv-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; color: var(--muted); }
+.q-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.chip.q-work { background: var(--info-soft); color: var(--info-ink); border-color: transparent; }
+.chip.q-work.failed { background: var(--danger-soft); color: var(--danger-ink); }
+.conv.q-row.closed { opacity: .55; }

@@ -1,13 +1,13 @@
 "use client";
 
 import { thaiDateTime } from "@/lib/time-format";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { useLiveChannel } from "@/lib/use-live-channel";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { LANGUAGE_NAME } from "@/lib/translate-names";
 import { staffInitial } from "@/lib/assignment";
-import { inboxOrder, isWaitingForReply, nextOpenChat, waitBadge } from "@/lib/case-flow";
+import { inboxSections, isWaitingForReply, nextOpenChat, topWork, waitBadge, workLabel, type InboxFilter, type WorkMap } from "@/lib/case-flow";
 import { SENSITIVE_TAG } from "@/lib/sensitive-rules";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { formatFileSize, isPdfName, MAX_FILE_BYTES } from "@/lib/files";
@@ -57,9 +57,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const isAdmin = me.role === "admin";
   const sb = useMemo(() => supabaseBrowser(), []);
   const [convs, setConvs] = useState<Conversation[]>([]);
-  // รายการเดียว: ค่าเริ่มต้นไม่กรอง · ปุ่ม "รอตอบ" กรองเฉพาะชั้นบน
-  const [onlyWaiting, setOnlyWaiting] = useState(false);
-  const [lists, setLists] = useState<Record<Filter, Conversation[]>>({ waiting: [], open: [], closed: [] });
+  // รายการเดียวแบบคิวงาน 3 ช่วง (รอตอบ / งานค้าง / ล่าสุด) · ปุ่มกรอง ทั้งหมด / รอตอบ / งานค้าง / ของฉัน
+  const [qfilter, setQfilter] = useState<InboxFilter>("all");
+  const [work, setWork] = useState<WorkMap>({});
+  const [lists, setLists] = useState<Record<Filter | "work", Conversation[]>>({ waiting: [], open: [], closed: [], work: [] });
   const [counts, setCounts] = useState({ waiting: 0, open: 0 });
   const [reloadTick, setReloadTick] = useState(0);
   const [confirmSplit, setConfirmSplit] = useState(false);
@@ -157,21 +158,34 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       if (status === "open") query = query.eq("archived", false);
       if (matched) query = query.in("id", matched);
       // ของฉัน = ที่ฉันดูแล และที่ยังไม่มีใครดูแล ไม่อย่างนั้นลูกค้าใหม่จะไม่มีใครเห็น
-      if (scopeRef.current === "mine") query = query.or(`assigned_to.eq.${me.id},assigned_to.is.null`);
       return tagFilterRef.current.length ? query.contains("tags", tagFilterRef.current) : query;
     };
-    const [waiting, open_, closed] = await Promise.all([
-      base("open").or("last_direction.eq.in,booking_pending.eq.true,open_tasks.gt.0")
-        .order("booking_pending", { ascending: false }).order("needs_human", { ascending: false }).order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
+    const workReq = fetch("/api/inbox/work").then((r) => (r.ok ? r.json() : { work: {} })).catch(() => ({ work: {} })) as Promise<{ work?: WorkMap }>;
+    const [waiting, open_, closed, workRes] = await Promise.all([
+      base("open").eq("last_direction", "in").order("waiting_since", { ascending: true, nullsFirst: false }).limit(200),
       base("open").order("last_message_at", { ascending: false }).limit(200),
       // แชทที่เสร็จแล้วอยู่ในรายการเดียวกัน เรียงตามข้อความล่าสุด (ค้นหาได้เสมอ)
       base("closed").order("last_message_at", { ascending: false, nullsFirst: false }).limit(200),
+      workReq,
     ]);
     if (seq !== loadSeq.current) return; // ผลของการค้นหาเก่าที่ตอบช้าต้องไม่ทับผลล่าสุด
     const asRows = (r: { data: unknown }) => (r.data ?? []) as Conversation[];
-    setLists({ waiting: asRows(waiting), open: asRows(open_), closed: asRows(closed) });
+    // แชทที่มีงานค้างแต่ไม่อยู่ใน 200 แถวล่าสุด: ดึงเพิ่มด้วยตัวกรองเดียวกัน
+    const workMap = workRes.work ?? {};
+    const loaded = new Set([...asRows(waiting), ...asRows(open_), ...asRows(closed)].map((c) => c.id));
+    const missing = Object.keys(workMap).filter((id) => !loaded.has(id)).slice(0, 200);
+    let extra: Conversation[] = [];
+    if (missing.length) {
+      let q = sb.from("conversations").select(columns).in("id", missing);
+      if (tagFilterRef.current.length) q = q.contains("tags", tagFilterRef.current);
+      extra = ((await q).data ?? []) as unknown as Conversation[];
+      if (matched) extra = extra.filter((c) => matched.includes(c.id));
+    }
+    if (seq !== loadSeq.current) return;
+    setWork(workMap);
+    setLists({ waiting: asRows(waiting), open: asRows(open_), closed: asRows(closed), work: extra });
     setCounts({ waiting: waiting.count ?? 0, open: open_.count ?? 0 });
-    const rows = [...new Map([...asRows(waiting), ...asRows(open_), ...asRows(closed)].map((c) => [c.id, c])).values()];
+    const rows = [...new Map([...asRows(waiting), ...asRows(open_), ...asRows(closed), ...extra].map((c) => [c.id, c])).values()];
     setConvs(rows);
     const open = selectedRef.current;
     if (open && !rows.some((c) => c.id === open)) {
@@ -210,10 +224,6 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     if (id) setSelectedId(id);
   }, []);
 
-  // เริ่มที่ทุกคนเสมอ ไม่จำค่าเดิม เพราะลืมว่าเลือกของฉันไว้แล้วจะไม่เห็นแชทของคนอื่นที่รออยู่
-  function changeScope(next: "all" | "mine") {
-    setScope(next);
-  }
 
   useEffect(() => {
     searchRef.current = search;
@@ -603,7 +613,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       body: JSON.stringify({ tag: tag && !selected.tags.includes(tag) ? tag : undefined }),
     });
     if (!res.ok) return flash((await res.json().catch(() => ({}))).error ?? "บันทึกไม่สำเร็จ");
-    setSelectedId(nextOpenChat(lists.waiting, id));
+    setSelectedId(nextOpenChat(sections.waiting, id));
     loadConvs();
   }
 
@@ -638,8 +648,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
 
-  const shown = useMemo(() => inboxOrder([...lists.waiting, ...lists.open, ...lists.closed], { onlyWaiting }), [lists, onlyWaiting]);
-  const firstRest = onlyWaiting ? -1 : shown.findIndex((c) => !isWaitingForReply(c));
+  const allRows = useMemo(() => [...lists.waiting, ...lists.open, ...lists.closed, ...lists.work], [lists]);
+  const sections = useMemo(() => inboxSections(allRows, work, { filter: qfilter, meId: me.id }), [allRows, work, qfilter, me.id]);
+  const totals = useMemo(() => inboxSections(allRows, work), [allRows, work]);
+  // แชทลับที่คนไม่มีสิทธิ์มองไม่เห็นชื่อ แต่ต้องรู้ว่ามีคนรอ (นับในช่วงรอตอบ)
+  const showMasked = qfilter === "all" || qfilter === "waiting";
   useEffect(() => { setMtab("chat"); setApptSummary(null); setNoteCount(0); }, [selectedId]);
   useMobileTyping(!!selectedId);
   const openTasks = selected?.open_tasks ?? 0;
@@ -676,15 +689,18 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="ค้นหาชื่อ ข้อความ หรือแท็ก…" aria-label="ค้นหาแชท" />
         </div>
-        {/* รายการเดียว (ไม่มีแท็บ): รอตอบอยู่บนสุดเสมอ · ปุ่มนี้กรองเฉพาะรอตอบ */}
-        <div className="inbox-tabs one" role="group" aria-label="กรองแชท">
-          <button type="button" aria-pressed={onlyWaiting} className={onlyWaiting ? "on" : ""} onClick={() => setOnlyWaiting((v) => !v)}>
-            รอตอบ {counts.waiting + maskedWaiting.length > 0 && <b className="badge red">{counts.waiting + maskedWaiting.length}</b>}
-          </button>
-        </div>
-        <div className="scope-filter" role="group" aria-label="ขอบเขตแชท">
-          <button className={scope === "all" ? "on" : ""} aria-pressed={scope === "all"} onClick={() => changeScope("all")}>ทุกคน</button>
-          <button className={scope === "mine" ? "on" : ""} aria-pressed={scope === "mine"} onClick={() => changeScope("mine")}>ของฉัน</button>
+        {/* ปุ่มกรอง 4 ปุ่มเท่ากัน อยู่ที่เดิมเสมอ */}
+        <div className="q-filters" role="group" aria-label="กรองแชท">
+          {([
+            ["all", "ทั้งหมด", 0],
+            ["waiting", "รอตอบ", totals.waiting.length + maskedWaiting.length],
+            ["work", "งานค้าง", totals.work.length],
+            ["mine", "ของฉัน", 0],
+          ] as [InboxFilter, string, number][]).map(([key, label, n]) => (
+            <button key={key} type="button" aria-pressed={qfilter === key} className={`q-filter ${key} ${qfilter === key ? "on" : ""}`} onClick={() => setQfilter(key)}>
+              {label}{n > 0 && <b className={`badge ${key === "waiting" ? "red" : ""}`}>{n}</b>}
+            </button>
+          ))}
         </div>
         <details className="tag-filter">
           <summary>กรองตามแท็ก{tagFilter.length > 0 && <b className="badge">{tagFilter.length}</b>}</summary>
@@ -695,68 +711,57 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 <TagChip name={t.name} color={t.color} />
               </button>
             ))}
-            {tagFilter.length > 0 && <button className="btn ghost small" onClick={() => setTagFilter([])}>ล้างตัวกรอง</button>}
+            <button className="btn ghost small" disabled={!tagFilter.length} onClick={() => setTagFilter([])}>ล้างตัวกรอง</button>
           </div>
           {tagFilter.length > 1 && <div className="muted small">แสดงแชทที่มีครบทุกแท็กที่เลือก</div>}
         </details>
-        {scope === "all" && maskedWaiting.map((m) => (
-          <div key={m.key} className="conv masked" aria-label="แชทลับรอตอบ">
-            <div className="avatar">🔒</div>
-            <div className="conv-body">
-              <div className="name">🔒 แชทลับ — รอตอบ</div>
-              <div className="chips"><WaitChip since={m.waiting_since} /></div>
-            </div>
-          </div>
-        ))}
-        {shown.length === 0 && !(scope === "all" && maskedWaiting.length > 0) && (search.trim() || tagFilter.length || scope === "mine" ? (
-          <div className="empty">ไม่พบแชทที่ตรงกับการค้นหาหรือแท็กที่เลือก</div>
-        ) : onlyWaiting ? (
-          <div className="all-done">🎉 ตอบครบแล้ว</div>
-        ) : (
-          <div className="empty">ยังไม่มีแชท</div>
-        ))}
-        {!onlyWaiting && firstRest === 0 && shown.length > 0 && !(scope === "all" && maskedWaiting.length > 0) && !search.trim() && (
-          <div className="all-done small">🎉 ตอบครบแล้ว</div>
-        )}
-        {shown.map((c, i) => (
-          <Fragment key={c.id}>
-          {i === firstRest && i > 0 && <div className="conv-divider" role="separator">แชทอื่น ๆ</div>}
-          <button key={c.id} className={`conv ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""} ${c.status !== "closed" && isWaitingForReply(c) ? "waiting" : ""}`}
-            onClick={() => setSelectedId(c.id)}>
-            <span className="conv-avatar">
-              {c.sensitive ? <div className="avatar">🔒</div> : <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />}
-              <span className={`ch-dot ch-${c.channels?.type ?? "other"}`} aria-hidden="true" />
-            </span>
-            <div className="conv-body">
-              <div className="conv-top">
-                <span className={`name ${c.sensitive ? "sensitive-text" : ""}`}>{contactName(c.contacts)}</span>
-                <span className="muted small">{timeTh(c.last_message_at)}</span>
-              </div>
-              {!c.sensitive && contactLabel(c.contacts).secondary && <div className="name-platform">{contactLabel(c.contacts).secondary}</div>}
-              <div className="conv-preview">{c.sensitive ? "🔒 ข้อความลับ" : c.last_message_preview}</div>
-              <div className="chips">
-                <span className={`chip ch-${c.channels?.type}`}>{c.channels ? CHANNEL_LABEL[c.channels.type] : ""}</span>
-                {c.contacts && c.contacts.language !== "th" && <span className="chip">🌐 {LANGUAGE_NAME[c.contacts.language] ?? c.contacts.language}</span>}
-                <span className={`chip mode-${effectiveMode(c)}`}>AI: {AI_MODE_LABEL[effectiveMode(c)]}</span>
-                {c.archived && <span className="chip">LINE OA เดิม</span>}
-                {c.booking_pending && <span className="chip red booking-chip">📅 ยังไม่ลงนัด</span>}
-                {(c.open_tasks ?? 0) > 0 && <span className="chip orange">งานค้าง {c.open_tasks}</span>}
-                {c.needs_human && <span className="chip red">ต้องให้คนตอบ</span>}
-                {/* นับเวลาเฉพาะลูกค้ารอคำตอบ: แชทที่อยู่ในรอตอบเพราะงานค้าง/รอลงนัด ไม่นับ */}
-                {isWaitingForReply(c) && c.last_direction === "in" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
-                {c.status === "closed" && <span className="chip done-chip">เสร็จ</span>}
-                {c.tags.map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
-              </div>
-            </div>
-            {c.assigned_to && (
-              <span className="assignee-chip" title={`ผู้ดูแล: ${staffName.get(c.assigned_to) ?? ""}`} aria-label={`ผู้ดูแล ${staffName.get(c.assigned_to) ?? ""}`}>
-                {staffInitial(staffName.get(c.assigned_to))}
-              </span>
-            )}
-            {c.unread_count > 0 && <b className="badge">{c.unread_count}</b>}
-          </button>
-          </Fragment>
-        ))}
+
+        {(["waiting", "work", "recent"] as const).map((sec) => {
+          const rows = sections[sec];
+          const masked = sec === "waiting" && showMasked ? maskedWaiting : [];
+          if (qfilter === "waiting" && sec !== "waiting") return null;
+          if (qfilter === "work" && sec !== "work") return null;
+          const title = sec === "waiting" ? "รอตอบ" : sec === "work" ? "งานค้าง" : "ล่าสุด";
+          const n = rows.length + masked.length;
+          return (
+            <section key={sec} className={`q-section ${sec}`} aria-label={title}>
+              <h3 className="q-head">{title} <span className="q-count">{n}</span></h3>
+              {masked.map((m) => (
+                <div key={m.key} className="conv q-row masked" aria-label="แชทลับรอตอบ">
+                  <span className="q-dot" aria-hidden="true" />
+                  <div className="q-main"><div className="q-line1"><span className="name">🔒 แชทลับ</span></div><div className="conv-preview">รอเจ้าหน้าที่ที่มีสิทธิ์ตอบ</div></div>
+                  <div className="q-side"><WaitChip since={m.waiting_since} /></div>
+                </div>
+              ))}
+              {n === 0 && (
+                <div className="q-empty">{sec === "waiting" ? "🎉 ตอบครบแล้ว" : sec === "work" ? "ไม่มีงานค้าง" : search.trim() || tagFilter.length ? "ไม่พบแชทที่ตรงกับการค้นหา" : "ยังไม่มีแชท"}</div>
+              )}
+              {rows.map((c) => {
+                const top = sec === "work" ? topWork(work[c.id]) : null;
+                const hn = c.contacts?.hn ? String(c.contacts.hn).replace(/^0+/, "") : null;
+                return (
+                  <button key={c.id} type="button" className={`conv q-row ${c.id === selectedId ? "active" : ""} ${c.status === "closed" ? "closed" : ""}`}
+                    onClick={() => setSelectedId(c.id)}>
+                    <span className={`q-dot ch-${c.channels?.type ?? "other"}`} title={c.channels ? CHANNEL_LABEL[c.channels.type] : ""} aria-label={c.channels ? CHANNEL_LABEL[c.channels.type] : undefined} />
+                    <div className="q-main">
+                      <div className="q-line1">
+                        <span className={`name ${c.sensitive ? "sensitive-text" : ""}`}>{c.sensitive ? "🔒 " : ""}{contactName(c.contacts)}</span>
+                        {hn && !c.sensitive && <span className="q-hn">HN {hn}</span>}
+                      </div>
+                      <div className="conv-preview">{c.sensitive ? "ข้อความลับ" : c.last_message_preview}</div>
+                    </div>
+                    <div className="q-side">
+                      {sec === "waiting" && <WaitChip since={c.waiting_since ?? c.last_inbound_at} />}
+                      {top && <span className={`chip q-work ${top.kind}`}>{workLabel(top)}</span>}
+                      {sec === "recent" && c.status === "closed" && <span className="chip done-chip">เสร็จ</span>}
+                      <span className="muted small">{timeTh(c.last_message_at)}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </section>
+          );
+        })}
       </aside>
 
       {/* ---------- ห้องแชท + กล่องทีม ---------- */}

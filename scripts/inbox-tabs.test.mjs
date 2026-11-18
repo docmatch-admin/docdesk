@@ -363,3 +363,105 @@ test("กดเสร็จแล้ว: แชทไม่หายจากร
   assert.deepEqual(tabs(), WAITING, "เปิดเองแล้วอยู่ชั้นรอตอบ");
   assert.deepEqual(inboxOrder(state.tables.conversations, { onlyWaiting: true }).map((c) => c.id), [s.conversationId]);
 });
+
+// ---- รายการแชทแบบคิวงาน: 3 ช่วง รอตอบ / งานค้าง / ล่าสุด ----
+const flow = await import("../src/lib/case-flow.ts");
+const { inboxWork, inboxCounts } = await import("../src/lib/inbox-work.ts");
+
+test("คิวงาน: จัดช่วง + เรียง (รอตอบ รอนานสุดบน · งานค้าง งานเก่าสุดก่อน · ล่าสุด ข้อความล่าสุดก่อน รวมเสร็จแล้ว) · ปุ่มกรอง", () => {
+  const t = (m) => new Date(Date.parse("2026-11-18T10:00:00Z") - m * 60_000).toISOString();
+  const rows = [
+    { id: "w3", status: "open", last_direction: "in", waiting_since: t(3), last_message_at: t(3), assigned_to: "me" },
+    { id: "w20", status: "open", last_direction: "in", waiting_since: t(20), last_message_at: t(20) },
+    { id: "task", status: "open", last_direction: "out", last_message_at: t(1), assigned_to: "me" },
+    { id: "booking", status: "open", last_direction: "out", last_message_at: t(2) },
+    { id: "replied", status: "open", last_direction: "out", last_message_at: t(4) },
+    { id: "done", status: "closed", last_direction: "out", last_message_at: t(2), assigned_to: "me" },
+    { id: "done-failed", status: "closed", last_direction: "out", last_message_at: t(9) },
+  ];
+  const work = {
+    task: [{ kind: "tasks", since: t(30), count: 2 }],
+    booking: [{ kind: "ai_review", since: t(5) }, { kind: "booking", since: t(60) }],
+    "done-failed": [{ kind: "failed", since: t(10) }],
+  };
+  const s = flow.inboxSections(rows, work);
+  assert.deepEqual(s.waiting.map((r) => r.id), ["w20", "w3"]);
+  assert.deepEqual(s.work.map((r) => r.id), ["booking", "task", "done-failed"], "งานเก่าสุดก่อน");
+  assert.deepEqual(s.recent.map((r) => r.id), ["done", "replied"], "เสร็จแล้วอยู่ช่วงล่าสุด เรียงข้อความล่าสุด");
+  // รอตอบมาก่อนงานค้างเสมอ แม้มีงาน
+  assert.equal(flow.sectionOf({ status: "open", last_direction: "in" }, [{ kind: "booking", since: t(1) }]), "waiting");
+  // ป้าย: งานด่วนสุด
+  assert.equal(flow.workLabel(flow.topWork(work.booking)), "ยืนยันนัด");
+  assert.equal(flow.workLabel(flow.topWork(work.task)), "งานทีม 2");
+  assert.equal(flow.workLabel({ kind: "reschedule", since: t(1) }), "ขอเลื่อนนัด");
+  assert.equal(flow.workLabel({ kind: "failed", since: t(1) }), "ส่งไม่สำเร็จ");
+  assert.equal(flow.workLabel({ kind: "ai_review", since: t(1) }), "AI ตอบแล้ว รอตรวจ");
+  // ปุ่มกรอง
+  assert.deepEqual(flow.inboxSections(rows, work, { filter: "waiting" }).work, []);
+  assert.deepEqual(flow.inboxSections(rows, work, { filter: "work" }).waiting, []);
+  const mine = flow.inboxSections(rows, work, { filter: "mine", meId: "me" });
+  assert.deepEqual([...mine.waiting, ...mine.work, ...mine.recent].map((r) => r.id), ["w3", "task", "done"], "ของฉัน = มอบหมายให้ฉัน ทั้ง 3 ช่วง");
+  // ป้ายเวลารอ: <5 เทา · 5–15 เหลือง · >15 แดง
+  assert.equal(flow.waitBadge(t(4), Date.parse("2026-11-18T10:00:00Z")).level, "normal");
+  assert.equal(flow.waitBadge(t(5), Date.parse("2026-11-18T10:00:00Z")).level, "warn");
+  assert.equal(flow.waitBadge(t(16), Date.parse("2026-11-18T10:00:00Z")).level, "late");
+});
+
+test("คิวงาน: กดเสร็จแล้วลงช่วงล่าสุด (ไม่หาย) · ลูกค้าทักใหม่ขึ้นรอตอบ", async () => {
+  const s = await customer();
+  assert.equal(flow.sectionOf(conv(), undefined), "waiting");
+  await closeViaDb();
+  assert.deepEqual(flow.inboxSections(state.tables.conversations, {}).recent.map((c) => c.id), [s.conversationId]);
+  await customer("ขอถามอีกนิดค่ะ");
+  assert.deepEqual(flow.inboxSections(state.tables.conversations, {}).waiting.map((c) => c.id), [s.conversationId]);
+});
+
+test("งานค้างจากฐานข้อมูล: ยืนยันนัด · ขอเลื่อนนัด · ส่งไม่สำเร็จ (นัด/ผลแล็บ) · งานทีม · AI ตอบแล้ว รอตรวจ + badge เมนู", async () => {
+  const day = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
+  resetDb({
+    conversations: [
+      { id: "c-book", status: "open", last_direction: "out", archived: false },
+      { id: "c-res", status: "open", last_direction: "out", archived: false },
+      { id: "c-fail", status: "closed", last_direction: "out", archived: false },
+      { id: "c-lab", status: "open", last_direction: "out", archived: false },
+      { id: "c-task", status: "open", last_direction: "out", archived: false },
+      { id: "c-ai", status: "open", last_direction: "out", archived: false, ai_review_at: "2026-11-18T03:00:00Z" },
+      { id: "c-wait", status: "open", last_direction: "in", archived: false },
+      { id: "c-none", status: "open", last_direction: "out", archived: false },
+    ],
+    bookings: [{ conversation_id: "c-book", status: "ai_confirmed", created_at: "2026-11-18T01:00:00Z" }, { conversation_id: "c-none", status: "recorded", created_at: "2026-11-18T01:00:00Z" }],
+    appointments: [
+      { hn: "000000111", conversation_id: null, status: "reschedule_requested", appoint_date: day, called_at: null, last_send_error: null, updated_at: "2026-11-18T02:00:00Z" },
+      { hn: null, conversation_id: "c-fail", status: "scheduled", appoint_date: day, called_at: null, last_send_error: "ส่งไม่ได้", updated_at: "2026-11-18T02:00:00Z" },
+      { hn: null, conversation_id: "c-none", status: "scheduled", appoint_date: day, called_at: null, last_send_error: null, updated_at: "2026-11-18T02:00:00Z" },
+    ],
+    patient_links: [{ conversation_id: "c-res", hn: "000000111" }, { conversation_id: "c-lab", hn: "000000222" }],
+    lab_results: [{ patient_id: "000000222", notify_status: "failed", updated_at: "2026-11-18T02:30:00Z" }],
+    chat_tasks: [{ conversation_id: "c-task", done: false, created_at: "2026-11-18T00:30:00Z" }, { conversation_id: "c-task", done: false, created_at: "2026-11-18T00:40:00Z" }, { conversation_id: "c-none", done: true, created_at: "2026-11-18T00:30:00Z" }],
+  });
+  const w = await inboxWork();
+  const kinds = (id) => (w[id] ?? []).map((i) => i.kind);
+  assert.deepEqual(kinds("c-book"), ["booking"]);
+  assert.deepEqual(kinds("c-res"), ["reschedule"]);
+  assert.deepEqual(kinds("c-fail"), ["failed"]);
+  assert.deepEqual(kinds("c-lab"), ["failed"]);
+  assert.deepEqual(w["c-task"], [{ kind: "tasks", since: "2026-11-18T00:30:00Z", count: 2 }]);
+  assert.deepEqual(kinds("c-ai"), ["ai_review"]);
+  assert.equal(w["c-none"], undefined);
+  assert.deepEqual(await inboxCounts(), { waiting: 1, work: 6, total: 7 });
+});
+
+test("AI ตอบเอง → งานค้าง \"AI ตอบแล้ว รอตรวจ\" · เจ้าหน้าที่เปิดแชท → หายจากงานค้าง", async () => {
+  setup("auto");
+  replies.next = aiReply(0.9);
+  const s = await customer("วัคซีนราคาเท่าไหร่");
+  await processIncoming(s.conversationId, s.messageId);
+  assert.ok(conv().ai_review_at, "AI ตอบแล้วตั้ง ai_review_at");
+  assert.equal(flow.sectionOf(conv(), (await inboxWork())[s.conversationId]), "work");
+  const read = await import("../src/app/api/conversations/[id]/read/route.ts");
+  state.tables.staff = [{ id: "s1", role: "agent", active: true, display_name: "เอ", must_change_password: false }];
+  state.currentUser = { id: "s1" };
+  await read.POST(new Request("https://app.test/x", { method: "POST" }), { params: Promise.resolve({ id: s.conversationId }) });
+  assert.equal(conv().ai_review_at, null);
+  assert.equal(flow.sectionOf(conv(), (await inboxWork())[s.conversationId]), "recent");
+});

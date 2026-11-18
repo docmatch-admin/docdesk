@@ -122,11 +122,11 @@ test("แถบถามรวมประวัติไม่ถูกซ่�
   assert.match(src, /\{!selected\.archived && !locked && \(\s*<ArchiveMergeBar/);
 });
 
-// ---- ตัวกรองของฉัน ----
-test("ของฉัน: รวมแชทที่ยังไม่มีผู้ดูแล", () => {
+// ---- ตัวกรองของฉัน (รายการแบบคิวงาน) ----
+test("ของฉัน: เฉพาะแชทที่มอบหมายให้ฉัน ทั้ง 3 ช่วง (กรองในหน้า ไม่ตัดแชทออกตอนดึง)", () => {
   const src = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
-  assert.match(src, /query = query\.or\(`assigned_to\.eq\.\$\{me\.id\},assigned_to\.is\.null`\)/);
-  assert.doesNotMatch(src, /query\.eq\("assigned_to", me\.id\)/);
+  assert.match(src, /inboxSections\(allRows, work, \{ filter: qfilter, meId: me\.id \}\)/);
+  assert.doesNotMatch(src, /assigned_to\.eq\.\$\{me\.id\}/);
 });
 
 test("ตัวกรองเริ่มที่ทุกคน และไม่จำค่าของฉันไว้", () => {

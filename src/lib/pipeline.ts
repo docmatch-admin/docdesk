@@ -323,6 +323,9 @@ export async function tryAutoSend(
     await supabaseAdmin().from("conversations").update({ needs_human: true, ai_due_at: null }).eq("id", conversationId);
     return false;
   }
+  // ช่วง "งานค้าง": AI ตอบเองแล้ว รอเจ้าหน้าที่เปิดดู (ยังไม่ได้รัน migration 062 = ข้าม ไม่ล้ม)
+  const { error: reviewError } = await supabaseAdmin().from("conversations").update({ ai_review_at: new Date().toISOString() }).eq("id", conversationId);
+  if (reviewError) console.error("ai_review_at not saved", reviewError.code);
   // แจ้งว่าอ่านแล้วหลังส่งสำเร็จเท่านั้น ลูกค้าจะได้ไม่เห็นว่าอ่านแล้วแต่ไม่มีคำตอบ
   await markConversationRead(conversationId);
   return true;

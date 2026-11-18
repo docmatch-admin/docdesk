@@ -30,7 +30,7 @@ test("layout: ลงทะเบียน SW ทุกหน้า · meta iPhon
   assert.match(root, /appleWebApp: \{ capable: true/);
   assert.match(root, /viewportFit: "cover"/);
   const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
-  assert.match(staff, /<MobileNav chatStaff=\{chatStaff\} calls=\{calls\} \/>/);
+  assert.match(staff, /<MobileNav chatStaff=\{chatStaff\} calls=\{calls\} chats=\{chats\} \/>/);
   assert.match(staff, /<InstallApp \/>/);
   const css = readFileSync("src/app/globals.css", "utf8");
   assert.match(css, /\.staff-root:has\(\.inbox\.has-chat\) \.mobile-tabbar \{ display: none; \}/, "ในห้องแชทซ่อนแถบล่าง");
