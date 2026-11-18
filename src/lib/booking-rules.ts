@@ -346,3 +346,28 @@ export function bookingCalendar(now: number, tz: string, days = 21): string {
     return `${d} วัน${thaiWeekday(d)}${i === 0 ? " (วันนี้)" : i === 1 ? " (พรุ่งนี้)" : ""}`;
   }).join("\n");
 }
+
+/**
+ * วันและเวลาที่คนไข้เลือกนัดเองได้ (หน้า LIFF): วันนี้ถึง days วันข้างหน้า ทีละ step นาที ตามเวลาเปิดคลินิก
+ * ข้ามวันปิด · ไม่รวมเวลาที่ผ่านไปแล้ว · ช่วงสุดท้ายก่อนปิด LAST_SLOT_BEFORE_CLOSE_MINUTES นาที
+ */
+export function selfBookingDays(hours: BusinessHoursConfig, now: number, days = 14, step = 30): { date: string; times: string[] }[] {
+  const today = localToday(now, hours.tz || "Asia/Bangkok");
+  const out: { date: string; times: string[] }[] = [];
+  for (let i = 0; i <= days; i++) {
+    const date = addDays(today, i);
+    const range = bookableRange(date, hours);
+    if (!range) continue;
+    const times: string[] = [];
+    for (let m = Math.ceil(range[0] / step) * step; m <= range[1]; m += step) {
+      const time = fromMinutes(m);
+      if (isStillBookable(date, time, hours, now)) times.push(time);
+    }
+    if (times.length) out.push({ date, times });
+  }
+  return out;
+}
+
+/** คนไข้เลือกเองได้ไหม: อยู่ในรายการด้านบนเท่านั้น (เวลาเปิด, ไม่เลยเวลา, ไม่เกิน days วัน, ลงตัวทีละ step) */
+export const selfBookingAllowed = (date: string, time: string, hours: BusinessHoursConfig, now: number, days = 14, step = 30) =>
+  selfBookingDays(hours, now, days, step).some((d) => d.date === date && d.times.includes(time));

@@ -127,6 +127,15 @@ export const apptWhen = (a: Pick<LabAppointment, "appoint_date" | "time_mode" | 
 export function labViewUrl(liffId: string | null | undefined, appUrl: string, labId: string): string {
   return liffId ? `https://liff.line.me/${liffId}?id=${encodeURIComponent(labId)}` : `${appUrl.replace(/\/$/, "")}/lab-result?id=${encodeURIComponent(labId)}`;
 }
+/** หน้าเลือกวันนัดฟังผล (LIFF เดียวกัน ?book=<lab_id>) */
+export function labBookUrl(liffId: string | null | undefined, appUrl: string, labId: string): string {
+  return liffId ? `https://liff.line.me/${liffId}?book=${encodeURIComponent(labId)}` : `${appUrl.replace(/\/$/, "")}/lab-result?book=${encodeURIComponent(labId)}`;
+}
+/** ชื่อบริการของคำขอนัดฟังผลที่คนไข้กดเลือกเอง (ใช้ flow "นัดที่ AI รับไว้" เดิม ให้เจ้าหน้าที่กดลงนัด) */
+export const HEARING_SERVICE = "ฟังผลแล็บ";
+/** คำขอนัดฟังผลที่ยังรอเจ้าหน้าที่ลงนัด */
+export interface HearingRequest { id: string; conversation_id: string; date: string; time: string }
+
 /** หน้า "ผลแล็บของฉัน" (LIFF เดียวกัน ไม่มี id = แสดงรายการ) */
 export function labMineUrl(liffId: string | null | undefined, appUrl: string): string {
   return liffId ? `https://liff.line.me/${liffId}?mine=1` : `${appUrl.replace(/\/$/, "")}/lab-result?mine=1`;
@@ -166,6 +175,8 @@ export interface PatientNotice {
   orderDate: string | null;
   viewUrl: string;
   mineUrl: string;
+  /** หน้าเลือกวันนัดฟังผล (แสดงเมื่อยังไม่มีนัด) */
+  bookUrl: string;
   appointment: LabAppointment | null;
 }
 
@@ -181,6 +192,17 @@ export function patientNoticeText(n: PatientNotice): string {
   ].join("\n");
 }
 
+/** ข้อความที่บันทึกในไทม์ไลน์แชทของ DocDesk (เจ้าหน้าที่เห็น) — ลิงก์เปิด PDF ฝั่งเจ้าหน้าที่ ไม่ใช่ลิงก์ LIFF ของคนไข้ */
+export function staffTimelineText(n: PatientNotice, staffPdfUrl: string): string {
+  const head = n.updated ? "ผลแล็บของคุณมีการปรับปรุง" : "ผลแล็บของคุณออกแล้ว";
+  return [
+    `${head}${n.showName && n.patientName ? ` (${n.patientName})` : ""}`,
+    "ส่งการ์ด \"ดูผล\" ให้คนไข้ทาง LINE แล้ว",
+    ...(n.appointment ? [`นัดฟังผล: ${apptWhen(n.appointment)}`] : ["ยังไม่มีนัดฟังผลในระบบนัด"]),
+    `เจ้าหน้าที่เปิดผล: ${staffPdfUrl}`,
+  ].join("\n");
+}
+
 export function patientNoticeFlex(n: PatientNotice) {
   const head = n.updated ? "ผลแล็บของคุณมีการปรับปรุง" : "ผลแล็บของคุณออกแล้ว";
   const a = n.appointment;
@@ -188,11 +210,12 @@ export function patientNoticeFlex(n: PatientNotice) {
     { type: "text", text: head, weight: "bold", size: "md", wrap: true, color: n.updated ? "#8a5200" : "#0f7a5f" },
     ...(n.showName && n.patientName ? [{ type: "text", text: n.patientName, size: "sm", weight: "bold", wrap: true }] : []),
     { type: "text", text: n.updated ? "แล็บแก้ไขผลตรวจ กรุณากดดูฉบับล่าสุด" : "กดปุ่ม \"ดูผล\" เพื่อเปิดผลตรวจ (เปิดได้เฉพาะบัญชี LINE นี้)", size: "xs", color: "#6b7280", wrap: true },
-    ...(a ? [
-      { type: "separator", margin: "md" },
-      { type: "text", text: "นัดฟังผล", size: "xs", color: "#6b7280", margin: "md" },
-      { type: "text", text: apptWhen(a), size: "sm", weight: "bold", color: "#4a63e0", wrap: true },
-    ] : []),
+    // ส่วนนัดฟังผลมีทุกใบ: มีนัด = วันเวลา + ยืนยัน/เลื่อน · ไม่มี = ปุ่มเลือกวันนัดฟังผล
+    { type: "separator", margin: "md" },
+    { type: "text", text: "นัดฟังผล", size: "xs", color: "#6b7280", margin: "md" },
+    a
+      ? { type: "text", text: apptWhen(a), size: "sm", weight: "bold", color: "#4a63e0", wrap: true }
+      : { type: "text", text: "ยังไม่มีนัดฟังผล", size: "sm", color: "#6b7280", wrap: true },
     { type: "text", text: n.clinic, size: "xxs", color: "#8a8f9c", wrap: true, margin: "md" },
   ];
   const buttons: Record<string, unknown>[] = [
@@ -208,10 +231,12 @@ export function patientNoticeFlex(n: PatientNotice) {
         ...(a.telemed_id ? [] : [{ type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "ขอเลื่อนนัด", data: postbackData("reschedule", a.id), displayText: "ขอเลื่อนนัด" } }]),
       ],
     });
+  } else {
+    buttons.push({ type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "เลือกวันนัดฟังผล", uri: n.bookUrl } });
   }
   return {
     type: "flex",
-    altText: `${head}${a ? ` · นัดฟังผล ${apptWhen(a)}` : ""}`.slice(0, 400),
+    altText: `${head}${a ? ` · นัดฟังผล ${apptWhen(a)}` : " · เลือกวันนัดฟังผลได้"}`.slice(0, 400),
     contents: {
       type: "bubble", size: "kilo",
       body: { type: "box", layout: "vertical", spacing: "sm", contents: body },

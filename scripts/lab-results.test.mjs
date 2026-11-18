@@ -589,3 +589,136 @@ test("เวลาจากระบบแล็บไม่มีโซนเ�
   assert.equal(rules.bmlTime("2026-11-17T14:50:00+07:00"), "2026-11-17T14:50:00+07:00");
   assert.equal(rules.bmlTime(null), null);
 });
+
+// ---------------------------------------------------------------------------
+// ขอนัดฟังผลจากการ์ดผลแล็บ
+// ---------------------------------------------------------------------------
+const bookingRules = await import("../src/lib/booking-rules.ts");
+const bookingRoute = await import("../src/app/api/lab-results/booking/route.ts");
+const requestRoute = await import("../src/app/api/lab-results/request-appointment/route.ts");
+const apptStore = await import("../src/lib/appointment-store.ts");
+// จันทร์–เสาร์ 09:00–17:00 · อาทิตย์ปิด
+const HOURS = { tz: "Asia/Bangkok", days: { 0: null, 1: ["09:00", "17:00"], 2: ["09:00", "17:00"], 3: ["09:00", "17:00"], 4: ["09:00", "17:00"], 5: ["09:00", "17:00"], 6: ["09:00", "17:00"] } };
+const withHours = () => state.tables.settings.push({ key: "business_hours", value: HOURS });
+
+test("เลือกวันนัดเอง: 14 วันข้างหน้า ทีละ 30 นาที ตามเวลาเปิด ข้ามวันปิด ไม่ให้เลือกเวลาที่ผ่านไปแล้ว", () => {
+  const now = Date.parse("2026-11-18T10:10:00+07:00"); // พุธ 10:10 น.
+  const days = bookingRules.selfBookingDays(HOURS, now);
+  assert.equal(days[0].date, "2026-11-18");
+  assert.equal(days[0].times[0], "10:30", "วันนี้เริ่มหลังเวลาปัจจุบัน");
+  assert.equal(days[0].times.at(-1), "16:30", "ช่วงสุดท้ายก่อนปิด 30 นาที");
+  assert.ok(!days.some((d) => d.date === "2026-11-22"), "อาทิตย์ปิด");
+  assert.ok(days.every((d) => d.date <= "2026-12-02"), "ไม่เกิน 14 วัน");
+  assert.equal(bookingRules.selfBookingAllowed("2026-11-18", "09:30", HOURS, now), false, "เลยเวลาแล้ว");
+  assert.equal(bookingRules.selfBookingAllowed("2026-11-19", "18:00", HOURS, now), false, "นอกเวลาเปิด");
+  assert.equal(bookingRules.selfBookingAllowed("2026-11-19", "10:15", HOURS, now), false, "ไม่ลงตัว 30 นาที");
+  assert.equal(bookingRules.selfBookingAllowed("2026-11-22", "10:00", HOURS, now), false, "วันปิด");
+  assert.equal(bookingRules.selfBookingAllowed("2026-11-19", "10:00", HOURS, now), true);
+});
+
+test("การ์ดแจ้งผลไม่มีนัด: \"ยังไม่มีนัดฟังผล\" + ปุ่มเลือกวันนัดฟังผล (?book=) · มีนัด: ไม่มีปุ่มเลือกวัน", async () => {
+  const next = await initialize(Date.now());
+  labs = [item("3001")];
+  await store.runLabSync(next);
+  const flex = JSON.stringify(pushes()[0].messages);
+  assert.match(flex, /ยังไม่มีนัดฟังผล/);
+  assert.match(flex, /เลือกวันนัดฟังผล/);
+  assert.match(flex, new RegExp(`https://liff\\.line\\.me/2000000000-abcd\\?book=${row("3001").id}`));
+
+  const withAppt = rules.patientNoticeFlex({
+    clinic: "ค", patientName: null, showName: false, updated: false, orderDate: null, viewUrl: "v", mineUrl: "m", bookUrl: "b",
+    appointment: { id: APPT, appoint_date: "2026-12-01", time_mode: "exact", time_start: "09:30:00", time_end: null, status: "scheduled", purpose_text: "ฟังผล" },
+  });
+  const s = JSON.stringify(withAppt);
+  assert.doesNotMatch(s, /เลือกวันนัดฟังผล|ยังไม่มีนัดฟังผล/);
+  assert.match(s, /appt:confirm:/);
+});
+
+test("ขอนัดฟังผล: บัญชีที่ไม่ผูก HN ขอไม่ได้ · นอกเวลาเปิดถูกปฏิเสธ · ส่งแล้วเป็นคำขอรอเจ้าหน้าที่ลงนัด · ขอซ้ำอัปเดตอันเดิม", async () => {
+  withHours();
+  const next = await initialize(Date.now());
+  labs = [item("3101")];
+  await store.runLabSync(next);
+  const id = row("3101").id;
+
+  assert.equal((await postJson(bookingRoute, { id, idToken: "tok-other" })).status, 404, "บัญชีอื่นดูไม่ได้");
+  assert.equal((await postJson(requestRoute, { id, idToken: "tok-other", date: "2099-01-01", time: "10:00" })).status, 404, "บัญชีที่ไม่ผูก HN ขอไม่ได้");
+  const info = await (await postJson(bookingRoute, { id, idToken: "tok-owner" })).json();
+  assert.equal(info.appointment, null);
+  assert.equal(info.request, null);
+  assert.ok(info.days.length > 0 && info.days.length <= 15);
+  const [d1, d2] = [info.days[0], info.days[1]];
+
+  const bad = await postJson(requestRoute, { id, idToken: "tok-owner", date: d1.date, time: "03:00" });
+  assert.equal(bad.status, 400, "นอกเวลาเปิด");
+  assert.equal((state.tables.bookings ?? []).length, 0);
+
+  const ok = await postJson(requestRoute, { id, idToken: "tok-owner", date: d1.date, time: d1.times[0] });
+  assert.equal(ok.status, 200);
+  assert.equal(state.tables.bookings.length, 1);
+  const b = state.tables.bookings[0];
+  assert.equal(b.conversation_id, "conv1");
+  assert.equal(b.service, "ฟังผลแล็บ");
+  assert.equal(b.status, "ai_confirmed");
+  assert.equal(b.name, "สมชาย ใจดี");
+  assert.equal(b.date, d1.date);
+  const sys = state.tables.messages.filter((m) => m.conversation_id === "conv1" && m.sender_type === "system" && /คนไข้ขอนัดฟังผล/.test(m.body));
+  assert.equal(sys.length, 1);
+  assert.match(sys[0].body, /รอเจ้าหน้าที่ลงนัด/);
+
+  // ขอซ้ำ: อัปเดตอันเดิม ไม่สร้างใหม่
+  await postJson(requestRoute, { id, idToken: "tok-owner", date: d2.date, time: d2.times.at(-1) });
+  assert.equal(state.tables.bookings.length, 1);
+  assert.equal(state.tables.bookings[0].date, d2.date);
+  assert.equal(state.tables.bookings[0].time, d2.times.at(-1));
+
+  // หน้าคนไข้ + หน้าเจ้าหน้าที่เห็นคำขอ
+  const v = await (await postJson(viewRoute, { id, idToken: "tok-owner" })).json();
+  assert.equal(v.appointment, null);
+  assert.equal(v.request.date, d2.date);
+  const mine = await (await postJson(mineRoute, { idToken: "tok-owner" })).json();
+  assert.equal(mine.results[0].request.date, d2.date);
+  const admin = await (await listRoute.GET(new Request("https://app.test/api/lab-results?tab=all"))).json();
+  assert.equal(admin.requests["000004714"].conversation_id, "conv1");
+  assert.match(admin.requests["000004714"].when, /เวลา/);
+});
+
+test("เจ้าหน้าที่ลงนัดจากคำขอ (createAppointment booking_id) แล้วการ์ด/หน้าคนไข้แสดงนัดจริง", async () => {
+  withHours();
+  const next = await initialize(Date.now());
+  labs = [item("3201")];
+  await store.runLabSync(next);
+  const id = row("3201").id;
+  const info = await (await postJson(bookingRoute, { id, idToken: "tok-owner" })).json();
+  const d = info.days.find((x) => x.date > info.days[0].date) ?? info.days[0];
+  await postJson(requestRoute, { id, idToken: "tok-owner", date: d.date, time: d.times[0] });
+  const booking = state.tables.bookings[0];
+
+  await apptStore.createAppointment({
+    booking_id: booking.id, conversation_id: "conv1", hn: "4714", patient_name: "สมชาย ใจดี",
+    appoint_date: d.date, time_mode: "exact", time_start: d.times[0], purpose_text: "ฟังผลแล็บ",
+  }, "agent", { canLink: true });
+  assert.equal(state.tables.bookings[0].status, "recorded");
+
+  const v = await (await postJson(viewRoute, { id, idToken: "tok-owner" })).json();
+  assert.ok(v.appointment, "หน้าดูผลแสดงนัดจริง");
+  assert.match(v.appointment.when, new RegExp(d.times[0]));
+  assert.equal(v.request, null);
+  const after = await (await postJson(bookingRoute, { id, idToken: "tok-owner" })).json();
+  assert.ok(after.appointment);
+  assert.deepEqual(after.days, [], "มีนัดแล้วไม่ต้องเลือกวัน");
+  assert.equal((await postJson(requestRoute, { id, idToken: "tok-owner", date: d.date, time: d.times[0] })).status, 409, "มีนัดแล้วขอซ้ำไม่ได้");
+  const admin = await (await listRoute.GET(new Request("https://app.test/api/lab-results?tab=all"))).json();
+  assert.equal(admin.requests["000004714"], undefined);
+  assert.ok(admin.appointments["000004714"]);
+});
+
+test("ไทม์ไลน์แชท: ลิงก์เจ้าหน้าที่เปิด PDF (ไม่ใช่ลิงก์ LIFF ของคนไข้) + บอกว่ามี/ไม่มีนัดฟังผล", async () => {
+  const next = await initialize(Date.now());
+  labs = [item("3301")];
+  await store.runLabSync(next);
+  const m = state.tables.messages.find((x) => x.conversation_id === "conv1" && x.imported_sender_name === rules.LAB_SENDER_NAME);
+  assert.match(m.body, new RegExp(`เจ้าหน้าที่เปิดผล: https://docdesk-tau\\.vercel\\.app/api/lab-results/${row("3301").id}/pdf`));
+  assert.doesNotMatch(m.body, /liff\.line\.me/);
+  assert.match(m.body, /ยังไม่มีนัดฟังผล/);
+});

@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { NOTIFY_LABEL, type LabResult } from "@/lib/lab-results-rules";
 import { Icon } from "../icons";
+import type { HearingRequestView } from "./lab-results-client";
 
 type Patch = (id: string, body: Record<string, unknown>, okText: (j: Record<string, unknown>) => string) => Promise<void>;
 
 /** รายละเอียดผลแล็บแบบ drawer ด้านขวา (เหมือนระบบนัด) — จัดการทุกอย่างของรายการนี้ที่นี่ */
-export function LabDrawer({ r, lineReady, appt, busy, onClose, onPatch, whenTh, notifyClass, notifyText }: {
-  r: LabResult; lineReady: boolean; appt: string | null; busy: boolean; onClose: () => void; onPatch: Patch;
+export function LabDrawer({ r, lineReady, appt, request, busy, onClose, onPatch, whenTh, notifyClass, notifyText }: {
+  r: LabResult; lineReady: boolean; appt: string | null; request: HearingRequestView | null; busy: boolean; onClose: () => void; onPatch: Patch;
   whenTh: (iso: string | null) => string; notifyClass: string; notifyText: (n: unknown) => string;
 }) {
   const unmatched = r.match_status === "unmatched";
@@ -76,8 +77,20 @@ export function LabDrawer({ r, lineReady, appt, busy, onClose, onPatch, whenTh, 
             <dt>คนไข้เปิดดู</dt>
             <dd>{r.first_viewed_at ? `${whenTh(r.first_viewed_at)}${r.view_count > 1 ? ` · ${r.view_count} ครั้ง` : ""}` : "ยังไม่เปิด"}</dd>
             <dt>นัดฟังผล</dt>
-            <dd>{appt ?? <span className="muted">ไม่มีนัด</span>}</dd>
+            <dd>{appt ?? (request ? <span className="lab-chip wait">คนไข้ขอ {request.when} · รอยืนยัน</span> : <span className="muted">ไม่มีนัด</span>)}</dd>
           </dl>
+
+          {/* ปุ่มอยู่ที่เดิมเสมอ: ไม่มีคำขอ = จาง + เหตุผล */}
+          <div className="lab-drawer-actions one">
+            {request && !appt
+              ? <a className="btn ghost" href={`/inbox?c=${request.conversation_id}`}>ไปยืนยันในแชท</a>
+              : <button type="button" className="btn ghost" disabled>ไปยืนยันในแชท</button>}
+          </div>
+          <p className="muted small lab-drawer-why">{appt
+            ? "มีนัดฟังผลในระบบนัดแล้ว"
+            : request
+              ? `คนไข้เลือก ${request.when} — เปิดแชทแล้วกด "ลงนัด" ที่การ์ดนัด`
+              : "คนไข้ยังไม่ได้ขอนัดฟังผล (คนไข้เลือกวันได้จากการ์ดผลแล็บใน LINE)"}</p>
 
           {/* กล่อง HN อยู่ที่เดิมเสมอ: ไม่พบ HN = ผูกคนไข้ · มี HN แล้ว = แก้ HN ได้ (ปุ่มกดได้เมื่อเลขเปลี่ยน) */}
           <section className="lab-drawer-match" aria-label="HN คนไข้">

@@ -6,11 +6,13 @@ import { lineSendMessages } from "./channels/line";
 import { LineQuotaError } from "./channels/line-log";
 import {
   bmlTime, isUpdateNotice, labBeforeStart, LAB_BUCKET, LAB_COLUMNS, LAB_SENDER_NAME, LAB_SIGNED_URL_SECONDS, LAB_SYNC_LOOKBACK_DAYS, LAB_SYNC_MAX_PAGES,
-  LAB_SYNC_STATE_KEY, LAB_TEAM_GROUP_KEY, labHn, labMineUrl, labViewUrl, inLabTab, bangkokDateRange, labSummary, patientNoticeFlex, patientNoticeText,
+  LAB_SYNC_STATE_KEY, LAB_TEAM_GROUP_KEY, labHn, labBookUrl, labMineUrl, labViewUrl, HEARING_SERVICE, type HearingRequest, inLabTab, bangkokDateRange, labSummary, patientNoticeFlex, staffTimelineText,
   resultHearingAppointment, shouldAutoNotify, syncAction, syncDue, teamNoticeText, versionOf,
   apptWhen, type LabAppointment, type LabResult, type LabSummary, type LabSyncState, type LabTab,
 } from "./lab-results-rules";
 import { logAppointmentEvent, recipientIds } from "./appointment-store";
+import { selfBookingAllowed, selfBookingDays, thaiDate, thaiTime, thaiWeekday } from "./booking-rules";
+import { loadBusinessHours } from "./booking-store";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
 import { hnVariants, linkedConversationsOf, linksOfConversation, normalizeHn, upsertPatient } from "./patient-link-store";
 import { supabaseAdmin } from "./supabase/admin";
@@ -290,11 +292,11 @@ export async function notifyLabResult(id: string, opts: { now?: number } = {}): 
   const errors: string[] = [...blocked];
   for (const t of targets) {
     const showName = (await linksOfConversation(t.conversationId)).length > 1;
-    const notice = { clinic, patientName: r.patient_name, showName, updated, orderDate: r.order_datetime, viewUrl: labViewUrl(liffId(), appUrl(), r.id), mineUrl: labMineUrl(liffId(), appUrl()), appointment };
+    const notice = { clinic, patientName: r.patient_name, showName, updated, orderDate: r.order_datetime, viewUrl: labViewUrl(liffId(), appUrl(), r.id), mineUrl: labMineUrl(liffId(), appUrl()), bookUrl: labBookUrl(liffId(), appUrl(), r.id), appointment };
     try {
       await lineSendMessages(t.userId, [patientNoticeFlex(notice)], undefined, { kind: "lab", conversationId: t.conversationId });
       await db.from("messages").insert({
-        conversation_id: t.conversationId, direction: "out", sender_type: "system", body: patientNoticeText(notice), language: "th",
+        conversation_id: t.conversationId, direction: "out", sender_type: "system", body: staffTimelineText(notice, `${appUrl().replace(/\/$/, "")}/api/lab-results/${r.id}/pdf`), language: "th",
         external_id: null, imported_sender_name: LAB_SENDER_NAME,
       });
       sent++;
@@ -429,16 +431,18 @@ export async function patientViewLab(id: string, idToken: string, now = Date.now
   if (!r || !r.patient_id || !r.pdf_path || !(await lineUserOwnsHn(userId, r.patient_id))) {
     throw new LabError("ไม่พบผลแล็บนี้ในบัญชี LINE ของคุณ", 404);
   }
-  const [url, downloadUrl, appointment] = await Promise.all([
+  const [url, downloadUrl, appointment, pending] = await Promise.all([
     signedPdfUrl(r.pdf_path),
     signedPdfUrl(r.pdf_path, `lab-${(r.order_datetime ?? "").slice(0, 10) || r.ln || "result"}.pdf`),
     hearingAppointment(r.patient_id, now),
+    pendingHearingRequest(r.patient_id, now),
   ]);
   const at = nowIso();
   await supabaseAdmin().from("lab_results").update({ view_count: (r.view_count ?? 0) + 1, first_viewed_at: r.first_viewed_at ?? at, last_viewed_at: at }).eq("id", r.id);
   return {
     url, downloadUrl, expiresIn: LAB_SIGNED_URL_SECONDS, patientName: r.patient_name, orderDate: r.order_datetime, ln: r.ln,
     updated: r.version_number > 1, version: r.version_number, appointment: patientAppt(appointment),
+    request: appointment ? null : requestView(pending),
   };
 }
 
@@ -450,12 +454,18 @@ export async function patientLabList(idToken: string, now = Date.now()) {
   const { data } = await supabaseAdmin().from("lab_results").select(LAB_COLUMNS).in("patient_id", hns).order("order_datetime", { ascending: false }).limit(200);
   const rows = ((data ?? []) as unknown as LabResult[]).filter((r) => r.pdf_path);
   const appts = new Map<string, PatientAppointment | null>();
-  for (const hn of new Set(rows.map((r) => r.patient_id as string))) appts.set(hn, patientAppt(await hearingAppointment(hn, now)));
+  const requests = new Map<string, PatientRequest | null>();
+  for (const hn of new Set(rows.map((r) => r.patient_id as string))) {
+    const a = await hearingAppointment(hn, now);
+    appts.set(hn, patientAppt(a));
+    requests.set(hn, a ? null : requestView(await pendingHearingRequest(hn, now)));
+  }
   return {
     linked: true,
     results: rows.map((r) => ({
       id: r.id, ln: r.ln, orderDate: r.order_datetime, patientName: hns.length > 1 ? r.patient_name : null,
       updated: r.version_number > 1, version: r.version_number, viewed: !!r.first_viewed_at, appointment: appts.get(r.patient_id as string) ?? null,
+      request: requests.get(r.patient_id as string) ?? null,
     })),
   };
 }
@@ -573,4 +583,86 @@ export async function labResultSummary(now = Date.now()): Promise<LabSummary> {
 export async function labUnmatchedCount(): Promise<number> {
   const { count, data } = await supabaseAdmin().from("lab_results").select("id", { count: "exact", head: true }).eq("match_status", "unmatched");
   return count ?? (data ?? []).length;
+}
+
+// ---------------------------------------------------------------------------
+// คนไข้ขอนัดฟังผลจากการ์ดผลแล็บ (LIFF ?book=) → คำขอใน bookings ให้เจ้าหน้าที่กดลงนัด (flow "นัดที่ AI รับไว้" เดิม)
+// ---------------------------------------------------------------------------
+export interface PatientRequest { date: string; time: string; when: string }
+const whenText = (date: string, time: string) => `วัน${thaiWeekday(date)}ที่ ${thaiDate(date)} เวลา ${thaiTime(time)} น.`;
+const requestView = (q: HearingRequest | null): PatientRequest | null => (q ? { date: q.date, time: q.time, when: whenText(q.date, q.time) } : null);
+
+/** คำขอนัดฟังผลที่ยังรอเจ้าหน้าที่ลงนัด ของ HN นี้ (ทุกแชทที่ผูก HN) */
+async function pendingHearingRequest(hn: string, now = Date.now()): Promise<HearingRequest | null> {
+  const convs = (await linkedConversationsOf(hn)).map((l) => l.conversation_id);
+  if (!convs.length) return null;
+  const { data } = await supabaseAdmin().from("bookings").select('id, conversation_id, "date", "time", created_at')
+    .in("conversation_id", convs).eq("service", HEARING_SERVICE).eq("status", "ai_confirmed").gte("date", bangkokToday(now)).order("created_at", { ascending: false });
+  const row = ((data ?? []) as { id: string; conversation_id: string; date: string; time: string }[])[0];
+  return row ? { id: row.id, conversation_id: row.conversation_id, date: row.date, time: String(row.time).slice(0, 5) } : null;
+}
+
+/** หน้าเจ้าหน้าที่: คำขอนัดฟังผลที่รอยืนยันของแต่ละ HN */
+export async function hearingRequestsByHn(hns: (string | null)[], now = Date.now()): Promise<Record<string, HearingRequest & { when: string }>> {
+  const out: Record<string, HearingRequest & { when: string }> = {};
+  for (const hn of [...new Set(hns.filter((h): h is string => !!h))].slice(0, 100)) {
+    const q = await pendingHearingRequest(hn, now).catch(() => null);
+    if (q) out[hn] = { ...q, when: whenText(q.date, q.time) };
+  }
+  return out;
+}
+
+/** ผลนี้ + แชท LINE ของบัญชีนี้ที่ผูก HN ของผล (ไม่ใช่เจ้าของ = 404 ไม่บอกว่ามีผลอยู่) */
+async function ownedResult(id: string, idToken: string) {
+  const userId = await verifyLineIdToken(idToken);
+  const r = await loadResult(id);
+  if (!r || !r.patient_id) throw new LabError("ไม่พบผลแล็บนี้ในบัญชี LINE ของคุณ", 404);
+  const { conversationIds } = await lineUserLinks(userId);
+  const linked = new Set((await linkedConversationsOf(r.patient_id)).map((l) => l.conversation_id));
+  const conversationId = conversationIds.find((c) => linked.has(c));
+  if (!conversationId) throw new LabError("ไม่พบผลแล็บนี้ในบัญชี LINE ของคุณ", 404);
+  return { r: r as LabResult & { patient_id: string }, conversationId };
+}
+
+/** หน้าเลือกวันนัดฟังผล: วัน/เวลาที่เลือกได้ + นัดหรือคำขอที่มีอยู่แล้ว */
+export async function patientBookingInfo(id: string, idToken: string, now = Date.now()) {
+  const { r } = await ownedResult(id, idToken);
+  const [appointment, pending, hours] = await Promise.all([hearingAppointment(r.patient_id, now), pendingHearingRequest(r.patient_id, now), loadBusinessHours()]);
+  return {
+    patientName: r.patient_name, orderDate: r.order_datetime,
+    appointment: patientAppt(appointment),
+    request: appointment ? null : requestView(pending),
+    days: appointment ? [] : selfBookingDays(hours, now).map((d) => ({ ...d, label: `${thaiWeekday(d.date)} ${thaiDate(d.date)}` })),
+  };
+}
+
+/** คนไข้ส่งคำขอนัดฟังผล: มีคำขอค้างของ HN นี้ = อัปเดตอันเดิม · มีนัดจริงแล้ว = ไม่รับ */
+export async function patientRequestAppointment(id: string, idToken: string, dateIn: unknown, timeIn: unknown, now = Date.now()) {
+  const { r, conversationId } = await ownedResult(id, idToken);
+  const date = typeof dateIn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateIn) ? dateIn : "";
+  const time = typeof timeIn === "string" && /^\d{2}:\d{2}$/.test(timeIn) ? timeIn : "";
+  if (await hearingAppointment(r.patient_id, now)) throw new LabError("มีนัดฟังผลอยู่แล้ว ดูวันนัดได้ในหน้าผลแล็บ", 409);
+  if (!date || !time || !selfBookingAllowed(date, time, await loadBusinessHours(), now)) {
+    throw new LabError("เลือกวันเวลานี้ไม่ได้ (คลินิกปิดหรือเลยเวลาแล้ว) กรุณาเลือกใหม่", 400);
+  }
+  const db = supabaseAdmin();
+  const at = new Date(now).toISOString();
+  const existing = await pendingHearingRequest(r.patient_id, now);
+  if (existing) {
+    await db.from("bookings").update({ date, time, name: r.patient_name, updated_at: at }).eq("id", existing.id);
+  } else {
+    const { error } = await db.from("bookings").insert({
+      conversation_id: conversationId, service: HEARING_SERVICE, date, time, name: r.patient_name, status: "ai_confirmed", created_at: at, updated_at: at,
+    });
+    if (error) throw error;
+  }
+  const when = whenText(date, time);
+  const conv = existing?.conversation_id ?? conversationId;
+  await db.from("messages").insert({
+    conversation_id: conv, direction: "in", sender_type: "system", language: "th", external_id: null,
+    body: `คนไข้ขอนัดฟังผล ${when} — รอเจ้าหน้าที่ลงนัด`,
+  });
+  // ให้แชทขึ้นมาให้เจ้าหน้าที่เห็น (เหมือนนัดที่ AI รับไว้)
+  await db.from("conversations").update({ last_message_at: at, last_message_preview: `คนไข้ขอนัดฟังผล ${when}`.slice(0, 120) }).eq("id", conv);
+  return { date, time, when, updated: !!existing };
 }

@@ -22,6 +22,9 @@ const shortTh = (iso: string | null) => {
   const t = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }).format(d);
   return `${day} ${t}`;
 };
+/** คำขอนัดฟังผลจากคนไข้ (LIFF) ที่รอเจ้าหน้าที่ลงนัด */
+export interface HearingRequestView { id: string; conversation_id: string; date: string; time: string; when: string }
+const shortReq = (q: HearingRequestView) => shortTh(`${q.date}T${q.time}:00+07:00`);
 const hnOf = (r: LabResult) => (r.patient_id ? r.patient_id.replace(/^0+/, "") : r.location_hn?.trim() || null);
 export const NOTIFY_CLASS: Record<LabResult["notify_status"], string> = {
   pending: "lab-chip wait", sent: "lab-chip ok", unreachable: "lab-chip", failed: "lab-chip bad", skipped: "lab-chip",
@@ -50,6 +53,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
   const [group, setGroup] = useState<GroupInfo | null>(null);
   const [appts, setAppts] = useState<Record<string, string>>({});
   const [lineReady, setLineReady] = useState<Record<string, boolean>>({});
+  const [requests, setRequests] = useState<Record<string, HearingRequestView>>({});
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(initialId);
@@ -70,6 +74,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
     setGroup(j?.group ?? null);
     setAppts(j?.appointments ?? {});
     setLineReady(j?.lineReady ?? {});
+    setRequests(j?.requests ?? {});
     setLoading(false);
   }, [tab, q, from, to, onlyId]);
 
@@ -172,7 +177,11 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
                           ? <span className="lab-viewed">{shortTh(r.first_viewed_at)}{r.view_count > 1 && <span className="muted small"> · {r.view_count} ครั้ง</span>}</span>
                           : <span className="muted">{r.notify_status === "sent" ? "ยังไม่เปิด" : "–"}</span>}
                       </td>
-                      <td data-label="นัดฟังผล">{r.patient_id && appts[r.patient_id] ? appts[r.patient_id] : <span className="muted">–</span>}</td>
+                      <td data-label="นัดฟังผล">{r.patient_id && appts[r.patient_id]
+                        ? appts[r.patient_id]
+                        : r.patient_id && requests[r.patient_id]
+                          ? <span className="lab-chip wait">คนไข้ขอ {shortReq(requests[r.patient_id])} · รอยืนยัน</span>
+                          : <span className="muted">–</span>}</td>
                       <td className="lab-pdf-col" onClick={(e) => e.stopPropagation()}>
                         {r.pdf_path
                           ? <a className="btn ghost small" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer">ดู PDF</a>
@@ -211,7 +220,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
       {(() => {
         const cur = selected ? rows.find((x) => x.id === selected) : null;
         return cur ? (
-          <LabDrawer r={cur} lineReady={!!(cur.patient_id && lineReady[cur.patient_id])} appt={cur.patient_id ? appts[cur.patient_id] ?? null : null} busy={busy === cur.id}
+          <LabDrawer r={cur} lineReady={!!(cur.patient_id && lineReady[cur.patient_id])} appt={cur.patient_id ? appts[cur.patient_id] ?? null : null} request={cur.patient_id ? requests[cur.patient_id] ?? null : null} busy={busy === cur.id}
             onClose={() => setSelected(null)} onPatch={patch} whenTh={whenTh} notifyClass={NOTIFY_CLASS[cur.notify_status]} notifyText={notifyText} />
         ) : null;
       })()}

@@ -1923,3 +1923,6 @@ button.lab-card { cursor: pointer; }
 .lab-table th.lab-pdf-col, .lab-table td.lab-pdf-col { text-align: right; width: 1%; }
 .lab-table .btn:disabled { opacity: .4; cursor: not-allowed; }
 @media (max-width: 760px) { .lab-table td.lab-pdf-col { text-align: left; padding-top: 6px; } }
+.lab-drawer-actions.one { grid-template-columns: minmax(0, 1fr); }
+.lab-book-days, .lab-book-times { display: flex; flex-wrap: wrap; gap: 6px; }
+.lab-book-times .btn { min-width: 64px; justify-content: center; }
