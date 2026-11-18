@@ -135,12 +135,6 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
                           onClick={() => { setMatching(matching === r.id ? null : r.id); setHn(r.patient_id?.replace(/^0+/, "") ?? (r.location_hn ?? "").replace(/\D/g, "").slice(0, 9)); }}>
                           {r.patient_id ? "เปลี่ยนคนไข้" : "จับคู่คนไข้"}
                         </button>
-                        {r.patient_id && r.pdf_path && (
-                          <button type="button" className="btn ghost small" disabled={busy === r.id}
-                            onClick={() => patch(r.id, { action: "resend" }, (j) => notifyText(j.notify))}>
-                            {r.notify_status === "sent" ? "ส่งแจ้งซ้ำ" : "ส่งแจ้ง"}
-                          </button>
-                        )}
                         {matching === r.id && (
                           <form className="lab-match" onSubmit={(e) => {
                             e.preventDefault();

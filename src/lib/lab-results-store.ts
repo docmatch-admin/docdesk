@@ -290,7 +290,11 @@ export async function rememberGroupCandidate(groupId: string) {
   await saveSetting(LAB_TEAM_GROUP_KEY, { ...(await teamGroupSetting()), candidate_id: groupId, candidate_at: nowIso() });
 }
 
+/** แจ้งกลุ่ม LINE แพทย์: พักไว้ เปิดด้วย env LAB_TEAM_NOTIFY=on เท่านั้น (ค่าเริ่มต้นปิด) */
+export const labTeamNotifyEnabled = () => process.env.LAB_TEAM_NOTIFY?.trim().toLowerCase() === "on";
+
 async function notifyTeam(r: LabResult, reachable: boolean | null): Promise<boolean> {
+  if (!labTeamNotifyEnabled()) return false;
   const group = await teamGroupId();
   if (!group) return false;
   const text = teamNoticeText(r, { updated: r.version_number > 1 && (r.team_notified_version ?? 0) > 0, appUrl: appUrl(), reachable });

@@ -58,6 +58,7 @@ beforeEach(() => {
   process.env.LINE_LOGIN_CHANNEL_ID = "2000000000";
   process.env.NEXT_PUBLIC_LINE_LIFF_ID = "2000000000-abcd";
   delete process.env.LAB_TEAM_LINE_GROUP_ID;
+  delete process.env.LAB_TEAM_NOTIFY;
   bml.resetBmlSession();
   labs = [];
   pdfVersion = {};
@@ -171,6 +172,7 @@ test("รอบแรก: เก็บผลที่มีอยู่แล้
 
 test("ผลใหม่: แจ้งคนไข้ทาง LINE ทันที (Flex + ปุ่มดูผลผ่าน LIFF ไม่แนบ PDF) + แจ้งทีม + นัดฟังผล", async () => {
   state.tables.settings.push({ key: rules.LAB_TEAM_GROUP_KEY, value: { group_id: GROUP } });
+  process.env.LAB_TEAM_NOTIFY = "on";
   state.tables.appointments.push({
     id: "11111111-2222-4333-8444-555555555555", hn: "000004714", appoint_date: new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10), time_mode: "exact", time_start: "10:30:00", time_end: null,
     status: "scheduled", purpose_text: "ฟังผลแล็บ", telemed_id: null,
@@ -333,4 +335,13 @@ test("ผลแล็บไม่เข้า AI: โมดูล AI ไม่�
   for (const f of ["src/lib/suggest.ts", "src/lib/ai.ts", "src/lib/pipeline.ts"]) {
     assert.doesNotMatch(readFileSync(f, "utf8"), /lab_results|lab-results-store/, f);
   }
+});
+
+test("แจ้งกลุ่มแพทย์พักไว้: ค่าเริ่มต้นไม่ส่งเข้ากลุ่ม แม้ตั้งกลุ่มไว้", async () => {
+  state.tables.settings.push({ key: rules.LAB_TEAM_GROUP_KEY, value: { group_id: GROUP } });
+  const next = await initialize(Date.now());
+  labs = [item("801")];
+  const s = await store.runLabSync(next);
+  assert.equal(s.team, 0);
+  assert.deepEqual(pushes().map((p) => p.to), [LINE_USER]);
 });
