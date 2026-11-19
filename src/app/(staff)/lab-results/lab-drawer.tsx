@@ -65,8 +65,8 @@ export function LabDrawer({ r, lineReady, appt, request, busy, onClose, onPatch,
 
           {unmatched && (
             <section className="lab-drawer-box warn" aria-label="ไม่พบ HN">
-              <b>แล็บอ่าน HN จากใบส่งตรวจไม่ได้</b>
-              <span className="small">{r.location_hn ? `แล็บอ่านได้ว่า "${r.location_hn}" — ดูชื่อแล้วใส่ HN ที่ถูกด้านล่าง` : "ดูชื่อคนไข้แล้วใส่ HN ด้านล่าง"}</span>
+              <b>{r.location_hn ? "ยังไม่ได้ผูกคนไข้" : "แล็บอ่าน HN จากใบส่งตรวจไม่ได้"}</b>
+              <span className="small">{r.location_hn ? `แล็บอ่าน HN ได้ว่า ${r.location_hn} — ตรวจว่าชื่อตรงกับคนไข้ แล้วกด "ผูกคนไข้" ด้านล่าง` : "ดูชื่อคนไข้แล้วใส่ HN ด้านล่าง"}</span>
             </section>
           )}
 
