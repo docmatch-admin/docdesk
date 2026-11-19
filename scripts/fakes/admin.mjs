@@ -128,7 +128,7 @@ function refreshBookingPending() {
 
 function query(name) {
   const filters = [];
-  let op = "select", payload = null, conflict = null, sort = null, max = Infinity, skip = 0;
+  let op = "select", payload = null, conflict = null, sort = null, max = Infinity, skip = 0, ignoreDup = false;
   const sorts = [];
   const rows = () => {
     const table = (state.tables[name] ??= []);
@@ -150,7 +150,9 @@ function query(name) {
       const added = [];
       for (const item of payload) {
         const ks = conflict?.split(",") ?? [];
-        if (ks.length && table.some((r) => ks.every((k) => r[k] === item[k]))) continue;
+        const dup = ks.length ? table.find((r) => ks.every((k) => r[k] === item[k])) : null;
+        // ไม่ได้ขอ ignoreDuplicates = รวมค่าใหม่เข้าแถวเดิม (merge-duplicates ของ PostgREST)
+        if (dup) { if (!ignoreDup) { Object.assign(dup, item); added.push(dup); } continue; }
         const row = { id: `${name}-${++seq}`, created_at: nextTime(), ...item };
         table.push(row);
         added.push(row);
@@ -188,7 +190,7 @@ function query(name) {
   const b = {
     select() { return b; },
     insert(p) { op = "insert"; payload = p; return b; },
-    upsert(p, o) { op = "upsert"; payload = p; conflict = o?.onConflict; return b; },
+    upsert(p, o) { op = "upsert"; payload = p; conflict = o?.onConflict; ignoreDup = !!o?.ignoreDuplicates; return b; },
     update(p) { op = "update"; payload = p; return b; },
     delete() { op = "delete"; return b; },
     not(k, op, v) {

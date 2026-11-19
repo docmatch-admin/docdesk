@@ -194,7 +194,7 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
         {source === "search" && (
           <form className="search-box with-button" onSubmit={search}>
             <Icon name="search" size={16} />
-            <input autoFocus type="search" aria-label="ค้นหาคนไข้เก่า" placeholder="HN, เบอร์โทร หรือชื่อ (คนไข้ที่เคยนัด)" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input autoFocus type="search" aria-label="ค้นหาคนไข้เก่า" placeholder="HN, เบอร์โทร หรือชื่อ" value={query} onChange={(e) => setQuery(e.target.value)} />
             <button className="btn primary small" disabled={loading || !query.trim()}>ค้นหา</button>
           </form>
         )}
@@ -237,9 +237,9 @@ export function NewAppointment({ onClose }: { onClose: () => void }) {
       {source === "search" && (
         <>
           {loading && <div className="appt-pick-meta">กำลังค้นหา…</div>}
-          {isNameQuery && <div className="appt-pick-meta">ค้นด้วยชื่อได้เฉพาะคนไข้ที่เคยนัด — ค้นจาก iService ใช้ HN หรือเบอร์</div>}
+          {isNameQuery && <div className="appt-pick-meta">ค้นชื่อจากรายชื่อคนไข้ที่เคยมาคลินิก — ไม่เจอ ลองค้นด้วย HN หรือเบอร์</div>}
           {patients && !patients.length && !loading && (
-            <div className="appt-empty small">{isNameQuery ? "ไม่พบคนไข้ที่เคยนัดชื่อนี้ — ลองค้นด้วย HN หรือเบอร์" : "ไม่พบใน iService — ถ้าเป็นคนไข้ใหม่ ให้ทำนัดจากแชทของคนไข้"}</div>
+            <div className="appt-empty small">{isNameQuery ? "ไม่พบคนไข้ชื่อนี้ — ลองค้นด้วย HN หรือเบอร์" : "ไม่พบใน iService — ถ้าเป็นคนไข้ใหม่ ให้ทำนัดจากแชทของคนไข้"}</div>
           )}
           {!!patients?.length && (
             <div className="appt-pick-list" role="list">

@@ -4,16 +4,19 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { bangkokToday, classifySearch, diagnose, listPatient, padHn, visitsOn, withTimeout, type Patient } from "../_shared/iservice.ts";
 import { cachedVisits, pruneVisits, saveVisits } from "../_shared/his-cache.ts";
+import { nameSearchTerms } from "../_shared/patient-name.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
-/** คนไข้ในตาราง patients ของ DocDesk (สร้างตอนบันทึกนัด/ผูกแชท) ใช้ค้นชื่อ และสำรองตอน iService ล่ม */
-const TITLES = /^(นาย|นางสาว|นาง|น\.ส\.|ด\.ช\.|ด\.ญ\.|เด็กชาย|เด็กหญิง|mr\.?|mrs\.?|ms\.?|miss)\s*/i;
+/**
+ * คนไข้ในตาราง patients ของ DocDesk (ชื่อจากระบบใบเสร็จทุกคืน + ตอนบันทึกนัด/ผูกแชท) ใช้ค้นชื่อ และสำรองตอน iService ล่ม
+ * ค้นชื่อ: ตัดคำนำหน้า (นาย/นาง/นางสาว/ด.ช./ด.ญ./คุณ) ทุกคำต้องเจอ → ค้นชื่ออย่างเดียว นามสกุลอย่างเดียว หรือทั้งคู่ได้ (index trigram, migration 064)
+ */
 async function docdeskPatients(admin: SupabaseClient, by: { name?: string; hn?: string; phone?: string }): Promise<Patient[]> {
-  let q = admin.from("patients").select("hn, full_name, phone").limit(30);
+  let q = admin.from("patients").select("hn, full_name, phone").order("full_name").limit(30);
   if (by.name) {
-    const term = by.name.trim().replace(TITLES, "").replace(/[%,()]/g, " ").trim();
-    if (term.length < 2) return [];
-    q = q.ilike("full_name", `%${term}%`);
+    const terms = nameSearchTerms(by.name);
+    if (!terms.length) return [];
+    for (const t of terms) q = q.ilike("full_name", `%${t}%`);
   } else if (by.hn) q = q.eq("hn", padHn(by.hn));
   else if (by.phone) q = q.eq("phone", by.phone.replace(/\D/g, ""));
   const { data } = await q;
