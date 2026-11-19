@@ -723,3 +723,12 @@ test("ไทม์ไลน์แชท: ลิงก์เจ้าหน้า
   assert.doesNotMatch(m.body, /liff\.line\.me/);
   assert.match(m.body, /ยังไม่มีนัดฟังผล/);
 });
+
+test("แล็บอ่าน HN ได้แต่คนไข้ยังไม่อยู่ใน patients (คนไข้ใหม่): ผูกเลย + สร้างแถวคนไข้", async () => {
+  const next = await initialize(Date.now());
+  labs = [item("2401", { location_hn: "4823" })];
+  await store.runLabSync(next);
+  assert.equal(row("2401").match_status, "matched");
+  assert.equal(row("2401").patient_id, "000004823");
+  assert.ok(state.tables.patients.some((p) => p.hn === "000004823"));
+});

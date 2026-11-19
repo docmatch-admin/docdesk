@@ -80,7 +80,9 @@ async function upsertItem(item: BmlLabItem, opts: { backfill: boolean; allowPdf:
   let match: Partial<LabResult> = {};
   if (existing?.match_status !== "manual") {
     const hn = labHn(item.location_hn, item.location_hn_extraction_status);
-    match = hn && (await patientExists(hn)) ? { patient_id: hn, match_status: "matched" } : { patient_id: null, match_status: "unmatched" };
+    // แล็บอ่าน HN จากใบส่งตรวจได้ = ผูกเลย แม้คนไข้ยังไม่อยู่ในตาราง patients ของ DocDesk (คนไข้ใหม่) → สร้างแถวคนไข้ให้
+    if (hn && !(await patientExists(hn))) await upsertPatient({ hn });
+    match = hn ? { patient_id: hn, match_status: "matched" } : { patient_id: null, match_status: "unmatched" };
   }
 
   if (action === "same") {
