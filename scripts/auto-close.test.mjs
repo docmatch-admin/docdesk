@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, test } from "node:test";
 import { fake } from "./fakes/hooks.mjs";
 
-const { calls, replies, reset } = await import(fake("ai"));
+const { aiLog, calls, replies, reset } = await import(fake("ai"));
 const { nextTime, resetDb, state } = await import(fake("admin"));
 const { storeIncoming } = await import("../src/lib/pipeline.ts");
 const { generateSuggestions } = await import("../src/lib/suggest.ts");
@@ -36,6 +36,10 @@ const reply = (body) => state.tables.messages.push({
 // ---- กฎแยกประเภทข้อความ ----
 test("แยกข้อความจบการคุย", () => {
   assert.equal(classifyClosingMessage("โอเคค่ะ"), "affirm");
+  // ตอบรับแบบสั้น
+  for (const t of ["เค ครับ", "เคค่ะ", "เคๆ", "โอเคร", "โอเชค่ะ", "อ๋อ ค่ะ", "อ่อครับ", "ok ครับ", "kk", "อืมๆ"]) assert.equal(classifyClosingMessage(t), "affirm", t);
+  // ไม่ใช่การตอบรับ: มีคำถาม/เนื้อหา
+  for (const t of ["เค แล้วกี่โมงครับ", "เคสนี้ต้องทำไง", "อ่อนเพลียค่ะ"]) assert.equal(classifyClosingMessage(t), null, t);
   assert.equal(classifyClosingMessage("👍"), "affirm");
   assert.equal(classifyClosingMessage("[ลูกค้าส่ง sticker]"), "affirm");
   assert.equal(classifyClosingMessage("ขอบคุณมากค่ะ 🙏"), "thanks");
@@ -199,4 +203,102 @@ test("ระบบนัดส่งข้อความหลังลูก�
   await supabaseAdmin().from("messages").insert({ conversation_id: conv().id, direction: "out", sender_type: "system", imported_sender_name: "ตอบกลับอัตโนมัติ",
     body: "ขอบคุณที่ติดต่อมา", language: "th", created_at: nextTime() });
   assert.equal(conv().last_direction, "in", "ตอบกลับอัตโนมัติของเพจไม่นับเป็นคำตอบ");
+});
+
+// ---- ชั้นที่ 2: AI ช่วยตัดสินข้อความสั้นที่คำตายตัวจับไม่ได้ ----
+const CLOSE_RE = /จบการคุยแล้วหรือยัง/;
+const closePrompts = () => aiLog.prompts.filter((p) => CLOSE_RE.test(p.system));
+async function afterStaffReply(staffText = "นัดคุณหมอวันพฤหัสบ่ายสองโมงนะคะ HN 000004141") {
+  await say("สวัสดีค่ะ ขอนัดตรวจ");
+  reply(staffText);
+}
+function captureLogs() {
+  const lines = [];
+  const orig = console.info;
+  console.info = (s) => lines.push(String(s));
+  return { lines, restore: () => { console.info = orig; } };
+}
+
+test("ชั้น 1: \"เค ครับ\" หลังเจ้าหน้าที่ตอบ → ปิดด้วยกฎ ไม่เรียก AI · log เหตุผล rule", async () => {
+  await afterStaffReply();
+  const log = captureLogs();
+  try { await say("เค ครับ"); } finally { log.restore(); }
+  assert.equal(conv().status, "closed");
+  assert.equal(closePrompts().length, 0);
+  const entry = log.lines.map((l) => JSON.parse(l)).find((e) => e.event === "auto-close");
+  assert.equal(entry.by, "rule");
+  assert.equal(entry.result, "closed");
+});
+
+test("ชั้น 2: ข้อความสั้นกำกวม → ถาม AI แค่ 2 ข้อความ (ตัด HN/ชื่อ) · ends + มั่นใจ ≥ 0.8 = ปิด · log เหตุผล ai", async () => {
+  await afterStaffReply();
+  conv(); // แชทมีอยู่แล้ว
+  state.tables.contacts[0].patient_full_name = "สมชาย ใจดี";
+  state.tables.messages.at(-1).body_th = state.tables.messages.at(-1).body = "คุณสมชาย ใจดี ผลออกแล้วนะคะ HN 000004141 โทร 081-234-5678";
+  aiLog.byPrompt = [[CLOSE_RE, { ends: true, confidence: 0.92 }]];
+  const log = captureLogs();
+  try { await say("จัดไปค่ะ"); } finally { log.restore(); }
+  assert.equal(closePrompts().length, 1);
+  const { user } = closePrompts()[0];
+  assert.match(user, /^เจ้าหน้าที่: .*\nลูกค้า: จัดไปค่ะ$/s);
+  assert.doesNotMatch(user, /สมชาย|4141|5678/, "ไม่ส่งชื่อ/HN/เบอร์เข้า AI");
+  assert.equal(conv().status, "closed");
+  const entry = log.lines.map((l) => JSON.parse(l)).find((e) => e.event === "auto-close");
+  assert.equal(entry.by, "ai");
+  assert.deepEqual(entry.ai, { ends: true, confidence: 0.92 });
+});
+
+test("ชั้น 2: AI ไม่แน่ใจ (< 0.8) / ตอบว่ายังไม่จบ → ไม่ปิด อยู่รอตอบ", async () => {
+  for (const verdict of [{ ends: true, confidence: 0.6 }, { ends: false, confidence: 0.95 }]) {
+    resetDb({ ...state.tables, contacts: [], conversations: [], messages: [] });
+    reset();
+    await afterStaffReply();
+    aiLog.byPrompt = [[CLOSE_RE, verdict]];
+    await say("จัดไปค่ะ");
+    assert.equal(closePrompts().length, 1);
+    assert.equal(conv().status, "open", JSON.stringify(verdict));
+    assert.equal(conv().last_direction, "in");
+  }
+});
+
+test("ชั้น 2: AI ล้ม หรือช้าเกิน 2 วิ → ไม่ปิด (ข้อความลูกค้ายังเข้าปกติ)", async () => {
+  await afterStaffReply();
+  calls.failNext = new Error("OpenAI down");
+  await say("จัดไปค่ะ");
+  assert.equal(conv().status, "open");
+  assert.equal(conv().last_direction, "in");
+
+  reply("เรียบร้อยค่ะ");
+  aiLog.delayNext = 2_500;
+  aiLog.byPrompt = [[CLOSE_RE, { ends: true, confidence: 0.99 }]];
+  const t0 = Date.now();
+  await say("งั้นตามนั้น");
+  assert.ok(Date.now() - t0 < 2_400, "ไม่รอ AI เกิน 2 วิ");
+  assert.equal(conv().status, "open");
+});
+
+test("ชั้น 2 ไม่เรียก AI: ข้อความยาว · มีคำถาม · มีรูป · ข้อความก่อนหน้าไม่ใช่ของเจ้าหน้าที่", async () => {
+  await afterStaffReply();
+  aiLog.byPrompt = [[CLOSE_RE, { ends: true, confidence: 0.99 }]];
+  await say("งั้นเดี๋ยวพรุ่งนี้หนูจะพาคุณแม่ไปด้วยนะคะ ตอนเช้า");
+  reply("ได้ค่ะ");
+  await say("จัดไปไหมคะ");
+  reply("ได้ค่ะ");
+  await storeIncoming({ channelType: "web", externalId: SESSION, text: "จัดไป", isImage: true });
+  await say("จัดไปค่ะ"); // ก่อนหน้าเป็นข้อความลูกค้า (รูป) ไม่ใช่เจ้าหน้าที่
+  assert.equal(closePrompts().length, 0);
+  assert.equal(conv().status, "open");
+});
+
+test("aiCloseCandidate / maskStaffText", async () => {
+  const { aiCloseCandidate, maskStaffText } = await import("../src/lib/closing-ai.ts");
+  const staff = { direction: "out", sender_type: "staff" };
+  assert.equal(aiCloseCandidate("จัดไปค่ะ", { last: staff }), true);
+  assert.equal(aiCloseCandidate("จัดไปค่ะ", { last: { direction: "out", sender_type: "ai" } }), true);
+  assert.equal(aiCloseCandidate("จัดไปค่ะ", { last: { direction: "out", sender_type: "system" } }), false, "ข้อความระบบ (นัด/ผลแล็บ) ไม่ส่งเข้า AI");
+  assert.equal(aiCloseCandidate("x".repeat(31), { last: staff }), false);
+  assert.equal(aiCloseCandidate("x".repeat(30), { last: staff }), true);
+  assert.equal(aiCloseCandidate("พรุ่งนี้กี่โมง", { last: staff }), false);
+  assert.equal(aiCloseCandidate("จัดไป", { last: staff, hasFile: true }), false);
+  assert.equal(maskStaffText("คุณเอ HN 000004141 โทร 081-234-5678", ["คุณเอ"]), "[ชื่อ] HN [เลข] โทร [เลข]");
 });

@@ -4,6 +4,7 @@ import { maskForLearning, saveConfirmedBooking } from "./booking-store";
 import { sendFileToChannel, sendImageToChannel, sendToChannel } from "./channels";
 import { AUTO_CLOSE_EXEMPT_TAGS, CLEARED_ON_REOPEN_TAG, CLOSE_PATCH, DEFAULT_AUTO_CLOSE_HOURS, normalizeAutoCloseHours } from "./case-flow";
 import { lineMarkAsRead } from "./channels/line";
+import { aiCloseCandidate, aiJudgeClosing, aiSaysEnds, maskStaffText, type AiCloseVerdict } from "./closing-ai";
 import { replyLabLinkIfAsked } from "./lab-chat-reply";
 import { classifyMetaEcho, metaMarkSeen, metaMessagingType, type MetaEcho } from "./channels/meta";
 import { claimReplyTokenWithAge } from "./channels/reply-token";
@@ -66,7 +67,7 @@ export async function storeIncoming(input: IncomingInput) {
   if (input.avatarUrl) contactPatch.avatar_url = input.avatarUrl;
   const { data: contact, error: ctErr } = await db
     .from("contacts").upsert(contactPatch, { onConflict: "channel_id,external_id" })
-    .select("id, language").single();
+    .select("id, language, display_name, patient_full_name").single();
   if (ctErr || !contact) throw ctErr ?? new Error("contact upsert failed");
 
   // dedupe: LINE อาจส่ง webhook ซ้ำ
@@ -83,15 +84,28 @@ export async function storeIncoming(input: IncomingInput) {
   if (cvErr || !conv) throw cvErr ?? new Error("conversation upsert failed");
   const wasClosed = conv.status === "closed";
   // ลูกค้าตอบรับ ขอบคุณ หรือบอกลา หลังเราตอบแล้ว: ไม่ต้องตอบต่อ
+  // ชั้นที่ 1: คำตายตัว (ขอบคุณ / ตอบรับ / บอกลา) · ชั้นที่ 2: ข้อความสั้นที่คำตายตัวจับไม่ได้ ให้ AI ช่วยตัดสิน (ดู closing-ai.ts)
   const closingKind = conv.archived ? null : classifyClosingMessage(input.text, input.isImage);
+  // ตรวจเฉพาะตัวข้อความก่อน (สั้น ไม่มีรูป/ไฟล์/คำถาม) ข้อความก่อนหน้าต้องเป็นของเจ้าหน้าที่ ตรวจหลังดึงประวัติ · เกินเพดาน AI = ไม่ถาม
+  const maybeAi = !closingKind && !conv.archived && !input.skipAi && aiCloseCandidate(input.text, { isImage: input.isImage, hasFile: !!input.file, last: { direction: "out", sender_type: "staff" } });
   let endsChat = false;
-  if (closingKind) {
+  let closeBy: "rule" | "ai" | null = null;
+  let aiVerdict: AiCloseVerdict | null = null;
+  if (closingKind || maybeAi) {
     // ข้อความล่าสุดของการคุย นับข้อความที่ระบบนัดส่งด้วย (ลูกค้าตอบ "โอเค ขอบคุณ" หลังได้ข้อความนัด)
     const { data: recent } = await db.from("messages").select("direction, body, body_th, sender_type, imported_sender_name")
       .eq("conversation_id", conv.id).order("created_at", { ascending: false }).limit(10);
     const last = ((recent ?? []) as { direction: string; body: string | null; body_th: string | null; sender_type: string; imported_sender_name: string | null }[])
       .find(isConversationTurn);
-    endsChat = endsConversation(closingKind, last ? { direction: last.direction, text: last.body_th || last.body || "" } : null);
+    if (closingKind) {
+      endsChat = endsConversation(closingKind, last ? { direction: last.direction, text: last.body_th || last.body || "" } : null);
+      if (endsChat) closeBy = "rule";
+    } else if (last && aiCloseCandidate(input.text, { isImage: input.isImage, hasFile: !!input.file, last })) {
+      // ส่งแค่ 2 ข้อความ และตัดชื่อ/HN/เบอร์ออกจากข้อความเจ้าหน้าที่
+      const staffText = maskStaffText(last.body_th || last.body || "", [contact.display_name, contact.patient_full_name, input.displayName]);
+      aiVerdict = await aiJudgeClosing(staffText, input.text);
+      if (aiSaysEnds(aiVerdict)) { endsChat = true; closeBy = "ai"; }
+    }
   }
   // แชทที่เสร็จแล้วกลับมารอตอบทุกข้อความ ยกเว้นคำขอบคุณ สติกเกอร์ หรือข้อความจบการคุย
   const stayClosed = wasClosed && !conv.archived && (isThanksOrSticker(input.text, input.isImage) || endsChat);
@@ -101,6 +115,14 @@ export async function storeIncoming(input: IncomingInput) {
   // ตอบรับแต่ยังมีงานค้าง (รอลงนัด ต้องให้คนตอบ งานของทีม แท็กตามต่อ/รอนัด): แชทยังเปิดพร้อมป้ายงานค้าง
   // แต่ลูกค้าไม่ได้รอคำตอบ → ไม่อยู่ในรอตอบเพราะข้อความนี้ และไม่นับเวลารอ
   const ackOnly = !wasClosed && endsChat && !closeNow;
+  // เหตุผลการปิด (rule / ai) ดูย้อนหลังได้ใน log ของ Vercel: ค้น "auto-close"
+  if (closeBy || aiVerdict || maybeAi) {
+    console.info(JSON.stringify({
+      event: "auto-close", conversationId: conv.id, by: closeBy, kind: closingKind,
+      ai: maybeAi ? (aiVerdict ?? "no-verdict") : undefined,
+      result: closeNow ? "closed" : stayClosed ? "stay-closed" : ackOnly ? "ack-only" : "waiting",
+    }));
+  }
 
   // รูปหรือไฟล์ล้วน: AI อ่านไม่ได้ ไม่ต้องแปล และให้คนดู
   const imageOnly = (!!input.isImage || !!input.file) && !input.text.trim();
