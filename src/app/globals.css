@@ -1989,3 +1989,7 @@ button.lab-card { cursor: pointer; }
 .conv.q-row.closed { opacity: .55; }
 /* หน้าเว็บทั้งหน้า: เผื่อที่แถบเลื่อนไว้เสมอ */
 html { scrollbar-gutter: stable; }
+
+/* รายการแชท: เผื่อระยะบน-ล่างให้แท็กบรรทัดที่ 2 ไม่ชิดขอบ (แถวสูงเท่ากันทุกแถว) */
+.conv.q-row { height: 72px; min-height: 72px; padding-top: 10px; padding-bottom: 10px; box-sizing: border-box; align-content: center; }
+.q-line2 { margin-top: 6px; height: 22px; align-items: center; }
