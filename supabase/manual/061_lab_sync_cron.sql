@@ -1,5 +1,5 @@
--- ผลแล็บ: pg_cron + pg_net เรียก Vercel route ชั่วโมงละครั้ง 13:00–18:00 เวลาไทยทุกวัน (แล็บส่งผลหลังเที่ยง)
--- pg_cron ใช้ UTC: 06:00–11:00 UTC = 13:00–18:00 น. · Vercel Hobby ทำ cron ถี่กว่าวันละครั้งไม่ได้
+-- ผลแล็บ: pg_cron + pg_net เรียก Vercel route ทุก 30 นาที 13:00–18:30 เวลาไทยทุกวัน (แล็บส่งผลหลังเที่ยง)
+-- pg_cron ใช้ UTC: 06:00–11:30 UTC = 13:00–18:30 น. · Vercel Hobby ทำ cron ถี่กว่าวันละครั้งไม่ได้
 -- รันหลัง migration 061 และ deploy แอปแล้ว
 -- ค่าลับไม่อยู่ในไฟล์นี้: ใส่ค่าเดียวกับ env LAB_SYNC_SECRET ของ Vercel ไว้ใน Vault ชื่อ LAB_SYNC_SECRET ก่อน เช่น
 --   select vault.create_secret('<ค่าเดียวกับ Vercel>', 'LAB_SYNC_SECRET', 'secret ของ /api/cron/lab-results');
@@ -21,7 +21,7 @@ where exists (select 1 from cron.job where jobname = 'docdesk-lab-results');
 
 select cron.schedule(
   'docdesk-lab-results',
-  '0 6-11 * * *',
+  '*/30 6-11 * * *',
   $$
   select net.http_post(
     url := 'https://docdesk-tau.vercel.app/api/cron/lab-results',

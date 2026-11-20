@@ -331,7 +331,7 @@ test("migration + cron: RLS เฉพาะ staff · bucket private · pg_cron �
   assert.match(sql, /using \(is_staff\(\)\)/);
   assert.match(sql, /'lab-results', 'lab-results', false/);
   const cron = readFileSync("supabase/manual/061_lab_sync_cron.sql", "utf8");
-  assert.match(cron, /'0 6-11 \* \* \*'/);
+  assert.match(cron, /'\*\/30 6-11 \* \* \*'/); // ทุก 30 นาที 13:00–18:30 น.
   assert.match(cron, /'x-lab-sync-secret'/);
   assert.match(cron, /vault\.decrypted_secrets where name = 'LAB_SYNC_SECRET'/);
   assert.doesNotMatch(cron, /docdesk_cron_secret|CRON_SECRET'/);
