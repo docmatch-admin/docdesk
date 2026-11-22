@@ -12,7 +12,7 @@ import { QuotaBanner } from "./quota-banner";
 import { Icon } from "./icons";
 import { NavToggle } from "./nav-toggle";
 import { MobileNav } from "./mobile-nav";
-import { InstallApp } from "./install-app";
+import { InstallApp, InstallBanner } from "./install-app";
 import { PreferencesProvider, ThemeQuickToggle } from "./preferences";
 import { loadPreferences } from "@/lib/preferences-store";
 import { canOpenSettings } from "@/lib/settings-access";
@@ -53,6 +53,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
     <div className="staff-root">
       <HealthBanner />
       <QuotaBanner />
+      <InstallBanner />
       <div className="shell">
       <nav className="nav">
         <div className="brand"><span className="nav-label">Doc<span>Desk</span></span><span className="brand-short" aria-hidden="true">D</span></div>
@@ -71,12 +72,13 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           <div className="nav-extra">
             {chatStaff && <TodayScore meId={me.id} />}
             {chatStaff && <WaitingAlert meId={me.id} />}
-            <InstallApp />
             <PushToggle />
             <ThemeQuickToggle />
             <div className="muted small">{me.displayName}</div>
             <SignOut />
           </div>
+          {/* ปุ่มติดตั้งแอป: ตำแหน่งตายตัวล่างสุดของเมนู แสดงเสมอ (ติดตั้งแล้วเป็น "ติดตั้งแล้ว ✓" แบบจาง) */}
+          <InstallApp />
           <NavToggle />
         </div>
       </nav>

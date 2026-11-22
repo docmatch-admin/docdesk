@@ -9,7 +9,7 @@ test("manifest: ติดตั้งได้ (ชื่อ start_url standalon
   assert.equal(m.start_url, "/");
   assert.equal(m.lang, "th");
   const sizes = m.icons.map((i) => `${i.sizes}:${i.purpose}`);
-  for (const s of ["192x192:any", "512x512:any", "512x512:maskable"]) assert.ok(sizes.includes(s), s);
+  for (const s of ["192x192:any", "512x512:any", "192x192:maskable", "512x512:maskable"]) assert.ok(sizes.includes(s), s);
   for (const i of m.icons) assert.ok(existsSync(`public${i.src}`), i.src);
   assert.ok(existsSync("public/icons/apple-touch-icon.png"));
   assert.ok(existsSync("public/offline.html"));
@@ -37,4 +37,90 @@ test("layout: ลงทะเบียน SW ทุกหน้า · meta iPhon
   assert.match(css, /html\[data-mnav-open\] \.nav \{/, "เมนูเต็มใช้ .nav ตัวเดิม ไม่ render ซ้ำ");
   const badge = readFileSync("src/app/(staff)/mobile-nav.tsx", "utf8");
   assert.match(badge, /channel="appointment-badge-mobile"/, "badge มือถือใช้ realtime channel แยก ไม่ชนกับเมนูซ้าย");
+});
+
+// ---------- ปุ่ม/แบนเนอร์ "ติดตั้ง DocDesk" ----------
+const pwa = await import("../src/lib/pwa-install.ts");
+const UA = {
+  iphoneSafari: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1",
+  ipadOS: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+  iphoneChrome: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1",
+  iphoneLine: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Safari Line/14.19.0",
+  iphoneFb: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22B83 [FBAN/FBIOS;FBAV/490.0.0.39.107;FBBV/1]",
+  androidChrome: "Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36",
+  androidLine: "Mozilla/5.0 (Linux; Android 14; SM-A546E; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0.0.0 Mobile Safari/537.36 Line/14.19.1/IAB",
+  androidFb: "Mozilla/5.0 (Linux; Android 14; SM-A546E Build/UP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/131.0.0.0 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/490.0.0.40.109;]",
+  macSafari: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+  winEdge: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+};
+
+test("ติดตั้งแอป: แยก iPhone/iPad(รายงานเป็น Mac+touch)/Safari จริง/แอป LINE Facebook/Android", () => {
+  const d = pwa.detectInstallPlatform;
+  assert.deepEqual(d(UA.iphoneSafari, "iPhone", 5), { isIOS: true, isIPad: false, isAndroid: false, isIOSSafari: true, inApp: null });
+  assert.deepEqual(d(UA.ipadOS, "MacIntel", 5), { isIOS: true, isIPad: true, isAndroid: false, isIOSSafari: true, inApp: null });
+  assert.equal(d(UA.macSafari, "MacIntel", 0).isIOS, false, "Mac จริงไม่มีจอสัมผัส");
+  assert.equal(d(UA.iphoneChrome, "iPhone", 5).inApp, "other");
+  assert.equal(d(UA.iphoneLine, "iPhone", 5).inApp, "line");
+  assert.equal(d(UA.iphoneFb, "iPhone", 5).inApp, "facebook");
+  assert.equal(d(UA.iphoneLine, "iPhone", 5).isIOSSafari, false);
+  assert.deepEqual(d(UA.androidChrome, "Linux armv8l", 5), { isIOS: false, isIPad: false, isAndroid: true, isIOSSafari: false, inApp: null });
+  assert.equal(d(UA.androidLine, "Linux", 5).inApp, "line");
+  assert.equal(d(UA.androidFb, "Linux", 5).inApp, "facebook");
+  assert.equal(d(UA.winEdge, "Win32", 0).inApp, null);
+});
+
+test("ติดตั้งแอป: กดปุ่มแล้วทำอะไร · แบนเนอร์ขึ้นเมื่อไร · ไว้ทีหลัง 7 วัน", () => {
+  const p = (ua, plat = "", t = 5) => pwa.detectInstallPlatform(ua, plat, t);
+  const a = (platform, canPrompt = false, isInstalled = false) => pwa.installAction({ platform, canPrompt, isInstalled });
+  assert.equal(a(p(UA.androidChrome), true), "prompt");
+  assert.equal(a(p(UA.winEdge, "Win32", 0), true), "prompt");
+  assert.equal(a(p(UA.winEdge, "Win32", 0), false), "manual");
+  assert.equal(a(p(UA.iphoneSafari)), "ios-steps");
+  assert.equal(a(p(UA.iphoneLine)), "open-external");
+  assert.equal(a(p(UA.androidLine)), "open-external");
+  assert.equal(a(p(UA.iphoneSafari), false, true), "installed");
+
+  const b = (platform, canPrompt, snoozed = false, isInstalled = false) => pwa.showInstallBanner({ platform, canPrompt, snoozed, isInstalled });
+  assert.equal(b(p(UA.winEdge, "Win32", 0), false), false, "เบราว์เซอร์ยังไม่พร้อมติดตั้ง ไม่ขึ้นแบนเนอร์");
+  assert.equal(b(p(UA.winEdge, "Win32", 0), true), true);
+  assert.equal(b(p(UA.iphoneSafari), false), true);
+  assert.equal(b(p(UA.androidFb), false), true);
+  assert.equal(b(p(UA.iphoneSafari), false, true), false, "ไว้ทีหลัง");
+  assert.equal(b(p(UA.androidChrome), true, false, true), false, "ติดตั้งแล้ว");
+
+  const now = Date.UTC(2026, 10, 23);
+  const until = pwa.snoozeUntil(now);
+  assert.equal(Number(until) - now, 7 * 24 * 3600 * 1000);
+  assert.equal(pwa.isSnoozed(until, now + 6 * 24 * 3600 * 1000), true);
+  assert.equal(pwa.isSnoozed(until, now + 7 * 24 * 3600 * 1000 + 1), false);
+  assert.equal(pwa.isSnoozed(null, now), false);
+  assert.equal(pwa.isSnoozed("abc", now), false);
+});
+
+test("ติดตั้งแอป: ลิงก์เปิดนอกแอป LINE (openExternalBrowser) · Android → Chrome intent", () => {
+  const href = "https://docdesk-tau.vercel.app/inbox";
+  const line = pwa.detectInstallPlatform(UA.iphoneLine, "iPhone", 5);
+  assert.equal(pwa.externalOpenUrl(href, line), "https://docdesk-tau.vercel.app/inbox?openExternalBrowser=1");
+  const fbAndroid = pwa.detectInstallPlatform(UA.androidFb, "Linux", 5);
+  assert.equal(pwa.externalOpenUrl(href, fbAndroid), "intent://docdesk-tau.vercel.app/inbox#Intent;scheme=https;package=com.android.chrome;end");
+  assert.equal(pwa.externalOpenUrl(href, pwa.detectInstallPlatform(UA.iphoneFb, "iPhone", 5)), null, "iOS Facebook: คัดลอกลิงก์");
+});
+
+test("ติดตั้งแอป: hook ดัก beforeinstallprompt ระดับ module · ปุ่มในเมนูแสดงเสมอ (ติดตั้งแล้ว = disabled) · localStorage ครอบ try/catch", () => {
+  const hook = readFileSync("src/hooks/use-pwa-install.ts", "utf8");
+  assert.match(hook, /addEventListener\("beforeinstallprompt", \(e\) => \{\s*e\.preventDefault\(\);/);
+  assert.match(hook, /addEventListener\("appinstalled"/);
+  assert.match(hook, /\(display-mode: standalone\)/);
+  assert.match(hook, /\.standalone === true/);
+  const ui = readFileSync("src/app/(staff)/install-app.tsx", "utf8");
+  assert.doesNotMatch(ui, /if \(done\) return null|isInstalled\) return null/, "ห้ามซ่อนปุ่มเมื่อติดตั้งแล้ว");
+  assert.match(ui, /disabled=\{done\}/);
+  assert.match(ui, /ติดตั้งแล้ว ✓/);
+  assert.match(ui, /try \{ localStorage\.setItem\(INSTALL_SNOOZE_KEY/);
+  assert.match(ui, /กรุณาเปิดลิงก์นี้ใน Safari/);
+  assert.match(ui, /เพิ่มไปยังหน้าจอโฮม/);
+  const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
+  assert.match(staff, /<InstallBanner \/>/);
+  // อยู่นอก .nav-extra เพื่อให้เห็นแม้ย่อเมนู
+  assert.match(staff, /<\/div>\s*\{\/\*[^}]*\*\/\}\s*<InstallApp \/>\s*<NavToggle \/>/);
 });

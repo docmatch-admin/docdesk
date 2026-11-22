@@ -1521,6 +1521,48 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
    ======================================================================== */
 .mobile-tabbar, .mnav-backdrop { display: none; }
 .install-help { margin: 4px 0 0; padding: 8px 10px 8px 26px; border-radius: 8px; background: var(--bg); color: var(--ink); line-height: 1.6; }
+/* ---------- ติดตั้ง DocDesk: แบนเนอร์บน · ปุ่มท้ายเมนู · แผ่นวิธีติดตั้ง ---------- */
+.install-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; padding: 8px 16px; background: var(--blue-soft); color: var(--blue-ink); border-bottom: 1px solid var(--line); font-weight: 600; }
+.install-banner-icon { display: inline-flex; }
+.install-banner-text { flex: 1 1 200px; min-width: 0; }
+.install-banner-actions { display: flex; gap: 6px; margin-left: auto; }
+.install-banner .btn.ghost { color: var(--blue-ink); border-color: transparent; }
+.install-btn { width: 100%; min-height: 36px; }
+.install-btn.installed, .install-btn.installed:hover { opacity: .55; cursor: default; background: transparent; }
+html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-content: center; padding: 4px 0; }
+.install-sheet-wrap { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-end; justify-content: center; }
+.install-sheet-backdrop { position: absolute; inset: 0; border: 0; background: rgba(0, 0, 0, .45); cursor: default; }
+.install-sheet { position: relative; width: 100%; max-width: 480px; max-height: 88dvh; overflow-y: auto; background: var(--card); color: var(--ink); border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px var(--shadow); padding: 14px 16px calc(64px + env(safe-area-inset-bottom)); animation: mnav-up .18s ease-out; }
+.install-sheet.ipad { align-self: center; border-radius: 18px; padding-bottom: 18px; }
+.install-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 16px; }
+.install-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.install-steps li { display: flex; align-items: center; gap: 12px; }
+.install-pic { flex: none; width: 128px; color: var(--blue); }
+.install-pic svg { display: block; width: 100%; height: auto; }
+.install-pic .pic-screen { fill: var(--bg); stroke: var(--line); }
+.install-pic .pic-bar { fill: var(--card); stroke: var(--line); }
+.install-pic .pic-field, .install-pic .pic-dim { fill: var(--line); }
+.install-pic .pic-ring { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 1.5; }
+.install-pic .pic-ring-rect { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 1.5; }
+.install-pic .pic-text { font-size: 10px; fill: var(--ink); font-family: inherit; }
+.install-pic .pic-text.muted { fill: var(--muted); }
+.install-pic .pic-text.strong { fill: var(--blue); font-weight: 700; }
+.install-pic .pic-app { fill: var(--accent-solid); }
+.install-pic .pic-app-text { font-size: 14px; font-weight: 700; fill: var(--on-accent); font-family: inherit; }
+.install-pic .pic-hl { color: var(--blue); }
+.install-external p { margin: 0 0 10px; }
+.install-url { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 13px; word-break: break-all; user-select: all; margin-bottom: 10px; }
+.install-external-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.install-external-actions .btn { flex: 1 1 140px; text-align: center; }
+.install-arrow { position: absolute; left: 50%; bottom: calc(6px + env(safe-area-inset-bottom)); transform: translateX(-50%); font-size: 34px; line-height: 1; color: var(--blue); pointer-events: none; animation: install-blink 1s ease-in-out infinite; }
+.install-arrow.up { top: 6px; bottom: auto; left: auto; right: 24px; transform: none; }
+@keyframes install-blink { 0%, 100% { opacity: 1; translate: 0 0; } 50% { opacity: .15; translate: 0 6px; } }
+.install-arrow.up { animation-name: install-blink-up; }
+@keyframes install-blink-up { 0%, 100% { opacity: 1; translate: 0 0; } 50% { opacity: .15; translate: 0 -6px; } }
+@media (prefers-reduced-motion: reduce) {
+  .install-arrow, .install-arrow.up { animation: install-fade 1.6s ease-in-out infinite; }
+  @keyframes install-fade { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+}
 @media (max-width: 900px) {
   .mobile-tabbar {
     display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
@@ -1796,7 +1838,7 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
   html[data-typing] .staff-root { position: fixed; left: 0; right: 0; top: var(--vv-top, 0); height: var(--app-h, 100dvh); }
   html[data-typing] .chat-area > .chat { height: var(--app-h, 100dvh); }
   html[data-typing] .mtabs, html[data-typing] .next-appt, html[data-typing] .suggest, html[data-typing] .chat > .banner,
-  html[data-typing] .health-banner, html[data-typing] .quota-banner { display: none; }
+  html[data-typing] .health-banner, html[data-typing] .quota-banner, html[data-typing] .install-banner { display: none; }
   html[data-typing] .composer { padding-bottom: 6px; }
 }
 .req { color: var(--danger-ink); font-weight: 600; }
