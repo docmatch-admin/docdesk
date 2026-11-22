@@ -1,8 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { cookies } from "next/headers";
+import { IBM_Plex_Sans_Thai } from "next/font/google";
 import "./globals.css";
-import { htmlAttrs } from "@/lib/theme";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme";
+import { IOS_STARTUP_IMAGES } from "@/lib/startup-images";
 import { RegisterSW } from "./register-sw";
+
+// ฟอนต์เก็บในเว็บเราเอง (build ลง _next/static) ไม่ต้องรอเซิร์ฟเวอร์ฟอนต์ของ Google ตอนเปิดแอป และ service worker เก็บไว้ได้
+const plex = IBM_Plex_Sans_Thai({ subsets: ["thai", "latin"], weight: ["400", "500", "600"], display: "swap", variable: "--font-plex" });
 
 export const metadata: Metadata = {
   title: "DocDesk",
@@ -10,7 +14,8 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
   applicationName: "DocDesk",
   // ติดตั้งเป็นแอปบน iPhone/iPad (เพิ่มไปที่หน้าจอโฮม) · เปิดเต็มจอไม่มีแถบ Safari
-  appleWebApp: { capable: true, title: "DocDesk", statusBarStyle: "default" },
+  // startupImage: จอ splash ตอนเปิดจากไอคอนบน iPhone (โลโก้ DocDesk แทนจอขาว)
+  appleWebApp: { capable: true, title: "DocDesk", statusBarStyle: "default", startupImage: IOS_STARTUP_IMAGES },
   formatDetection: { telephone: false },
   icons: {
     icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }, { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" }],
@@ -31,21 +36,16 @@ export const viewport: Viewport = {
   ],
 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // ธีม ขนาดตัวอักษร ย่อเมนู ของผู้ใช้ (cookie จากหมวด "การแสดงผล") ใส่ที่ <html> ตั้งแต่ฝั่ง server ไม่มีจอกะพริบสีผิด
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // ธีม ขนาดตัวอักษร ย่อเมนู ของผู้ใช้ (cookie จากหมวด "การแสดงผล") ใส่ที่ <html> ด้วยสคริปต์ใน <head> ก่อนวาดหน้า ไม่มีจอกะพริบสีผิด
+  // ไม่อ่าน cookie ฝั่ง server เพื่อให้หน้า app shell (/start) เป็นไฟล์ static เปิดจาก service worker ได้ทันที
   // "ตามระบบ" ไม่ใส่ data-theme ให้ CSS ตาม prefers-color-scheme
-  const jar = await cookies();
-  const attrs = htmlAttrs((name) => jar.get(name)?.value);
   return (
     // หน้าที่เปิดอยู่เปลี่ยนแอตทริบิวต์เองเมื่อผู้ใช้เปลี่ยนค่า (ทุกเครื่อง sync ผ่าน realtime)
-    <html lang="th" suppressHydrationWarning {...attrs}>
+    <html lang="th" suppressHydrationWarning className={plex.variable}>
       <head>
         <meta name="color-scheme" content="light dark" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap"
-          rel="stylesheet"
-        />
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>
       <body>{children}<RegisterSW /></body>
     </html>

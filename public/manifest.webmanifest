@@ -5,7 +5,7 @@
   "description": "รวมแชททุกช่องทาง + AI ผู้ช่วยตอบ และระบบนัดหมาย",
   "lang": "th",
   "dir": "ltr",
-  "start_url": "/",
+  "start_url": "/start?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

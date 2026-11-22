@@ -54,7 +54,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body {
-  font-family: "IBM Plex Sans Thai", system-ui, sans-serif;
+  font-family: var(--font-plex), "IBM Plex Sans Thai", system-ui, sans-serif;
   font-size: 15px; line-height: 1.55; color: var(--ink); background: var(--bg);
 }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -810,7 +810,7 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 
 
 /* ใบนัด thermal 80mm: ขาวดำล้วน ไม่มีพื้นสี เส้นคั่นเส้นประ */
-.appt-slip { width: 80mm; padding: 4mm 4mm 6mm; color: #000; background: var(--card); font-family: "IBM Plex Sans Thai", "Sarabun", "Tahoma", sans-serif; font-size: 10.5pt; line-height: 1.35; font-weight: 500; }
+.appt-slip { width: 80mm; padding: 4mm 4mm 6mm; color: #000; background: var(--card); font-family: var(--font-plex), "IBM Plex Sans Thai", "Sarabun", "Tahoma", sans-serif; font-size: 10.5pt; line-height: 1.35; font-weight: 500; }
 .appt-slip * { color: #000 !important; background: transparent !important; }
 .appt-slip-head { text-align: center; }
 .appt-slip-clinic { font-weight: 700; font-size: 12.5pt; line-height: 1.25; }
@@ -2035,3 +2035,22 @@ html { scrollbar-gutter: stable; }
 /* รายการแชท: เผื่อระยะบน-ล่างให้แท็กบรรทัดที่ 2 ไม่ชิดขอบ (แถวสูงเท่ากันทุกแถว) */
 .conv.q-row { height: 72px; min-height: 72px; padding-top: 10px; padding-bottom: 10px; box-sizing: border-box; align-content: center; }
 .q-line2 { margin-top: 6px; height: 22px; align-items: center; }
+
+/* ===========================================================================
+   App shell (/start, /): โครงหน้าตอนเปิดแอป ก่อนรู้ว่าใครล็อกอิน — แถบเทาแทนเมนู/รายการแชท
+   ======================================================================== */
+.sk { display: block; background: var(--neutral-soft); border-radius: 8px; animation: sk-pulse 1.4s ease-in-out infinite; }
+@keyframes sk-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+.sk-nav { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 9px 12px; }
+.sk-icon { width: 20px; height: 20px; flex: none; margin: 0 2px; }
+.sk-line { height: 12px; width: 70%; }
+.sk-line.short { width: 40%; margin-top: 8px; }
+.sk-search { height: 36px; margin: 12px; }
+.sk-row { display: flex; align-items: center; gap: 10px; padding: 12px; border-bottom: 1px solid var(--line); }
+.sk-avatar { width: 40px; height: 40px; border-radius: 50%; flex: none; }
+.sk-text { flex: 1; min-width: 0; }
+.sk-empty { flex: 1; display: flex; align-items: center; justify-content: center; }
+.sk-tabbar { align-items: center; justify-content: space-around; gap: 8px; }
+.sk-pill { width: 64px; height: 28px; border-radius: 14px; }
+@media (max-width: 899px) { .app-shell .sk-empty { display: none; } }

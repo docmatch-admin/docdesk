@@ -1,5 +1,6 @@
 "use client";
 
+import { SW_SCOPE, SW_URL } from "@/lib/sw-url";
 import { useEffect, useState } from "react";
 import { usePreferences } from "./preferences";
 
@@ -41,7 +42,7 @@ export function PushToggle() {
   useEffect(() => {
     if (!publicKey || !("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
     setSupported(true);
-    navigator.serviceWorker.register("/sw.js")
+    navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE })
       .then((reg) => reg.pushManager.getSubscription())
       .then((sub) => setSubscribed(!!sub))
       .catch(() => setSupported(false));

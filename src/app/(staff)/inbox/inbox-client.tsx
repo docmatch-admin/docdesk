@@ -38,7 +38,7 @@ import {
 /** ยังไม่ได้รัน migration 063: realtime เปลี่ยนติดกันหลายครั้ง → ถามรายการหน้าแรกใหม่ครั้งเดียว */
 const WORK_DEBOUNCE_MS = 2_000;
 /** แถวต่อหน้า (เลื่อนลงสุด = โหลดหน้าถัดไป) */
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 30;
 /** โหลดรายการทั้งก้อนใหม่ไม่บ่อยกว่านี้ (นอกจากเปลี่ยนตัวกรอง/ค้นหา) — ระหว่างนั้น realtime แก้เฉพาะแถว */
 const FULL_RELOAD_MS = 55_000;
 /** ฟิลด์ที่ทำให้แชทย้ายช่วง หรือมีงานค้างเปลี่ยน */
@@ -178,7 +178,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   }, [tagKey, loadTagSources]);
 
   // ---------- โหลดรายการแชท ----------
-  // server ดึงครั้งเดียวต่อหน้า (/api/inbox/list ทีละ 50 แถว) · โหลดทั้งก้อน: เปิดหน้า · เปลี่ยนตัวกรอง/ค้นหา · ทุก ~60 วิ
+  // server ดึงครั้งเดียวต่อหน้า (/api/inbox/list ทีละ 30 แถว) · โหลดทั้งก้อน: เปิดหน้า · เปลี่ยนตัวกรอง/ค้นหา · ทุก ~60 วิ
   // นอกนั้น realtime แก้เฉพาะแถวที่เปลี่ยน (แถวบอกช่วงของตัวเองมาด้วย)
   const lastFull = useRef(0);
   const fetchList = useCallback(async (extra: Record<string, string>) => {

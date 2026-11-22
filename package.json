@@ -24,10 +24,14 @@
     "web-push": "3.6.7"
   },
   "devDependencies": {
+    "@serwist/turbopack": "^9.5.15",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/web-push": "^3.6.4",
+    "esbuild": "^0.28.2",
+    "esbuild-wasm": "^0.28.2",
+    "serwist": "^9.5.15",
     "typescript": "^5"
   }
 }

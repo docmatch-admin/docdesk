@@ -253,8 +253,15 @@ test("ธีม: cookie → แอตทริบิวต์ <html> ฝั่�
   theme.applyPreferences(theme.DEFAULT_PREFERENCES, doc);
   assert.equal(root.dataset.theme, undefined);
   const layout = readFileSync("src/app/layout.tsx", "utf8");
-  assert.match(layout, /const jar = await cookies\(\);/);
-  assert.match(layout, /<html lang="th" suppressHydrationWarning \{\.\.\.attrs\}>/);
+  // ใส่แอตทริบิวต์ด้วยสคริปต์ใน <head> ก่อนวาดหน้า (หน้าจึงเป็น static ได้) — ผลต้องตรงกับ htmlAttrs
+  assert.match(layout, /<script dangerouslySetInnerHTML=\{\{ __html: THEME_BOOT_SCRIPT \}\} \/>/);
+  for (const cookie of ["", "dd_theme=dark; dd_font=large; dd_nav=collapsed", "dd_theme=system", "x=1; dd_theme=light", "dd_theme=evil"]) {
+    const set = {};
+    const fakeDoc = { cookie, documentElement: { setAttribute: (k, v) => { set[k] = v; } } };
+    new Function("document", theme.THEME_BOOT_SCRIPT)(fakeDoc);
+    const jar2 = Object.fromEntries(cookie.split("; ").filter(Boolean).map((c) => c.split("=")));
+    assert.deepEqual(set, theme.htmlAttrs((k) => jar2[k]), cookie);
+  }
   assert.doesNotMatch(layout, /localStorage/);
   const quick = readFileSync("src/app/(staff)/preferences.tsx", "utf8");
   assert.match(quick, /export function ThemeQuickToggle/);

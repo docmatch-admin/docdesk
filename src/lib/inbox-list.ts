@@ -6,7 +6,7 @@ import { inboxSections, topWork, workLabel, type InboxFilter, type InboxSection,
 import { inboxWork } from "./inbox-work";
 import type { Conversation } from "./types";
 
-export const INBOX_PAGE = 50;
+export const INBOX_PAGE = 30;
 export const INBOX_MAX_PAGE = 200;
 export const CONV_COLUMNS = "*, contacts(display_name, avatar_url, language, platform_name, hn, patient_full_name, name_source, patient_relation, name_locked), channels(type, name, ai_mode)";
 const SECTIONS: InboxSection[] = ["waiting", "work", "recent"];

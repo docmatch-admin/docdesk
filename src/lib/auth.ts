@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "./supabase/admin";
 import { supabaseServer } from "./supabase/server";
@@ -7,14 +8,22 @@ export type { StaffRole } from "./auth-types";
 export interface StaffContext { id: string; email: string | null; role: StaffRole; displayName: string; mustChangePassword: boolean; canViewSensitive: boolean; sensitiveAcked: boolean }
 
 /** เจ้าหน้าที่ที่ล็อกอินอยู่ คืน null ถ้าไม่ได้ล็อกอิน ไม่มีแถวใน staff หรือถูกปิดบัญชี */
-export async function getStaffContext(): Promise<StaffContext | null> {
+/** ผู้ใช้ที่ล็อกอิน (ถาม Supabase Auth ครั้งเดียวต่อคำขอ — layout และหน้าใช้ผลเดียวกัน ด้วย React cache) */
+export const getAuthUser = cache(async () => {
   const sb = await supabaseServer();
   const { data: { user } } = await sb.auth.getUser();
+  return user;
+});
+
+/** ครั้งเดียวต่อคำขอ (layout + หน้า เรียกซ้ำได้ไม่เสียเวลา) */
+export const getStaffContext = cache(async (): Promise<StaffContext | null> => {
+  const sb = await supabaseServer();
+  const user = await getAuthUser();
   if (!user) return null;
   const { data: staff } = await sb.from("staff").select("id, role, display_name, active, must_change_password, can_view_sensitive, sensitive_ack_at").eq("id", user.id).maybeSingle();
   if (!staff?.active) return null;
   return { id: user.id, email: user.email ?? null, role: staff.role as StaffRole, displayName: staff.display_name as string, mustChangePassword: !!staff.must_change_password, canViewSensitive: staff.role === "admin" || !!staff.can_view_sensitive, sensitiveAcked: !!staff.sensitive_ack_at };
-}
+});
 
 /** ใช้ใน API route: คืน user ถ้าเป็นเจ้าหน้าที่ ไม่งั้นคืน 401 (ไม่ได้ล็อกอิน) หรือ 403 (ไม่มีแถวใน staff, ถูกปิดบัญชี หรือยังไม่เปลี่ยนรหัสชั่วคราว)
  * ห้องยา (pharmacy) ไม่ผ่าน เพราะทุก API ที่ใช้ตัวนี้แตะแชท ใช้ requireAppointmentStaff กับ API นัดหมายแทน */

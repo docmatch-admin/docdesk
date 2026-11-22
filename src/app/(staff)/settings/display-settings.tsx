@@ -1,5 +1,6 @@
 "use client";
 
+import { SW_SCOPE, SW_URL } from "@/lib/sw-url";
 import { useEffect, useState } from "react";
 import { DEFAULT_PREFERENCES, FONT_LABEL, THEME_LABEL, type FontSize, type Preferences, type ThemeChoice } from "@/lib/theme";
 import { usePreferencesOptional } from "../preferences";
@@ -29,7 +30,7 @@ export function DisplaySettings({ initial }: { initial?: Preferences } = {}) {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!publicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
-    navigator.serviceWorker.register("/sw.js").then((reg) => reg.pushManager.getSubscription())
+    navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE }).then((reg) => reg.pushManager.getSubscription())
       .then((sub) => setDevice(sub ? "on" : "off")).catch(() => setDevice("unsupported"));
   }, [publicKey]);
 

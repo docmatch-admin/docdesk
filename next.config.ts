@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSerwist } from "@serwist/turbopack";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["sharp", "heic-convert", "heic-decode", "libheif-js"],
@@ -21,4 +22,5 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// withSerwist: ให้ esbuild (ใช้ build service worker ใน src/app/serwist/[path]/route.ts) ไม่ถูก bundle
+export default withSerwist(nextConfig);

@@ -6,7 +6,10 @@ import { test } from "node:test";
 test("manifest: ติดตั้งได้ (ชื่อ start_url standalone ไอคอน 192/512 + maskable) ไฟล์ไอคอนมีจริง", () => {
   const m = JSON.parse(readFileSync("public/manifest.webmanifest", "utf8"));
   assert.equal(m.display, "standalone");
-  assert.equal(m.start_url, "/");
+  assert.equal(m.start_url, "/start?source=pwa", "เปิดแอปตรงไปที่ app shell ไม่ผ่าน redirect");
+  assert.equal(m.id, "/", "id เดิม: แอปที่ติดตั้งแล้วไม่กลายเป็นแอปใหม่");
+  assert.equal(m.background_color, "#f4f6fa");
+  assert.equal(m.theme_color, "#4a63e0");
   assert.equal(m.lang, "th");
   const sizes = m.icons.map((i) => `${i.sizes}:${i.purpose}`);
   for (const s of ["192x192:any", "512x512:any", "192x192:maskable", "512x512:maskable"]) assert.ok(sizes.includes(s), s);
@@ -15,13 +18,57 @@ test("manifest: ติดตั้งได้ (ชื่อ start_url standalon
   assert.ok(existsSync("public/offline.html"));
 });
 
-test("service worker: cache เฉพาะหน้าออฟไลน์+ไอคอน ไม่ cache หน้า/ข้อมูล · ออฟไลน์ขึ้นหน้าออฟไลน์ · push เดิมยังทำงาน", () => {
-  const sw = readFileSync("public/sw.js", "utf8");
-  assert.match(sw, /const SHELL = \["\/offline\.html", "\/icons\/icon-192\.png", "\/icons\/badge-96\.png"\]/);
-  assert.match(sw, /req\.mode !== "navigate"\) return;/, "ไม่แตะคำขอ API/ข้อมูล");
-  assert.doesNotMatch(sw, /cache\.put|c\.put\(/, "ไม่เก็บ response ลง cache");
+test("service worker (Serwist): precache shell+static+ฟอนต์+ไอคอน cache-first · API/Supabase/หน้าอื่น ไม่ cache · push เดิมยังทำงาน", () => {
+  const sw = readFileSync("src/app/sw.ts", "utf8");
+  assert.match(sw, /from "serwist"/);
+  assert.match(sw, /url\.pathname\.startsWith\("\/api\/"\), handler: new NetworkOnly\(\)/, "API ไม่ cache");
+  assert.match(sw, /\.supabase\.co"\), handler: new NetworkOnly\(\)/, "Supabase ไม่ cache");
+  assert.match(sw, /request\.mode === "navigate", handler: new NetworkOnly\(\)/, "หน้าอื่นไม่ cache");
+  assert.match(sw, /request\.headers\.get\("RSC"\) === "1", handler: new NetworkOnly\(\)/, "RSC payload ไม่ cache");
+  assert.doesNotMatch(sw, /NetworkFirst|StaleWhileRevalidate|defaultCache/, "ไม่มีกลยุทธ์ที่เก็บ response ของหน้า/ข้อมูล");
+  assert.match(sw, /ignoreURLParametersMatching: \[[^\]]*\/\^source\$\//, "start_url ?source=pwa ใช้ shell ที่ precache");
   assert.match(sw, /addEventListener\("push"/);
   assert.match(sw, /addEventListener\("notificationclick"/);
+  const route = readFileSync("src/app/serwist/[path]/route.ts", "utf8");
+  assert.match(route, /\{ url: "\/start", revision \}/);
+  assert.match(route, /\.next\/static\/\*\*\/\*\.\{js,css,woff2/);
+  assert.doesNotMatch(route, /"public\/\*\*/, "ไม่ precache ทุกไฟล์ใน public");
+  assert.ok(!existsSync("public/sw.js"), "ตัวเดิมถูกแทนด้วย /serwist/sw.js");
+  const { SW_URL } = { SW_URL: readFileSync("src/lib/sw-url.ts", "utf8").match(/SW_URL = "([^"]+)"/)[1] };
+  assert.equal(SW_URL, "/serwist/sw.js");
+  for (const f of ["src/app/register-sw.tsx", "src/app/(staff)/push-toggle.tsx", "src/app/(staff)/settings/display-settings.tsx"]) {
+    assert.doesNotMatch(readFileSync(f, "utf8"), /register\("\/sw\.js"/, f);
+  }
+});
+
+test("app shell: /start และ / เป็นหน้า static ไม่รอ server · เช็ก session ฝั่ง client แล้วไปแชทหรือ login ครั้งเดียว", () => {
+  for (const f of ["src/app/start/page.tsx", "src/app/page.tsx"]) {
+    const page = readFileSync(f, "utf8");
+    assert.match(page, /export const dynamic = "force-static";/, f);
+    assert.match(page, /<AppShell \/>/, f);
+    assert.doesNotMatch(page, /redirect\(|getStaffContext|supabaseServer/, f);
+  }
+  const shell = readFileSync("src/app/app-shell.tsx", "utf8");
+  assert.match(shell, /auth\.getSession\(\)/);
+  assert.match(shell, /signedIn: "\/inbox", signedOut: "\/login"/);
+  assert.match(shell, /className="sk-row"/, "โครงรายการแชท");
+  const root = readFileSync("src/app/layout.tsx", "utf8");
+  assert.doesNotMatch(root, /cookies\(\)|next\/headers/, "root layout ไม่อ่าน cookie ฝั่ง server (หน้า shell จึง static ได้)");
+  assert.doesNotMatch(root, /fonts\.googleapis\.com/, "ฟอนต์เก็บในเว็บเราเอง");
+  assert.match(root, /next\/font\/google/);
+  assert.match(root, /startupImage: IOS_STARTUP_IMAGES/);
+  const auth = readFileSync("src/lib/auth.ts", "utf8");
+  assert.match(auth, /export const getStaffContext = cache\(/, "layout + หน้า ถาม auth ครั้งเดียวต่อคำขอ");
+});
+
+test("splash iPhone: ทุกขนาดจอในรายการมีไฟล์ และ media query ตรงขนาด", async () => {
+  const { IOS_STARTUP_IMAGES, IPHONE_SCREENS } = await import("../src/lib/startup-images.ts");
+  assert.ok(IPHONE_SCREENS.length >= 10);
+  for (const img of IOS_STARTUP_IMAGES) {
+    assert.ok(existsSync(`public${img.url}`), img.url);
+    assert.match(img.media, /^\(device-width: \d+px\) and \(device-height: \d+px\) and \(-webkit-device-pixel-ratio: [23]\) and \(orientation: portrait\)$/);
+  }
+  assert.ok(IOS_STARTUP_IMAGES.some((i) => i.url === "/splash/iphone-1179x2556.png"), "iPhone 15/16");
 });
 
 test("layout: ลงทะเบียน SW ทุกหน้า · meta iPhone · แถบเมนูล่าง + ปุ่มติดตั้งแอป", () => {

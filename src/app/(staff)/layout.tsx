@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { appointmentCallCounts } from "@/lib/appointment-store";
-import { getStaffContext } from "@/lib/auth";
-import { supabaseServer } from "@/lib/supabase/server";
+import { getAuthUser, getStaffContext } from "@/lib/auth";
 import { AppointmentBadge } from "./appointment-badge";
 import { LabBadge } from "./lab-badge";
 import { ChatBadge } from "./chat-badge";
@@ -22,8 +21,8 @@ import { TodayScore } from "./today-score";
 import { WaitingAlert } from "./waiting-alert";
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
-  const sb = await supabaseServer();
-  const { data: { user } } = await sb.auth.getUser();
+  // ถาม Supabase Auth ครั้งเดียว — หน้าลูกเรียก getStaffContext ซ้ำได้จาก cache ของคำขอนี้
+  const user = await getAuthUser();
   if (!user) redirect("/login");
   const me = await getStaffContext();
   if (!me) {

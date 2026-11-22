@@ -61,3 +61,10 @@ export function applyPreferences(p: Preferences, doc: Document = document) {
 export function effectiveTheme(choice: ThemeChoice, systemDark: boolean): "light" | "dark" {
   return choice === "system" ? (systemDark ? "dark" : "light") : choice;
 }
+
+/**
+ * สคริปต์เล็กใน <head> ใส่ธีม/ขนาดตัวอักษร/ย่อเมนู จาก cookie ก่อนวาดหน้า (ไม่มีจอกะพริบสีผิด)
+ * ใช้แทนการอ่าน cookie ฝั่ง server เพื่อให้หน้า app shell เป็นไฟล์ static ที่ service worker เก็บไว้เปิดได้ทันที
+ * ตรรกะเดียวกับ htmlAttrs (ตรวจใน scripts/settings-access.test.mjs)
+ */
+export const THEME_BOOT_SCRIPT = `(function(){try{var c=document.cookie,r=document.documentElement,g=function(n){var m=c.match(new RegExp("(?:^|; )"+n+"=([^;]*)"));return m?m[1]:undefined};var t=g("${PREF_COOKIE.theme}");if(t==="light"||t==="dark")r.setAttribute("data-theme",t);if(g("${PREF_COOKIE.font}")==="large")r.setAttribute("data-font","large");if(g("${PREF_COOKIE.nav}")==="collapsed")r.setAttribute("data-nav","collapsed")}catch(e){}})();`;
