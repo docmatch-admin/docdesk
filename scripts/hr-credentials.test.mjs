@@ -37,3 +37,8 @@ test("route ตรวจ secret ก่อนอ่าน body และไม่
   assert.match(lib, /revoke_staff_sessions/);
   assert.match(lib, /eq\("hr_employee_id"/);
 });
+
+test("บัญชี admin ที่ admin จับคู่เองใน dropdown รับรหัสจาก HR ได้ (ไม่มีการบล็อกตาม role)", () => {
+  const lib = readFileSync("src/lib/hr-credentials.ts", "utf8");
+  assert.doesNotMatch(lib, /role/);
+});

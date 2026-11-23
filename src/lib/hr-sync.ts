@@ -110,8 +110,8 @@ export interface HrImportResult { created: number; paired: number; skipped: stri
  */
 export async function importHrEmployees(employees: HrEmployee[]): Promise<HrImportResult> {
   const db = supabaseAdmin();
-  const { data } = await db.from("staff").select("id, username, hr_employee_id");
-  const staff = (data ?? []) as { id: string; username: string | null; hr_employee_id: string | null }[];
+  const { data } = await db.from("staff").select("id, username, hr_employee_id, role");
+  const staff = (data ?? []) as { id: string; username: string | null; hr_employee_id: string | null; role?: string }[];
   const result: HrImportResult = { created: 0, paired: 0, skipped: [] };
 
   for (const e of employees) {
@@ -124,6 +124,10 @@ export async function importHrEmployees(employees: HrEmployee[]): Promise<HrImpo
     }
     const existing = staff.find((s) => s.username === username);
     if (existing) {
+      if (existing.role === "admin") {
+        result.skipped.push(`${label}: ชื่อผู้ใช้นี้เป็น admin ไม่จับคู่อัตโนมัติ ให้จับคู่เองในหน้าพนักงาน`);
+        continue;
+      }
       if (existing.hr_employee_id) {
         result.skipped.push(`${label}: ชื่อผู้ใช้นี้จับคู่กับพนักงานคนอื่นแล้ว`);
         continue;
