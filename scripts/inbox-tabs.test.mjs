@@ -667,3 +667,13 @@ test("กล่องข้อมูลลูกค้า: แสดงเฉพ
   const mc = readFileSync("src/app/(staff)/inbox/mobile-chat.tsx", "utf8");
   assert.match(mc, /linked\.find\(\(g\) => g\.primary\)/, "คนไข้หลัก = HN ที่ตั้งเป็นหลักก่อน");
 });
+
+test("066: สิทธิ/วินิจฉัย/อายุ ใน his_visit_cache อ่านตรงด้วย login เจ้าหน้าที่ไม่ได้ (ต้องผ่าน API ที่กันแชทลับ)", () => {
+  const sql = readFileSync("supabase/migrations/066_visit_history.sql", "utf8");
+  assert.match(sql, /revoke select on his_visit_cache from authenticated;/);
+  const grant = sql.match(/grant select \(([^)]+)\) on his_visit_cache to authenticated;/);
+  assert.ok(grant, "ให้สิทธิ์อ่านเฉพาะคอลัมน์เดิม");
+  assert.doesNotMatch(grant[1], /rights|diagnosis|age_y/);
+  const route = readFileSync("src/app/api/conversations/[id]/visits/route.ts", "utf8");
+  assert.match(route, /denySensitiveChat\(id, canViewSensitive\)/);
+});
