@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "../icons";
 import { LabDrawer } from "./lab-drawer";
 import { LAB_TABS, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
 
@@ -102,8 +104,65 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
     flash(id ? "ตั้งกลุ่มแจ้งทีมแล้ว" : "ปิดการแจ้งทีมแล้ว");
   }
 
+  /** มือถือ (ตามแบบ): บรรทัดสั้น ๆ บอกว่าต้องทำอะไรต่อ */
+  const mobileNote = (r: LabResult) => {
+    if (r.match_status === "unmatched") return "ต้องผูกคนไข้ก่อน";
+    const parts: string[] = [];
+    if (r.first_viewed_at) parts.push(`เปิดดูแล้ว ${shortTh(r.first_viewed_at)}`);
+    if (r.patient_id && appts[r.patient_id]) parts.push(`นัดฟังผล ${appts[r.patient_id]}`);
+    else if (r.patient_id && requests[r.patient_id]) parts.push(`คนไข้ขอ ${shortReq(requests[r.patient_id])} · รอยืนยัน`);
+    if (parts.length) return parts.join(" · ");
+    if (r.notify_status === "pending") return "ระบบจะส่งในรอบถัดไป";
+    if (r.notify_status === "unreachable") return r.patient_id && lineReady[r.patient_id] ? "ผูก LINE แล้ว · รอส่ง" : "ไม่ต้องทำอะไร";
+    if (r.notify_status === "failed") return "กดดูรายละเอียด";
+    if (r.notify_status === "sent") return "ยังไม่เปิดดู";
+    return "";
+  };
+  const tabCount = (k: LabTab) => (k === "unmatched" ? summary?.unmatched : k === "unviewed" ? summary?.unviewed : 0) ?? 0;
+
   return (
     <div className="page lab-page">
+      <div className="lab-m m-page">
+        <header className="m-page-head with-back">
+          <Link href="/menu" className="m-back" aria-label="กลับไปเมนู"><Icon name="chevronLeft" size={22} /></Link>
+          <h1>ผลแล็บ</h1>
+        </header>
+        <div className="lab-m-tabs" role="tablist" aria-label="กรองผลแล็บ">
+          {LAB_TABS.map((t) => (
+            <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={tab === t.key ? "on" : ""}
+              onClick={() => { setOnlyId(null); setTab(t.key); }}>{t.label}{tabCount(t.key) > 0 && ` ${tabCount(t.key)}`}</button>
+          ))}
+        </div>
+        <div className="m-page-body">
+          <section className="m-card lab-m-list">
+            {loading && !rows.length && <div className="muted small">กำลังโหลด…</div>}
+            {!loading && !rows.length && <div className="muted small">ไม่มีรายการ</div>}
+            {onlyId && <p className="small">แสดงรายการจากลิงก์ · <button type="button" className="link-btn" onClick={() => setOnlyId(null)}>ดูทั้งหมด</button></p>}
+            {rows.map((r) => {
+              const unmatched = r.match_status === "unmatched";
+              const chip = r.notify_status === "unreachable" && r.patient_id && lineReady[r.patient_id] ? "lab-chip wait" : NOTIFY_CLASS[r.notify_status];
+              return (
+                <div key={r.id} className={`lab-m-item ${unmatched ? "unmatched" : ""}`} onClick={() => setSelected(r.id)}>
+                  <div className="lab-m-top">
+                    <span className="lab-m-name">{r.patient_name || "–"}<span className="muted"> · {r.patient_id ? `HN ${hnOf(r)}` : "ไม่พบ HN"}</span></span>
+                    <span className="lab-m-date">{shortTh(r.order_datetime)}</span>
+                  </div>
+                  <div className="lab-m-meta">
+                    <span className={chip}>{NOTIFY_LABEL[r.notify_status]}</span>
+                    {r.version_number > 1 && <span className="lab-chip wait">แก้ผล v{r.version_number}</span>}
+                    <span className="muted">{mobileNote(r)}</span>
+                  </div>
+                  {unmatched
+                    ? <button type="button" className="lab-m-btn" onClick={(e) => { e.stopPropagation(); setSelected(r.id); }}>ผูกคนไข้ (ใส่ HN)</button>
+                    : r.pdf_path
+                      ? <a className="lab-m-btn" href={`/api/lab-results/${r.id}/pdf`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>ดู PDF</a>
+                      : <button type="button" className="lab-m-btn" disabled>{r.pdf_error ? "ไฟล์มีปัญหา" : "รอไฟล์ผล"}</button>}
+                </div>
+              );
+            })}
+          </section>
+        </div>
+      </div>
       <div className="lab-head">
         <div>
           <h1>ผลแล็บ</h1>
