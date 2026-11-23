@@ -406,6 +406,15 @@ export interface ReplyInput {
   skipLearn?: boolean;          // ข้อความเฉพาะนัดนี้ ไม่นำไปเป็นตัวอย่างคำตอบ
 }
 
+/** ยังไม่ได้ตั้ง token ของช่องทาง (เช่น Vercel preview): หยุดก่อนแตะฐานข้อมูล ไม่ใช้ reply token ไม่บันทึกข้อความ ไม่เรียก AI แปล */
+export function assertChannelConfigured(type: ChannelType) {
+  const key = type === "line" ? "LINE_CHANNEL_ACCESS_TOKEN" : type === "facebook" || type === "instagram" ? "META_PAGE_ACCESS_TOKEN" : null;
+  if (key && !process.env[key]) throw new ChannelNotConfiguredError(key);
+}
+export class ChannelNotConfiguredError extends Error {
+  constructor(key: string) { super(`ส่งไม่ได้: เครื่องนี้ยังไม่ได้ตั้ง ${key} (ไม่ได้ส่งและไม่ได้บันทึกข้อความ)`); }
+}
+
 export async function sendReply(input: ReplyInput) {
   const db = supabaseAdmin();
   const { data: conv, error } = await db
@@ -416,6 +425,7 @@ export async function sendReply(input: ReplyInput) {
 
   const contact = (Array.isArray(conv.contacts) ? conv.contacts[0] : conv.contacts) as { external_id: string; language: string };
   const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as { type: ChannelType };
+  assertChannelConfigured(channel.type);
 
   const language = input.skipTranslate ? "th" : contact.language || "th";
   const body = language === "th" ? input.textTh : await fromThai(input.textTh, language);
@@ -525,6 +535,7 @@ export async function sendMediaReply(input: MediaReplyInput) {
   if (error || !conv) throw error ?? new Error("conversation not found");
   const contact = (Array.isArray(conv.contacts) ? conv.contacts[0] : conv.contacts) as { external_id: string; language: string };
   const channel = (Array.isArray(conv.channels) ? conv.channels[0] : conv.channels) as { type: ChannelType };
+  assertChannelConfigured(channel.type);
 
   // ตรวจกติกา 24 ชม. ก่อนเริ่มบีบอัดและเก็บไฟล์
   const isMeta = channel.type === "facebook" || channel.type === "instagram";

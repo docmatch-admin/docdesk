@@ -5,6 +5,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const fake = (name) => new URL(`./${name}.mjs`, import.meta.url).href;
 
+// เทสต์ส่งข้อความผ่าน fetch จำลอง: ตั้ง token LINE ไว้ก่อน (Meta ตั้งในไฟล์เทสต์ Meta เอง เพราะ health เทสต์กรณีไม่ได้ตั้ง) (โค้ดจริงหยุดส่งถ้าไม่มี token — ดู assertChannelConfigured)
+process.env.LINE_CHANNEL_ACCESS_TOKEN ??= "line-token";
+
 const SRC = new URL("../../src/", import.meta.url);
 
 function resolveFile(base) {

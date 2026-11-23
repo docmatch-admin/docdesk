@@ -294,3 +294,22 @@ test("migration: กันการเปิดแชทเก่า และ�
   assert.match(sql, /แชทเก่าเปิดใหม่ไม่ได้/);
   assert.match(sql, /not c\.archived/);
 });
+
+test("ไม่มี token ช่องทาง (เช่น preview): กดส่งล้มทันที ไม่ใช้ reply token ไม่บันทึกข้อความ ไม่เขียน log", async () => {
+  const id = "conv-guard";
+  state.tables.contacts.push({ id: "ct-guard", channel_id: "line", external_id: "Uguard", language: "th", display_name: "ลูกค้า" });
+  const conv = { id, contact_id: "ct-guard", channel_id: "line", status: "open", archived: false, sensitive: false,
+    line_reply_token: "rt-guard", line_reply_token_at: new Date().toISOString(), created_at: nextTime() };
+  state.tables.conversations.push(conv);
+  const before = { msgs: state.tables.messages.length, sends: (state.tables.line_sends ?? []).length };
+  const saved = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  try {
+    const res = await sendRoute.POST(post({ text: "ตอบลูกค้าค่ะ" }), ctx(id));
+    assert.equal(res.status, 500);
+    assert.match((await res.json()).error, /ยังไม่ได้ตั้ง LINE_CHANNEL_ACCESS_TOKEN/);
+  } finally { process.env.LINE_CHANNEL_ACCESS_TOKEN = saved; }
+  assert.equal(state.tables.messages.length, before.msgs, "ไม่มีข้อความขาออกถูกบันทึก");
+  assert.equal((state.tables.line_sends ?? []).length, before.sends);
+  assert.equal(conv.line_reply_token, "rt-guard", "reply token ไม่ถูกใช้");
+});
