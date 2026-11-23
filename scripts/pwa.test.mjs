@@ -180,3 +180,13 @@ test("ติดตั้งแอป: hook ดัก beforeinstallprompt ระ�
   const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
   assert.match(staff, /<StaffBanners \/>/, "แบนเนอร์ติดตั้ง/แจ้งเตือน");
 });
+
+test("sidebar and mobile menu show a single notification control (design); sound on/off lives in Settings", () => {
+  const wa = readFileSync("src/app/(staff)/waiting-alert.tsx", "utf8");
+  assert.doesNotMatch(wa, /เสียงเตือน: /);
+  assert.match(wa, /return null;/);
+  const menu = readFileSync("src/app/(staff)/menu/page.tsx", "utf8");
+  assert.doesNotMatch(menu, /SoundSwitchRow/);
+  const disp = readFileSync("src/app/(staff)/settings/display-settings.tsx", "utf8");
+  assert.match(disp, /sound_muted/);
+});

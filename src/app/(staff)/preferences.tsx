@@ -93,15 +93,3 @@ export function ThemeSwitchRow() {
   );
 }
 
-/** เสียงเตือนแชทรอตอบ (ค่าเดียวกับเมนูซ้าย ใช้ทุกเครื่อง) ตัวเล่นเสียงอยู่ในเมนูซ้ายตัวเดียว */
-export function SoundSwitchRow() {
-  const { prefs, update } = usePreferences();
-  const on = !prefs.sound_muted;
-  return (
-    <button type="button" role="switch" aria-checked={on} className="m-row m-switch-row" onClick={() => update({ sound_muted: on })}>
-      <Icon name={on ? "bell" : "bellOff"} size={22} />
-      <span className="m-row-label">เสียงเตือน</span>
-      <span className="m-switch" aria-hidden="true" />
-    </button>
-  );
-}

@@ -7,7 +7,6 @@ import type { BusinessHoursConfig } from "@/lib/business-hours";
 import { titleWithCount } from "@/lib/case-flow";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { usePreferences } from "./preferences";
-import { Icon } from "./icons";
 
 const REPEAT_MS = 60_000;
 /** นัดที่ยังไม่ลงระบบเตือนทุกเครื่อง ไม่ขึ้นกับผู้ดูแล จนกว่าจะกดลงนัด */
@@ -44,7 +43,7 @@ export function WaitingAlert({ meId }: { meId: string }) {
   const [hours, setHours] = useState<BusinessHoursConfig>({ tz: "Asia/Bangkok", days: {} });
   const [now, setNow] = useState(() => Date.now());
   // ปิดเสียงที่เครื่องไหน ทุกเครื่องของผู้ใช้คนนี้เงียบตาม (user_preferences + realtime)
-  const { prefs, update } = usePreferences();
+  const { prefs } = usePreferences();
   const muted = prefs.sound_muted;
   const audio = useRef<AudioContext | null>(null);
   const previous = useRef(0);
@@ -138,10 +137,6 @@ export function WaitingAlert({ meId }: { meId: string }) {
     return () => clearInterval(repeat);
   }, [bookingPending, muted]);
 
-  return (
-    <button className="btn ghost small nav-quick" onClick={() => update({ sound_muted: !muted })} aria-pressed={!muted} title="ใช้ค่าเดียวกับ ตั้งค่า → การแสดงผล (ทุกเครื่อง)">
-      <Icon name={muted ? "bellOff" : "bell"} size={16} />
-      <span>{muted ? "เสียงเตือน: ปิด" : "เสียงเตือน: เปิด"}</span>
-    </button>
-  );
+  // ตามแบบ: เมนูซ้ายมีปุ่มแจ้งเตือนปุ่มเดียว · เปิด/ปิดเสียงเตือนอยู่ที่ ตั้งค่า → การแสดงผล
+  return null;
 }

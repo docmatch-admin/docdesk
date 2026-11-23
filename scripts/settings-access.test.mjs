@@ -205,7 +205,8 @@ test("ตั้งค่าส่วนตัว: เสียง/ย่อเ�
   assert.match(provider, /fetch\("\/api\/preferences", \{ method: "PUT"/);
   const alertSrc = readFileSync("src/app/(staff)/waiting-alert.tsx", "utf8");
   assert.match(alertSrc, /const muted = prefs\.sound_muted;/);
-  assert.match(alertSrc, /update\(\{ sound_muted: !muted \}\)/);
+  const disp = readFileSync("src/app/(staff)/settings/display-settings.tsx", "utf8");
+  assert.match(disp, /update\(\{ sound_muted: !v \}\)/, "ปิด/เปิดเสียงที่ ตั้งค่า → การแสดงผล");
   assert.doesNotMatch(alertSrc, /localStorage/);
   const nav = readFileSync("src/app/(staff)/nav-toggle.tsx", "utf8");
   assert.match(nav, /update\(\{ nav_collapsed: !collapsed \}\)/);
