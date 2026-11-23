@@ -63,6 +63,19 @@ export function StaffClient({ meId, embedded = false }: { meId: string; embedded
     load();
   }
 
+  async function remove(r: Row) {
+    setMsg("");
+    setConfirming("");
+    const res = await fetch("/api/staff", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: r.id }),
+    });
+    const j = await res.json().catch(() => ({}));
+    setMsg(res.ok ? `ลบบัญชี ${r.display_name} แล้ว` : (j.error ?? "ลบบัญชีไม่สำเร็จ"));
+    load();
+  }
+
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setMsg("");
@@ -87,7 +100,7 @@ export function StaffClient({ meId, embedded = false }: { meId: string; embedded
     const j = await res.json().catch(() => ({}));
     if (!res.ok) return setMsg(j.error ?? "ซิงก์ HR ไม่สำเร็จ");
     const skipped = j.skipped.length ? ` ข้าม: ${j.skipped.join(", ")}` : "";
-    setMsg(`ซิงก์แล้ว อัปเดต ${j.updated} บัญชี ปิด ${j.deactivated} บัญชี ไม่ได้จับคู่ ${j.unmatched} คน${skipped}`);
+    setMsg(`ซิงก์แล้ว สร้างใหม่ ${j.created} บัญชี จับคู่ ${j.paired} บัญชี อัปเดต ${j.updated} บัญชี ปิด ${j.deactivated} บัญชี ${skipped}`);
     load();
   }
 
@@ -185,6 +198,11 @@ export function StaffClient({ meId, embedded = false }: { meId: string; embedded
               ) : (
                 <button className="btn ghost small" onClick={() => patch(r, { active: true })}>เปิดบัญชี</button>
               ))}
+              {!isMe && (
+                <button className="btn ghost small" onClick={twoStep(`del:${r.id}`, () => remove(r))}>
+                  {confirming === `del:${r.id}` ? "ยืนยันลบถาวร? กู้คืนไม่ได้" : "ลบ"}
+                </button>
+              )}
             </div>
           );
         })}

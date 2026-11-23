@@ -37,3 +37,18 @@ export async function resetStaffPassword(id: string): Promise<string | null> {
   await db.rpc("revoke_staff_sessions", { p_user: id });
   return password;
 }
+
+/**
+ * ลบบัญชีถาวร (ลบผู้ใช้ใน auth แถว staff ถูกลบตามด้วย cascade) ย้อนกลับไม่ได้
+ * งานที่เคยดูแลหลุดเป็นไม่มีผู้ดูแล คะแนนตอบแชทของบัญชีนี้ถูกลบไปด้วย
+ */
+export async function deleteStaff(id: string, byId: string): Promise<string | null> {
+  const db = supabaseAdmin();
+  await db.rpc("revoke_staff_sessions", { p_user: id });
+  const { data: chats } = await db.from("conversations").select("id").eq("assigned_to", id).eq("status", "open");
+  for (const chat of (chats ?? []) as { id: string }[]) {
+    await db.rpc("set_assignee", { p_conversation: chat.id, p_to: null, p_by: byId });
+  }
+  const { error } = await db.auth.admin.deleteUser(id);
+  return error ? "ลบบัญชีไม่สำเร็จ" : null;
+}

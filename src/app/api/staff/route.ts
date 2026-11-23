@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { hrSyncEnabled } from "@/lib/hr-sync";
-import { generateTempPassword, resetStaffPassword, setStaffActive } from "@/lib/staff-admin";
+import { deleteStaff, generateTempPassword, resetStaffPassword, setStaffActive } from "@/lib/staff-admin";
 import { isValidUsername, STAFF_EMAIL_DOMAIN } from "@/lib/staff-login";
-import { staffChangeError, type StaffPatch, type StaffRow } from "@/lib/staff-rules";
+import { staffChangeError, staffDeleteError, type StaffPatch, type StaffRow } from "@/lib/staff-rules";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -116,5 +116,23 @@ export async function PATCH(req: Request) {
     if (!password) return NextResponse.json({ error: "รีเซ็ตรหัสไม่สำเร็จ" }, { status: 500 });
     return NextResponse.json({ ok: true, password }, { headers: NO_STORE });
   }
+  return NextResponse.json({ ok: true });
+}
+
+/** ลบบัญชีถาวร (หน้าเว็บให้กดยืนยันสองครั้ง) */
+export async function DELETE(req: Request) {
+  const { user, error } = await requireAdmin();
+  if (error) return error;
+  const b = (await req.json().catch(() => ({}))) as { id?: string };
+  if (!b.id || !UUID.test(b.id)) return NextResponse.json({ error: "ไม่มี id" }, { status: 400 });
+  const db = supabaseAdmin();
+  const { data: all } = await db.from("staff").select("id, role, active");
+  const staff = (all ?? []) as StaffRow[];
+  const target = staff.find((s) => s.id === b.id);
+  if (!target) return NextResponse.json({ error: "ไม่พบบัญชี" }, { status: 404 });
+  const problem = staffDeleteError(user.id, target, staff);
+  if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+  const failure = await deleteStaff(b.id, user.id);
+  if (failure) return NextResponse.json({ error: failure }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

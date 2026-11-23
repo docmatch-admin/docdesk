@@ -8,8 +8,8 @@ const { resetDb, state } = await import(fake("admin"));
 const { getStaffContext, requireStaff } = await import("../src/lib/auth.ts");
 const { isValidUsername, toLoginEmail } = await import("../src/lib/staff-login.ts");
 const { generateTempPassword } = await import("../src/lib/staff-admin.ts");
-const { staffChangeError } = await import("../src/lib/staff-rules.ts");
-const { applyHrSync, fetchHrEmployees, hrDisplayName, hrFullName } = await import("../src/lib/hr-sync.ts");
+const { staffChangeError, staffDeleteError } = await import("../src/lib/staff-rules.ts");
+const { applyHrSync, fetchHrEmployees, hrDisplayName, hrFullName, importHrEmployees } = await import("../src/lib/hr-sync.ts");
 const staffApi = await import("../src/app/api/staff/route.ts");
 const hrApi = await import("../src/app/api/staff/hr/route.ts");
 const passwordApi = await import("../src/app/api/account/password/route.ts");
@@ -340,4 +340,47 @@ test("จับคู่ HR: รับเฉพาะ uuid และยกเล
   assert.equal(row(AGENT.id).hr_employee_id, id);
   assert.equal((await patch({ id: AGENT.id, hr_employee_id: null })).status, 200);
   assert.equal(row(AGENT.id).hr_employee_id, null);
+});
+
+test("HR: นำเข้าสร้างบัญชี agent ให้คนที่ยังไม่มี ข้ามคนลาออกและรหัสที่ใช้เป็นชื่อผู้ใช้ไม่ได้", async () => {
+  const r = await importHrEmployees([
+    emp({ id: "hr-9", employee_code: "EMP009" }),
+    emp({ id: "hr-8", employee_code: "EMP008", employment_status: "resigned" }),
+    emp({ id: "hr-7", employee_code: "ก" }),
+    emp({ id: "hr-1" }),
+  ]);
+  assert.deepEqual([r.created, r.paired, r.skipped.length], [1, 0, 1]);
+  const s = state.tables.staff.find((x) => x.hr_employee_id === "hr-9");
+  assert.deepEqual([s.role, s.username, s.must_change_password, s.display_name], ["agent", "emp009", true, "ใจ"]);
+  assert.ok(state.authUsers.some((u) => u.email === "emp009@staff.docdesk.local"));
+  assert.equal(state.tables.staff.some((x) => x.hr_employee_id === "hr-8"), false);
+});
+
+test("HR: ชื่อผู้ใช้ตรงรหัสพนักงานและยังไม่จับคู่ = จับคู่ให้ ถ้าจับคู่คนอื่นแล้ว = ข้าม", async () => {
+  state.tables.staff.push({ id: "u-5", role: "agent", active: true, display_name: "E", username: "emp005", must_change_password: false });
+  const r = await importHrEmployees([emp({ id: "hr-5", employee_code: "EMP005" }), emp({ id: "hr-6", employee_code: "EMP005" })]);
+  assert.deepEqual([r.created, r.paired, r.skipped.length], [0, 1, 1]);
+  assert.equal(state.tables.staff.find((x) => x.id === "u-5").hr_employee_id, "hr-5");
+});
+
+test("ลบบัญชีถาวร: ลบตัวเองและ admin คนสุดท้ายไม่ได้", () => {
+  const staff = [{ id: "a", role: "admin", active: true }, { id: "b", role: "agent", active: true }, { id: "c", role: "admin", active: true }];
+  assert.equal(staffDeleteError("a", staff[0], staff), "ลบบัญชีตัวเองไม่ได้");
+  assert.equal(staffDeleteError("a", staff[1], staff), null);
+  assert.equal(staffDeleteError("a", staff[2], staff), null);
+  assert.match(staffDeleteError("b", staff[0], [staff[0], staff[1]]) ?? "", /admin อย่างน้อย 1/);
+});
+
+test("ปุ่มลบต้องกดยืนยันสองครั้ง และ API ตรวจสิทธิ์ admin", () => {
+  const ui = readFileSync("src/app/(staff)/staff/staff-client.tsx", "utf8");
+  assert.match(ui, /twoStep\(`del:\$\{r\.id\}`/);
+  const api = readFileSync("src/app/api/staff/route.ts", "utf8");
+  assert.match(api, /export async function DELETE[\s\S]*requireAdmin[\s\S]*staffDeleteError/);
+});
+
+test("HR: ไม่จับคู่อัตโนมัติกับบัญชี admin", async () => {
+  state.tables.staff.push({ id: "u-adm", role: "admin", active: true, display_name: "Adm", username: "emp001", must_change_password: false });
+  const r = await importHrEmployees([emp({ id: "hr-x", employee_code: "EMP001" })]);
+  assert.deepEqual([r.created, r.paired, r.skipped.length], [0, 0, 1]);
+  assert.equal(state.tables.staff.find((x) => x.id === "u-adm").hr_employee_id, undefined);
 });

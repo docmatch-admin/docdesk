@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { applyHrSync, fetchHrEmployees, hrFullName, hrSyncEnabled } from "@/lib/hr-sync";
+import { applyHrSync, fetchHrEmployees, hrFullName, hrSyncEnabled, importHrEmployees } from "@/lib/hr-sync";
 
 export const runtime = "nodejs";
 
@@ -29,7 +29,10 @@ export async function POST() {
   if (error) return error;
   if (!hrSyncEnabled()) return notConfigured();
   try {
-    return NextResponse.json(await applyHrSync(await fetchHrEmployees(), user.id));
+    const employees = await fetchHrEmployees();
+    const imported = await importHrEmployees(employees);
+    const synced = await applyHrSync(employees, user.id);
+    return NextResponse.json({ ...synced, created: imported.created, paired: imported.paired, skipped: [...imported.skipped, ...synced.skipped] });
   } catch (err) {
     console.error("ซิงก์ HR ไม่สำเร็จ", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "ซิงก์ HR ไม่สำเร็จ" }, { status: 502 });

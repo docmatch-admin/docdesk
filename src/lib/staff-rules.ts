@@ -15,3 +15,11 @@ export function staffChangeError(actorId: string, target: StaffRow, patch: Staff
   if (losesAdmin && otherAdmins === 0) return "ต้องเหลือ admin อย่างน้อย 1 คน";
   return null;
 }
+
+/** เหตุผลที่ลบบัญชีนี้ไม่ได้ null = ลบได้ */
+export function staffDeleteError(actorId: string, target: StaffRow, staff: StaffRow[]): string | null {
+  if (target.id === actorId) return "ลบบัญชีตัวเองไม่ได้";
+  const otherAdmins = staff.filter((s) => s.id !== target.id && s.role === "admin" && s.active).length;
+  if (target.role === "admin" && target.active && otherAdmins === 0) return "ต้องเหลือ admin อย่างน้อย 1 คน";
+  return null;
+}
