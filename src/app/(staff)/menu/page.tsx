@@ -6,7 +6,7 @@ import { canOpenSettings } from "@/lib/settings-access";
 import { Icon, type IconName } from "../icons";
 import { InstallApp } from "../install-app";
 import { LabBadge } from "../lab-badge";
-import { SoundSwitchRow, ThemeSwitchRow } from "../preferences";
+import { ThemeSwitchRow } from "../preferences";
 import { PushToggle } from "../push-toggle";
 import { SignOut } from "../sign-out";
 import { TodayScore } from "../today-score";
@@ -47,7 +47,6 @@ export default async function MenuPage() {
         )}
         <section className="m-card">
           <PushToggle row />
-          {chatStaff && <SoundSwitchRow />}
           <ThemeSwitchRow />
           {chatStaff && <TodayScore meId={me.id} />}
         </section>
