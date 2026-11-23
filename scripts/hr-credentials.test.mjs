@@ -37,8 +37,3 @@ test("route ตรวจ secret ก่อนอ่าน body และไม่
   assert.match(lib, /revoke_staff_sessions/);
   assert.match(lib, /eq\("hr_employee_id"/);
 });
-
-test("บัญชี admin ห้าม HR ตั้งรหัสให้", () => {
-  const lib = readFileSync("src/lib/hr-credentials.ts", "utf8");
-  assert.ok(lib.indexOf('=== "admin") return "admin"') < lib.indexOf("password_hash: push.password_hash"));
-});

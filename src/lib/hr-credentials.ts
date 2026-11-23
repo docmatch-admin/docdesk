@@ -24,7 +24,7 @@ export function secretMatches(header: string | null, secret: string | undefined)
   return crypto.timingSafeEqual(a, b);
 }
 
-export type CredentialResult = "updated" | "unmatched" | "inactive" | "admin" | "failed";
+export type CredentialResult = "updated" | "unmatched" | "inactive" | "failed";
 
 /**
  * ตั้งรหัสผ่านของบัญชีที่จับคู่กับพนักงาน HR (staff.hr_employee_id) ด้วย hash จาก HR
@@ -32,11 +32,9 @@ export type CredentialResult = "updated" | "unmatched" | "inactive" | "admin" | 
  */
 export async function applyHrCredential(push: HrCredentialPush): Promise<CredentialResult> {
   const db = supabaseAdmin();
-  const { data: account } = await db.from("staff").select("id, active, role").eq("hr_employee_id", push.hr_employee_id).maybeSingle();
+  const { data: account } = await db.from("staff").select("id, active").eq("hr_employee_id", push.hr_employee_id).maybeSingle();
   if (!account) return "unmatched";
   if (!(account as { active: boolean }).active) return "inactive";
-  // บัญชี admin ห้ามให้ระบบอื่นตั้งรหัสให้ ต้องเปลี่ยนในหน้าพนักงานของ DocDesk เท่านั้น
-  if ((account as { role: string }).role === "admin") return "admin";
   const id = (account as { id: string }).id;
   const { error } = await db.auth.admin.updateUserById(id, { password_hash: push.password_hash });
   if (error) return "failed";

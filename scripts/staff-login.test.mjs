@@ -377,10 +377,3 @@ test("ปุ่มลบต้องกดยืนยันสองครั�
   const api = readFileSync("src/app/api/staff/route.ts", "utf8");
   assert.match(api, /export async function DELETE[\s\S]*requireAdmin[\s\S]*staffDeleteError/);
 });
-
-test("HR: ไม่จับคู่อัตโนมัติกับบัญชี admin", async () => {
-  state.tables.staff.push({ id: "u-adm", role: "admin", active: true, display_name: "Adm", username: "emp001", must_change_password: false });
-  const r = await importHrEmployees([emp({ id: "hr-x", employee_code: "EMP001" })]);
-  assert.deepEqual([r.created, r.paired, r.skipped.length], [0, 0, 1]);
-  assert.equal(state.tables.staff.find((x) => x.id === "u-adm").hr_employee_id, undefined);
-});
