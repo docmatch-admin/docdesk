@@ -8,7 +8,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const FILTERS: InboxFilter[] = ["all", "waiting", "work", "mine"];
+const FILTERS: InboxFilter[] = ["all", "waiting", "work", "mine", "unassigned"];
 
 /**
  * รายการแชท (คิวงาน 3 ช่วง) ทีละหน้า: ?filter=all|waiting|work|mine &q= &tags=a,b &cursor= &limit=

@@ -119,15 +119,22 @@ export function sectionOf(c: Pick<InboxRow, "status" | "last_direction">, work: 
   return "recent";
 }
 
-export type InboxFilter = "all" | "waiting" | "work" | "mine";
+export type InboxFilter = "all" | "waiting" | "work" | "mine" | "unassigned";
+
+/** ขอบเขตแชท: ของฉัน = มอบหมายให้ฉัน · ยังไม่มีคนรับ = ยังไม่มีผู้ดูแล · ที่เหลือ = ทั้งทีม */
+export function inScope<T extends { assigned_to?: string | null }>(rows: T[], filter: InboxFilter | undefined, meId?: string): T[] {
+  if (filter === "mine") return rows.filter((r) => !!meId && r.assigned_to === meId);
+  if (filter === "unassigned") return rows.filter((r) => !r.assigned_to);
+  return rows;
+}
 
 /**
  * จัดแชทเป็น 3 ช่วง: รอตอบ (รอนานสุดบน) · งานค้าง (งานเก่าสุดก่อน) · ล่าสุด (ข้อความล่าสุดก่อน)
- * filter: ทั้งหมด / รอตอบ / งานค้าง / ของฉัน (มอบหมายให้ฉัน ทั้ง 3 ช่วง)
+ * filter: ทั้งหมด / ของฉัน (มอบหมายให้ฉัน) / ยังไม่มีคนรับ (ยังไม่มีผู้ดูแล) — ทั้ง 3 ช่วง
  */
 export function inboxSections<T extends InboxRow & { assigned_to?: string | null }>(rows: T[], work: WorkMap, opts: { filter?: InboxFilter; meId?: string } = {}) {
   const uniq = [...new Map(rows.map((r) => [r.id, r])).values()];
-  const mine = opts.filter === "mine" ? uniq.filter((r) => !!opts.meId && r.assigned_to === opts.meId) : uniq;
+  const mine = inScope(uniq, opts.filter, opts.meId);
   const by = (sec: InboxSection) => mine.filter((r) => sectionOf(r, work[r.id]) === sec);
   const waiting = by("waiting").sort((a, b) => tsOr(a.waiting_since ?? a.last_inbound_at, Infinity) - tsOr(b.waiting_since ?? b.last_inbound_at, Infinity));
   const pending = by("work").sort((a, b) => workSince(work[a.id]) - workSince(work[b.id]));
@@ -151,10 +158,10 @@ export function queueOf(r: QueueRowLike): InboxSection {
   return r.queue === "work" ? "work" : "recent";
 }
 
-/** จัด 3 ช่วง + เรียงแบบเดียวกับ inboxSections · filter ของฉัน = มอบหมายให้ฉัน */
+/** จัด 3 ช่วง + เรียงแบบเดียวกับ inboxSections · filter ของฉัน = มอบหมายให้ฉัน · ยังไม่มีคนรับ = ยังไม่มีผู้ดูแล */
 export function queueSections<T extends QueueRowLike>(rows: T[], opts: { filter?: InboxFilter; meId?: string } = {}) {
   const uniq = [...new Map(rows.map((r) => [r.id, r])).values()];
-  const mine = opts.filter === "mine" ? uniq.filter((r) => !!opts.meId && r.assigned_to === opts.meId) : uniq;
+  const mine = inScope(uniq, opts.filter, opts.meId);
   const by = (sec: InboxSection) => mine.filter((r) => queueOf(r) === sec);
   const waiting = by("waiting").sort((a, b) => tsOr(a.waiting_since ?? a.last_inbound_at, Infinity) - tsOr(b.waiting_since ?? b.last_inbound_at, Infinity));
   const work = by("work").sort((a, b) => tsOr(a.work_since, Infinity) - tsOr(b.work_since, Infinity));

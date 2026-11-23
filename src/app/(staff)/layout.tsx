@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { NavLink } from "./nav-link";
 import { redirect } from "next/navigation";
 import { appointmentCallCounts } from "@/lib/appointment-store";
 import { getAuthUser, getStaffContext } from "@/lib/auth";
@@ -11,7 +11,6 @@ import { QuotaBanner } from "./quota-banner";
 import { Icon } from "./icons";
 import { NavToggle } from "./nav-toggle";
 import { MobileNav } from "./mobile-nav";
-import { InstallApp } from "./install-app";
 import { PushKeeper, StaffBanners } from "./push-control";
 import { PreferencesProvider, ThemeQuickToggle } from "./preferences";
 import { loadPreferences } from "@/lib/preferences-store";
@@ -59,16 +58,16 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       <div className="shell">
       <nav className="nav">
         <div className="brand"><span className="nav-label">Doc<span>Desk</span></span><span className="brand-short" aria-hidden="true">D</span></div>
-        {chatStaff && <Link href="/inbox" title="แชท"><span className="nav-icon" aria-hidden="true"><Icon name="chat" size={20} /></span><span className="nav-label">แชท</span><ChatBadge /></Link>}
-        <Link href="/appointments" title="นัดหมาย">
+        {chatStaff && <NavLink href="/inbox" title="แชท"><span className="nav-icon" aria-hidden="true"><Icon name="chat" size={20} /></span><span className="nav-label">แชท</span><ChatBadge /></NavLink>}
+        <NavLink href="/appointments" title="นัดหมาย">
           <span className="nav-icon" aria-hidden="true"><Icon name="calendar" size={20} /></span><span className="nav-label">นัดหมาย</span>
           <AppointmentBadge initial={calls} />
-        </Link>
-        {chatStaff && <Link href="/lab-results" title="ผลแล็บ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ผลแล็บ</span><LabBadge initial={labUnmatched} /></Link>}
-        {chatStaff && <Link href="/reports" title="รายงาน"><span className="nav-icon" aria-hidden="true"><Icon name="chart" size={20} /></span><span className="nav-label">รายงาน</span></Link>}
-        {isAdmin && <Link href="/sensitive-log" title="ประวัติแชทลับ"><span className="nav-icon" aria-hidden="true"><Icon name="lock" size={20} /></span><span className="nav-label">ประวัติแชทลับ</span></Link>}
-        {canOpenSettings(me.role) && <Link href="/settings" title="ตั้งค่า"><span className="nav-icon" aria-hidden="true"><Icon name="settings" size={20} /></span><span className="nav-label">ตั้งค่า</span></Link>}
-        {isAdmin && <Link href="/knowledge" title="ฐานข้อมูล & คำตอบ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ฐานข้อมูล &amp; คำตอบ</span></Link>}
+        </NavLink>
+        {chatStaff && <NavLink href="/lab-results" title="ผลแล็บ"><span className="nav-icon" aria-hidden="true"><Icon name="flask" size={20} /></span><span className="nav-label">ผลแล็บ</span><LabBadge initial={labUnmatched} /></NavLink>}
+        {chatStaff && <NavLink href="/reports" title="รายงาน"><span className="nav-icon" aria-hidden="true"><Icon name="chart" size={20} /></span><span className="nav-label">รายงาน</span></NavLink>}
+        {isAdmin && <NavLink href="/sensitive-log" title="ประวัติแชทลับ"><span className="nav-icon" aria-hidden="true"><Icon name="lock" size={20} /></span><span className="nav-label">ประวัติแชทลับ</span></NavLink>}
+        {canOpenSettings(me.role) && <NavLink href="/settings" title="ตั้งค่า"><span className="nav-icon" aria-hidden="true"><Icon name="settings" size={20} /></span><span className="nav-label">ตั้งค่า</span></NavLink>}
+        {isAdmin && <NavLink href="/knowledge" title="ฐานข้อมูล & คำตอบ"><span className="nav-icon" aria-hidden="true"><Icon name="book" size={20} /></span><span className="nav-label">ฐานข้อมูล &amp; คำตอบ</span></NavLink>}
         <div className="nav-foot">
           {/* ตอนย่อเมนูซ่อนส่วนนี้ เหลือแค่ปุ่มขยาย */}
           <div className="nav-extra">
@@ -79,14 +78,12 @@ export default async function StaffLayout({ children }: { children: React.ReactN
             <div className="muted small">{me.displayName}</div>
             <SignOut />
           </div>
-          {/* ปุ่มติดตั้งแอป: ตำแหน่งตายตัวล่างสุดของเมนู แสดงเสมอ (ติดตั้งแล้วเป็น "ติดตั้งแล้ว ✓" แบบจาง) */}
-          <InstallApp />
           <NavToggle />
         </div>
       </nav>
       <main className="main">{children}</main>
       </div>
-      <MobileNav chatStaff={chatStaff} calls={calls} />
+      <MobileNav chatStaff={chatStaff} calls={calls} labUnmatched={labUnmatched} />
     </div>
     </PreferencesProvider>
   );

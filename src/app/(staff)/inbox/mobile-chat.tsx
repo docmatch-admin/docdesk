@@ -5,8 +5,8 @@ import { deliveryState, DELIVERY_LABEL, thaiShortDate, timeShort, type Appointme
 import { Icon } from "../icons";
 import type { SideGroup } from "./appointments-side-view";
 
-/** แท็บห้องแชทบนมือถือ (จอใหญ่ไม่แสดง ใช้กล่องขวาเหมือนเดิม) */
-export type MobileTab = "chat" | "appt" | "tasks" | "notes";
+/** แท็บห้องแชทบนมือถือ: แชท · ข้อมูลลูกค้า (= กล่องขวาของจอใหญ่ทั้งกล่อง ไม่แยกนัด/งาน/คอมเมนต์ซ้ำ) */
+export type MobileTab = "chat" | "info";
 export interface ApptSummary {
   count: number; next: Appointment | null; dates: string[];
   /** นัดที่สร้างล่าสุด (ทุกสถานะ) ใช้ซ่อนคำขอจองจากเว็บที่ทำนัดไปแล้ว แม้เลื่อนวัน/ยกเลิกภายหลัง */
@@ -24,22 +24,16 @@ export function summarize(groups: SideGroup[]): ApptSummary {
 export function MobileChatTabs({ tab, onTab, appointments, tasks, notes }: {
   tab: MobileTab; onTab: (t: MobileTab) => void; appointments: number; tasks: number; notes: number;
 }) {
-  const items: [MobileTab, string, number, string?][] = [
-    ["chat", "แชท", 0],
-    ["appt", "นัด", appointments],
-    ["tasks", "งาน", tasks],
-    ["notes", "คอมเมนต์", notes, "note"],
-  ];
+  // จุดแดง = มีงานค้างหรือคอมเมนต์ในข้อมูลลูกค้า · นัดแสดงในแถบนัดถัดไปอยู่แล้ว
+  const alert = tasks > 0 || notes > 0;
+  const hint = [appointments > 0 ? `นัด ${appointments}` : "", tasks > 0 ? `งาน ${tasks}` : "", notes > 0 ? `คอมเมนต์ ${notes}` : ""].filter(Boolean).join(" · ");
   return (
     <div className="mtabs" role="tablist" aria-label="ส่วนของแชท">
-      {items.map(([k, label, n, kind]) => (
-        <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => onTab(k)}>
-          {label}
-          {n > 0 && (kind === "note"
-            ? <span className="mtab-badge note">{n}</span>
-            : <span className="mtab-count"> · {n}</span>)}
-        </button>
-      ))}
+      <button type="button" role="tab" aria-selected={tab === "chat"} className={tab === "chat" ? "on" : ""} onClick={() => onTab("chat")}>แชท</button>
+      <button type="button" role="tab" aria-selected={tab === "info"} className={tab === "info" ? "on" : ""} onClick={() => onTab("info")}
+        title={hint || undefined}>
+        ข้อมูลลูกค้า{alert && <span className="mtab-dot" aria-label={hint} />}
+      </button>
     </div>
   );
 }

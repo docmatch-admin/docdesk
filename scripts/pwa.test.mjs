@@ -77,8 +77,8 @@ test("layout: ลงทะเบียน SW ทุกหน้า · meta iPhon
   assert.match(root, /appleWebApp: \{ capable: true/);
   assert.match(root, /viewportFit: "cover"/);
   const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
-  assert.match(staff, /<MobileNav chatStaff=\{chatStaff\} calls=\{calls\} \/>/);
-  assert.match(staff, /<InstallApp \/>/);
+  assert.match(staff, /<MobileNav chatStaff=\{chatStaff\} calls=\{calls\} labUnmatched=\{labUnmatched\} \/>/);
+  assert.doesNotMatch(staff, /<InstallApp \/>/, "ไม่มีปุ่มติดตั้งถาวรในเมนู (ใช้แบนเนอร์ด้านบน ติดตั้งแล้วหายเอง)");
   const css = readFileSync("src/app/globals.css", "utf8");
   assert.match(css, /\.staff-root:has\(\.inbox\.has-chat\) \.mobile-tabbar \{ display: none; \}/, "ในห้องแชทซ่อนแถบล่าง");
   assert.match(css, /html\[data-mnav-open\] \.nav \{/, "เมนูเต็มใช้ .nav ตัวเดิม ไม่ render ซ้ำ");
@@ -168,6 +168,4 @@ test("ติดตั้งแอป: hook ดัก beforeinstallprompt ระ�
   assert.match(ui, /เพิ่มไปยังหน้าจอโฮม/);
   const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
   assert.match(staff, /<StaffBanners \/>/, "แบนเนอร์ติดตั้ง/แจ้งเตือน");
-  // อยู่นอก .nav-extra เพื่อให้เห็นแม้ย่อเมนู
-  assert.match(staff, /<\/div>\s*\{\/\*[^}]*\*\/\}\s*<InstallApp \/>\s*<NavToggle \/>/);
 });

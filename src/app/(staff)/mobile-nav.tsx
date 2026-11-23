@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ChatBadge } from "./chat-badge";
 import { AppointmentBadge } from "./appointment-badge";
+import { LabBadge } from "./lab-badge";
 import { Icon } from "./icons";
 
 type Counts = { mustCall: number; reschedule: number; total: number };
@@ -13,7 +14,7 @@ type Counts = { mustCall: number; reschedule: number; total: number };
  * แถบเมนูลอยด้านล่างบนมือถือ (≤ 899px): แชท · นัดหมาย · เมนู — ปุ่มที่เปิดอยู่แสดงชื่อ ปุ่มอื่นแสดงแค่ไอคอน
  * "เมนู" เปิดเมนูซ้ายเดิมเป็นแผ่นเลื่อนขึ้นจากด้านล่าง (ไม่ render ซ้ำ ใช้ .nav ตัวเดิม → เสียงเตือน/แจ้งเตือนไม่ซ้อน)
  */
-export function MobileNav({ chatStaff, calls }: { chatStaff: boolean; calls: Counts }) {
+export function MobileNav({ chatStaff, calls, labUnmatched = 0 }: { chatStaff: boolean; calls: Counts; labUnmatched?: number }) {
   const path = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -44,7 +45,7 @@ export function MobileNav({ chatStaff, calls }: { chatStaff: boolean; calls: Cou
           <span>นัดหมาย</span>
         </Link>
         <button type="button" aria-label="เมนู" className={inMore || open ? "on" : ""} aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
-          <Icon name="menu" size={22} /><span>เมนู</span>
+          <span className="mnav-icon"><Icon name="menu" size={22} />{chatStaff && <LabBadge initial={labUnmatched} channel="lab-badge-mobile" dot />}</span><span>เมนู</span>
         </button>
       </nav>
     </>

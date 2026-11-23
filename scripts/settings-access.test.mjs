@@ -72,7 +72,7 @@ test("หน้าตั้งค่าและเมนู: agent เข้า
   assert.match(page, /canOpenSettings\(me\.role\)/);
   assert.match(page, /<SettingsClient role=\{me\.role\} meId=\{me\.id\} \/>/);
   const layout = readFileSync("src/app/(staff)/layout.tsx", "utf8");
-  assert.match(layout, /\{canOpenSettings\(me\.role\) && <Link href="\/settings" title="ตั้งค่า">/);
+  assert.match(layout, /\{canOpenSettings\(me\.role\) && <NavLink href="\/settings" title="ตั้งค่า">/);
   assert.match(layout, /<span className="nav-label">ตั้งค่า<\/span>/);
   assert.doesNotMatch(layout, /ตั้งค่า AI/);
   assert.doesNotMatch(layout, /href="\/staff"/, "เมนูเจ้าหน้าที่ย้ายไปอยู่ใน ตั้งค่า → เจ้าหน้าที่");

@@ -12,7 +12,8 @@ export const CONV_COLUMNS = "*, contacts(display_name, avatar_url, language, pla
 const SECTIONS: InboxSection[] = ["waiting", "work", "recent"];
 
 export type QueueRow = Conversation & { queue?: InboxSection; work_kind?: string | null; work_label?: string | null; work_since?: string | null; assigned_to?: string | null };
-export interface InboxCounts { waiting: number; work: number }
+/** waiting/work = ตัวเลขหัวข้อช่วง · mine/unassigned = แชทที่ต้องทำ (รอตอบ+งานค้าง) ของฉัน / ที่ยังไม่มีคนรับ */
+export interface InboxCounts { waiting: number; work: number; mine: number; unassigned: number }
 export interface InboxListResult {
   rows: QueueRow[];
   /** หน้าถัดไป (null = หมดแล้ว) */
@@ -78,11 +79,16 @@ async function queueList(db: SupabaseClient, admin: SupabaseClient, p: InboxList
   };
   // ตัวเลขปุ่มกรอง + badge: query เดียวต่อชุด (แถวรอตอบ/งานค้างมีไม่มาก ใช้ partial index)
   const countRows = async (withFilters: boolean) => {
-    let q = (withFilters ? db : admin).from("conversations").select("queue").in("queue", ["waiting", "work"]).eq("archived", false);
+    let q = (withFilters ? db : admin).from("conversations").select("queue, assigned_to").in("queue", ["waiting", "work"]).eq("archived", false);
     if (withFilters) q = filtered(q);
     const { data } = await q.limit(5000);
-    const rows = (data ?? []) as { queue: string }[];
-    return { waiting: rows.filter((r) => r.queue === "waiting").length, work: rows.filter((r) => r.queue === "work").length };
+    const rows = (data ?? []) as { queue: string; assigned_to: string | null }[];
+    return {
+      waiting: rows.filter((r) => r.queue === "waiting").length,
+      work: rows.filter((r) => r.queue === "work").length,
+      mine: rows.filter((r) => r.assigned_to === p.meId).length,
+      unassigned: rows.filter((r) => !r.assigned_to).length,
+    };
   };
   const plain = !matched && !p.tags.length;
 
@@ -90,7 +96,7 @@ async function queueList(db: SupabaseClient, admin: SupabaseClient, p: InboxList
     const { data } = await time("row", db.from("conversations").select(CONV_COLUMNS).eq("id", p.id).maybeSingle() as unknown as Promise<{ data: QueueRow | null }>);
     const counts = await time("counts", countRows(!plain));
     const badge = plain ? counts : await time("badge", countRows(false));
-    return { rows: data ? [data] : [], next: null, counts, badge: { ...badge, total: badge.waiting + badge.work }, mode: "queue" };
+    return { rows: data ? [data] : [], next: null, counts, badge: { waiting: badge.waiting, work: badge.work, total: badge.waiting + badge.work }, mode: "queue" };
   }
 
   const secs = sectionsFor(p.filter);
@@ -107,6 +113,7 @@ async function queueList(db: SupabaseClient, admin: SupabaseClient, p: InboxList
       // แชทเก่า (archived) ปิดอยู่เสมอ อยู่ในช่วงล่าสุดเท่านั้น
       q = s === "recent" ? q.or("status.eq.closed,archived.eq.false") : q.eq("archived", false);
       if (p.filter === "mine") q = q.eq("assigned_to", p.meId);
+      else if (p.filter === "unassigned") q = q.is("assigned_to", null);
       q = filtered(q);
       const { data } = await q.order("sort_key", { ascending: s !== "recent", nullsFirst: false }).order("id").range(start, start + need);
       const got = (data ?? []) as unknown as QueueRow[];
@@ -125,7 +132,7 @@ async function queueList(db: SupabaseClient, admin: SupabaseClient, p: InboxList
     plain ? Promise.resolve(null) : time("badge", countRows(false)),
   ]);
   const b = badge ?? counts;
-  return { rows, next, counts, badge: { ...b, total: b.waiting + b.work }, mode: "queue" };
+  return { rows, next, counts, badge: { waiting: b.waiting, work: b.work, total: b.waiting + b.work }, mode: "queue" };
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +165,13 @@ async function computeList(db: SupabaseClient, admin: SupabaseClient, p: InboxLi
   };
   const totals = inboxSections(all, work);
   const sections = inboxSections(all, work, { filter: p.filter, meId: p.meId });
-  const counts = { waiting: totals.waiting.length, work: totals.work.length };
+  const needs = [...totals.waiting, ...totals.work] as QueueRow[];
+  const counts = {
+    waiting: totals.waiting.length,
+    work: totals.work.length,
+    mine: needs.filter((r) => r.assigned_to === p.meId).length,
+    unassigned: needs.filter((r) => !r.assigned_to).length,
+  };
   const badge = await time("badge", badgeCounts(admin, work));
 
   if (p.id) {

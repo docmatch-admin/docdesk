@@ -401,6 +401,8 @@ test("คิวงาน: จัดช่วง + เรียง (รอตอ�
   assert.deepEqual(flow.inboxSections(rows, work, { filter: "work" }).waiting, []);
   const mine = flow.inboxSections(rows, work, { filter: "mine", meId: "me" });
   assert.deepEqual([...mine.waiting, ...mine.work, ...mine.recent].map((r) => r.id), ["w3", "task", "done"], "ของฉัน = มอบหมายให้ฉัน ทั้ง 3 ช่วง");
+  const un = flow.inboxSections(rows, work, { filter: "unassigned" });
+  assert.ok([...un.waiting, ...un.work, ...un.recent].every((r) => !r.assigned_to), "ยังไม่มีคนรับ = ไม่มีผู้ดูแล");
   // ป้ายเวลารอ: <5 เทา · 5–15 เหลือง · >15 แดง
   assert.equal(flow.waitBadge(t(4), Date.parse("2026-11-18T10:00:00Z")).level, "normal");
   assert.equal(flow.waitBadge(t(5), Date.parse("2026-11-18T10:00:00Z")).level, "warn");
@@ -564,6 +566,7 @@ test("queueSections: ช่วงจากแถว (รอตอบตัดส
   assert.deepEqual(s.work.map((r) => r.id), ["k1", "k2"]);
   assert.deepEqual(s.recent.map((r) => r.id), ["x", "r1"]);
   assert.deepEqual(flow.queueSections(rows, { filter: "mine", meId: "me" }).work.map((r) => r.id), ["k2"]);
+  assert.deepEqual(flow.queueSections(rows, { filter: "unassigned" }).work.map((r) => r.id), ["k1"]);
   assert.deepEqual(flow.queueSections(rows, { filter: "waiting" }).recent, []);
 });
 
@@ -581,7 +584,9 @@ test("/api/inbox/list (มี migration 063): ทีละหน้า ข้า
   assert.deepEqual(p1.rows.map((r) => r.id), ["w1", "w2", "k1"]);
   assert.equal(p1.rows[2].work_label, "ยืนยันนัด 20 พ.ย. 09:00");
   assert.equal(p1.next, "recent:0");
-  assert.deepEqual(p1.counts, { waiting: 2, work: 1 });
+  assert.deepEqual(p1.counts, { waiting: 2, work: 1, mine: 1, unassigned: 2 }, "ของฉัน/ยังไม่มีคนรับ = แชทที่ต้องทำ (รอตอบ+งานค้าง)");
+  const un = await getList("filter=unassigned");
+  assert.deepEqual(un.rows.map((r) => r.id), ["w1", "w2", "r1", "r2"], "ยังไม่มีคนรับ = ไม่มีผู้ดูแล ทั้ง 3 ช่วง");
   assert.deepEqual(p1.badge, { waiting: 2, work: 1, total: 3 });
   const p2 = await getList(`limit=3&cursor=${p1.next}`);
   assert.deepEqual(p2.rows.map((r) => r.id), ["r1", "r2"], "แชทเก่าที่ปิดแล้วอยู่ช่วงล่าสุด");
@@ -611,7 +616,7 @@ test("/api/inbox/list (ยังไม่ได้รัน 063): คำนว�
   assert.deepEqual(j.rows.map((r) => [r.id, r.queue]), [["w1", "waiting"], ["k1", "work"]]);
   assert.equal(j.rows[1].work_label, "ยืนยันนัด 20 พ.ย. 09:00");
   assert.equal(j.next, "recent:0");
-  assert.deepEqual(j.counts, { waiting: 1, work: 1 });
+  assert.deepEqual(j.counts, { waiting: 1, work: 1, mine: 0, unassigned: 2 });
   assert.deepEqual((await getList(`cursor=${j.next}`)).rows.map((r) => r.id), ["r1"]);
   list.resetInboxListCache();
 });

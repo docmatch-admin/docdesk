@@ -25,7 +25,6 @@ import { AppointmentsBlock } from "./appointments-block";
 import { LabResultsBlock } from "./lab-results-block";
 import { BookingsBlock, type BookingCardRow } from "./booking-card";
 import { Icon } from "../icons";
-import { LabPanel } from "./lab-panel";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import { TeamPanel } from "./team-panel";
@@ -85,7 +84,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   // รายการเดียวแบบคิวงาน 3 ช่วง (รอตอบ / งานค้าง / ล่าสุด) · ปุ่มกรอง ทั้งหมด / รอตอบ / งานค้าง / ของฉัน
   const [qfilter, setQfilter] = useState<InboxFilter>("all");
   // ตัวเลขปุ่มกรอง (ทั้งหมดใน server ไม่ใช่แค่ที่โหลดมา) · หน้าถัดไป · โหมดของ server (queue = migration 063)
-  const [qcounts, setQcounts] = useState({ waiting: 0, work: 0 });
+  const [qcounts, setQcounts] = useState({ waiting: 0, work: 0, mine: 0, unassigned: 0 });
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const modeRef = useRef<InboxListResult["mode"]>("queue");
   const badgeRef = useRef({ waiting: 0, work: 0, total: 0 });
@@ -104,7 +103,6 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const searchRef = useRef("");
   const loadSeq = useRef(0);
   const [closing, setClosing] = useState(false);
-  const [labOpen, setLabOpen] = useState(false);
   // ไม่มีสิทธิ์: เห็นแค่ว่ามีแชทลับรอตอบ
   const [maskedWaiting, setMaskedWaiting] = useState<{ key: string; waiting_since: string | null }[]>([]);
   const [acked, setAcked] = useState(me.sensitiveAcked);
@@ -254,7 +252,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const shiftCount = useCallback((from: InboxSection, to: InboxSection) => {
     if (from === to) return;
     const d = (k: "waiting" | "work", c: { waiting: number; work: number }) => (from === k ? -1 : 0) + (to === k ? 1 : 0) + c[k];
-    setQcounts((c) => ({ waiting: Math.max(0, d("waiting", c)), work: Math.max(0, d("work", c)) }));
+    setQcounts((c) => ({ ...c, waiting: Math.max(0, d("waiting", c)), work: Math.max(0, d("work", c)) }));
     const b = badgeRef.current;
     const nb = { waiting: Math.max(0, d("waiting", b)), work: Math.max(0, d("work", b)) };
     badgeRef.current = { ...nb, total: nb.waiting + nb.work };
@@ -306,6 +304,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
     // แชทใหม่ / ยังไม่อยู่ในรายการ: ขอแถวเดียว (ได้ตัวเลขล่าสุดมาด้วย) · ค้นหาอยู่ = รอรอบโหลดเต็ม
     if (searchRef.current.trim() || !tagsOk(n.tags) || (n.status === "open" && n.archived) || fetchingRow.current.has(id)) return;
     if (qfilterRef.current === "mine" && n.assigned_to !== me.id) return;
+    if (qfilterRef.current === "unassigned" && n.assigned_to) return;
     // ช่วงล่าสุดที่ยังเลื่อนไม่ถึง: ไม่ต้องดึงมาแทรก
     if (n.queue === "recent" && !(n.status === "open" && n.last_direction === "in") && nextCursor) return;
     fetchingRow.current.add(id);
@@ -511,7 +510,6 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   useEffect(() => {
     if (!selectedId) return;
     setClosing(false);
-    setLabOpen(false);
     setBookings([]);
     setCancelBookingId(null);
     setRevealed(false);
@@ -871,16 +869,15 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="ค้นหาชื่อ ข้อความ หรือแท็ก…" aria-label="ค้นหาแชท" />
         </div>
-        {/* ปุ่มกรอง 4 ปุ่มเท่ากัน อยู่ที่เดิมเสมอ */}
-        <div className="q-filters" role="group" aria-label="กรองแชท">
+        {/* ขอบเขตแชท 3 ช่อง อยู่ที่เดิมเสมอ · ช่วง รอตอบ / งานค้าง / ล่าสุด ดูจากหัวข้อในรายการ (ไม่ซ้ำกัน) */}
+        <div className="q-filters" role="group" aria-label="ขอบเขตแชท">
           {([
             ["all", "ทั้งหมด", 0],
-            ["waiting", "รอตอบ", qcounts.waiting + maskedWaiting.length],
-            ["work", "งานค้าง", qcounts.work],
-            ["mine", "ของฉัน", 0],
+            ["mine", "ของฉัน", qcounts.mine],
+            ["unassigned", "ยังไม่มีคนรับ", qcounts.unassigned],
           ] as [InboxFilter, string, number][]).map(([key, label, n]) => (
             <button key={key} type="button" aria-pressed={qfilter === key} className={`q-filter ${key} ${qfilter === key ? "on" : ""}`} onClick={() => setQfilter(key)}>
-              {label}{n > 0 && <b className={`badge ${key === "waiting" ? "red" : ""}`}>{n}</b>}
+              {label}{n > 0 && <b className="badge red">{n}</b>}
             </button>
           ))}
         </div>
@@ -905,14 +902,14 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
           if (qfilter === "work" && sec !== "work") return null;
           const title = sec === "waiting" ? "รอตอบ" : sec === "work" ? "งานค้าง" : "ล่าสุด";
           // ตัวเลขทั้งหมดใน server (โหลดมาทีละหน้า) · ล่าสุด = ที่โหลดแล้ว + "+" ถ้ายังมีอีก
-          const n = qfilter !== "mine" && sec !== "recent" ? Math.max(qcounts[sec], rows.length) + masked.length : rows.length + masked.length;
+          const n = (qfilter === "all" || qfilter === "waiting" || qfilter === "work") && sec !== "recent" ? Math.max(qcounts[sec], rows.length) + masked.length : rows.length + masked.length;
           const more = sec === "recent" && !!nextCursor ? "+" : "";
           return (
             <section key={sec} className={`q-section ${sec}`} aria-label={title}>
               <h3 className="q-head">{title} <span className="q-count">{n}{more}</span></h3>
               {masked.map((m) => (
                 <div key={m.key} className="conv q-row masked" aria-label="แชทลับรอตอบ">
-                  <span className="conv-avatar"><div className="avatar">🔒</div></span>
+                  <span className="conv-avatar"><div className="avatar"><Icon name="lock" /></div></span>
                   <div className="q-main">
                     <div className="q-line1"><span className="name">แชทลับ</span></div>
                     <div className="q-line2"><WaitChip since={m.waiting_since} /><span className="muted small">รอเจ้าหน้าที่ที่มีสิทธิ์ตอบ</span></div>
@@ -930,7 +927,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                     onClick={() => setSelectedId(c.id)}>
                     {/* รูปโปรไฟล์เดิม + จุดสีช่องทางมุมขวาล่าง */}
                     <span className="conv-avatar" title={c.channels ? CHANNEL_LABEL[c.channels.type] : ""}>
-                      {c.sensitive ? <div className="avatar">🔒</div> : <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />}
+                      {c.sensitive ? <div className="avatar"><Icon name="lock" /></div> : <Avatar name={c.contacts?.display_name} url={c.contacts?.avatar_url} />}
                       <span className={`ch-dot q-ch ch-${c.channels?.type ?? "other"}`} aria-hidden="true" />
                     </span>
                     <div className="q-main">
@@ -1030,7 +1027,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               <MobileChatTabs tab={mtab} onTab={setMtab} appointments={apptSummary?.count ?? 0} tasks={openTasks} notes={noteCount} />
             )}
             {!selected.archived && apptSummary?.next && mtab === "chat" && (
-              <NextAppointmentStrip next={apptSummary.next} blurred={blurred} onOpen={() => setMtab("appt")} />
+              <NextAppointmentStrip next={apptSummary.next} blurred={blurred} onOpen={() => setMtab("info")} />
             )}
 
             <details className="customer-panel">
@@ -1117,7 +1114,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             {/* ---------- คำแนะนำ ---------- */}
             <div className={`suggest ${blurred ? "sensitive-blur" : ""}`}>
               <div className="suggest-head">
-                <span>💡 คำตอบแนะนำ <span className="muted small">(Alt+1/2/3)</span></span>
+                <span className="suggest-title"><Icon name="sparkle" /> คำตอบแนะนำ <span className="muted small">(Alt+1/2/3)</span></span>
                 {suggestion?.needs_human && <span className="chip red">⚠️ เรื่องอาการ/ยา/ร้องเรียน — โปรดตรวจก่อนส่ง</span>}
                 <button className="btn ghost small" onClick={refreshSuggestions} disabled={suggesting}>
                   {suggesting ? "กำลังคิด…" : "↻ แนะนำใหม่"}
@@ -1150,10 +1147,6 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
             {/* ---------- ช่องพิมพ์ ---------- */}
             <div className="composer">
-              {labOpen && (
-                <LabPanel isAdmin={isAdmin} onClose={() => setLabOpen(false)}
-                  onInsert={(t) => { setText((prev) => (prev.trim() ? `${prev.trim()}\n${t}` : t)); setChosen(null); }} />
-              )}
               {quickMedia.length > 0 && (
                 <div className="quick-bar" aria-label="รูปที่ใช้บ่อย">
                   {quickMedia.map((q) => (
@@ -1168,7 +1161,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               {attachment && (
                 <div className="attach-preview">
                   {attachment.kind === "file" ? (
-                    <div className="file-chip" title={attachment.name}>📄 {attachment.name}{attachment.size ? ` · ${formatFileSize(attachment.size)}` : ""}</div>
+                    <div className="file-chip" title={attachment.name}><Icon name="file" /> {attachment.name}{attachment.size ? ` · ${formatFileSize(attachment.size)}` : ""}</div>
                   ) : (
                     <img src={attachment.previewUrl} alt={attachment.name} />
                   )}
@@ -1178,7 +1171,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                   <button className="btn ghost small" onClick={() => { setAttachment(null); setCaption(""); }}>ยกเลิก</button>
                 </div>
               )}
+              {/* แถวเดียว: แนบ (ซ้าย) · ช่องพิมพ์ · ส่ง (ขวา) แบบ LINE / WhatsApp */}
               <div className="composer-input">
+              <button type="button" className="c-attach" title="แนบรูปหรือ PDF (ลากวาง หรือ Ctrl+V ได้)" aria-label="แนบรูปหรือ PDF"
+                onClick={() => fileInput.current?.click()}><Icon name="paperclip" size={20} /></button>
+              <input ref={fileInput} type="file" accept="image/*,.heic,.heif,application/pdf,.pdf" hidden
+                onChange={(e) => { attachFile(e.target.files?.[0]); e.target.value = ""; }} />
               <textarea
                 value={text}
                 onChange={(e) => { setText(e.target.value); if (!e.target.value.trim()) setCancelBookingId(null); }}
@@ -1186,24 +1184,28 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 onPaste={onPaste}
                 placeholder={customerLang !== "th" && !rawMode ? "พิมพ์ภาษาไทย ระบบจะแปลให้ลูกค้า… (Ctrl+Enter ส่ง)" : "พิมพ์ข้อความ… (Ctrl+Enter ส่ง)"}
               />
-              {/* มือถือ: ปุ่มส่งข้างช่องพิมพ์ (จอใหญ่ใช้ปุ่มส่งด้านล่างเหมือนเดิม) */}
+              {/* มือถือ: ปุ่มส่งเป็นไอคอน · จอใหญ่: ปุ่มส่งมีข้อความ (foot-send) */}
               <button type="button" className="m-send" aria-label={customerLang !== "th" && !rawMode ? "แปลและส่ง" : "ส่ง"}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={attachment ? sendAttachment : send}
                 disabled={sending || metaWindow === "closed" || (!attachment && !text.trim())}>
                 <Icon name="send" size={20} />
               </button>
+              {attachment ? (
+                <button className="btn primary foot-send" onClick={sendAttachment} disabled={sending || metaWindow === "closed"}>
+                  {sending ? "กำลังส่ง…" : attachment.kind === "file" ? "ส่งไฟล์" : "ส่งรูป"}
+                </button>
+              ) : (
+                <button className="btn primary foot-send" onClick={send} disabled={sending || !text.trim() || metaWindow === "closed"}>
+                  {sending ? "กำลังส่ง…" : customerLang !== "th" && !rawMode ? `แปล & ส่ง` : "ส่ง"}
+                </button>
+              )}
               </div>
               {sendError && (
                 <div className="send-error" role="alert">⛔ {sendError} — ข้อความยังอยู่ในช่องพิมพ์ ยังไม่ถึงลูกค้า{/โควตา LINE/.test(sendError) ? " (ตอบได้อีกครั้งเมื่อลูกค้าทักมาใหม่ หรือโทรหาลูกค้า)" : ""}</div>
               )}
               <div className="composer-foot">
                 <div className="muted small">
-                  <button className="btn ghost small attach-btn" title="แนบรูปหรือ PDF (ลากวาง หรือ Ctrl+V ได้)" aria-label="แนบรูปหรือ PDF"
-                    onClick={() => fileInput.current?.click()}>📎</button>
-                  <button className="btn ghost small attach-btn" aria-expanded={labOpen} onClick={() => setLabOpen(!labOpen)}>💰<span className="lab-label"> ราคาแล็บ</span></button>
-                  <input ref={fileInput} type="file" accept="image/*,.heic,.heif,application/pdf,.pdf" hidden
-                    onChange={(e) => { attachFile(e.target.files?.[0]); e.target.value = ""; }} />
                   {cancelBookingId && "📅 ส่งข้อความนี้แล้วนัดจะถูกยกเลิก "}
                   {chosen != null && (edited ? "✏️ แก้จากคำแนะนำ — ระบบจะจำสำนวนนี้" : "✅ ใช้คำแนะนำตามเดิม")}
                   {customerLang !== "th" && (
@@ -1218,15 +1220,6 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 )}
                 {quotaHint === "maybe" && (
                   <span className="quota-hint maybe" title="ลูกค้าทักมาเกิน 1 นาที ระบบจะลองตอบแบบ reply (ฟรี) ถ้า LINE ไม่รับจะส่งแบบ push นับโควตา">📊 อาจนับโควตา</span>
-                )}
-                {attachment ? (
-                  <button className="btn primary foot-send" onClick={sendAttachment} disabled={sending || metaWindow === "closed"}>
-                    {sending ? "กำลังส่ง…" : attachment.kind === "file" ? "ส่งไฟล์" : "ส่งรูป"}
-                  </button>
-                ) : (
-                  <button className="btn primary foot-send" onClick={send} disabled={sending || !text.trim() || metaWindow === "closed"}>
-                    {sending ? "กำลังส่ง…" : customerLang !== "th" && !rawMode ? `แปล & ส่ง` : "ส่ง"}
-                  </button>
                 )}
               </div>
             </div>
@@ -1352,7 +1345,7 @@ function ChatFile({ message: m }: { message: Message }) {
   }
   return (
     <button className="chat-file" onClick={open} title="เปิดไฟล์" aria-label={`เปิดไฟล์ ${name}`}>
-      <span className="chat-file-icon" aria-hidden="true">📄</span>
+      <span className="chat-file-icon" aria-hidden="true"><Icon name="file" size={20} /></span>
       <span className="chat-file-text">
         <span className="chat-file-name">{name}</span>
         <span className="chat-file-size">{formatFileSize(m.file_size) || "PDF"}</span>
