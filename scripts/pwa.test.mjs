@@ -89,7 +89,11 @@ test("layout: ลงทะเบียน SW ทุกหน้า · meta iPhon
   assert.match(disp, /\{showInstall && \(/, "หน้าตั้งค่า: แถวติดตั้งเฉพาะยังไม่ได้ติดตั้ง");
   assert.match(disp, /<InstallApp variant="settings" \/>/);
   assert.match(css, /\.staff-root:has\(\.inbox\.has-chat\) \.mobile-tabbar \{ display: none; \}/, "ในห้องแชทซ่อนแถบล่าง");
-  assert.match(css, /html\[data-mnav-open\] \.nav \{/, "เมนูเต็มใช้ .nav ตัวเดิม ไม่ render ซ้ำ");
+  assert.match(css, /\.mobile-tabbar \{ display: grid;[^}]*height: calc\(68px/, "แถบล่างติดขอบ สูง 68px ตามแบบ");
+  const nav = readFileSync("src/app/(staff)/mobile-nav.tsx", "utf8");
+  assert.match(nav, /href="\/menu"/, "ปุ่มเมนูไปหน้าเมนู");
+  const menu = readFileSync("src/app/(staff)/menu/page.tsx", "utf8");
+  assert.doesNotMatch(menu, /WaitingAlert/, "หน้าเมนูไม่มีตัวเล่นเสียงซ้ำกับเมนูซ้าย");
   const badge = readFileSync("src/app/(staff)/mobile-nav.tsx", "utf8");
   assert.match(badge, /channel="appointment-badge-mobile"/, "badge มือถือใช้ realtime channel แยก ไม่ชนกับเมนูซ้าย");
 });

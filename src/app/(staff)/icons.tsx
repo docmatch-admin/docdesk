@@ -13,6 +13,7 @@ const PATHS = {
   unlock: "M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM8 11V8a4 4 0 0 1 7.7-1.5",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1",
   chevronLeft: "M15 5l-7 7 7 7",
+  chevronRight: "M9 6l6 6-6 6",
   check: "M5 12l5 5 9-10",
   pencil: "M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16zM13.5 6.5l4 4",
   x: "M6 6l12 12M18 6L6 18",
