@@ -1715,7 +1715,9 @@ html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-conte
   /* AI แนะนำ: การ์ดเลื่อนซ้ายขวา แตะเพื่อใส่ในช่องพิมพ์ */
   .suggest { padding: 6px 12px; }
   .suggest-head { margin-bottom: 4px; font-size: 12px; font-weight: 600; gap: 6px; color: var(--muted-strong); }
-  .suggest-head > span:first-child .muted { display: none; }
+  /* จอมือถือ: หัวข้อต้องอยู่บรรทัดเดียวไม่ล้น — ย่อข้อความ (ซ่อน Alt+1/2, "โปรด", "ส่งตามที่พิมพ์", คำว่า แนะนำใหม่) */
+  .suggest-title .muted, .suggest-head .hide-sm { display: none; }
+  .suggest-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .suggest-head .btn { min-height: 26px; padding: 0 8px; font-size: 12px; }
   .suggest .ai-tags { display: none; }
   .suggest-head .raw { font-size: 12px; }

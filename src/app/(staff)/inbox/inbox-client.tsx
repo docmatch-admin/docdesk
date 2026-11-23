@@ -1120,7 +1120,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 </button>
                 <span className="suggest-title"><Icon name="sparkle" /> คำตอบแนะนำ <span className="muted small">(Alt+1/2)</span></span>
                 {/* เตือนเรื่องอาการ/ยา: แสดงแม้พับ (ความปลอดภัย) */}
-                {suggestion?.needs_human && <span className="chip red needs-human" title="เรื่องอาการ/ยา/ร้องเรียน — โปรดตรวจก่อนส่ง"><Icon name="alert" size={14} /> โปรดตรวจก่อนส่ง</span>}
+                {suggestion?.needs_human && <span className="chip red needs-human" title="เรื่องอาการ/ยา/ร้องเรียน — โปรดตรวจก่อนส่ง"><Icon name="alert" size={14} /> <span className="hide-sm">โปรด</span>ตรวจก่อนส่ง</span>}
                 {suggestOpen && suggestedTags.length > 0 && (
                   <span className="ai-tags" aria-label="แท็กที่ AI แนะนำ">
                     {suggestedTags.map((t) => (
@@ -1131,12 +1131,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 {customerLang !== "th" && (
                   <label className="raw">
                     <input type="checkbox" checked={rawMode} onChange={(e) => setRawMode(e.target.checked)} />
-                    ส่งตามที่พิมพ์ (ไม่แปล)
+                    <span className="hide-sm">ส่งตามที่พิมพ์ </span>(ไม่แปล)
                   </label>
                 )}
                 {suggestOpen && (
-                  <button className="btn ghost small suggest-refresh" onClick={refreshSuggestions} disabled={suggesting}>
-                    {suggesting ? "กำลังคิด…" : "↻ แนะนำใหม่"}
+                  <button className="btn ghost small suggest-refresh" onClick={refreshSuggestions} disabled={suggesting} aria-label="แนะนำใหม่" title="แนะนำใหม่">
+                    {suggesting ? "กำลังคิด…" : <>↻<span className="hide-sm"> แนะนำใหม่</span></>}
                   </button>
                 )}
               </div>

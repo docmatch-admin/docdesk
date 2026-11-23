@@ -647,7 +647,7 @@ test("กล่องคำตอบแนะนำ: หัวข้อบรร
   const src = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
   const head = src.slice(src.indexOf('<div className="suggest-head">'), src.indexOf('<div className="sugg-list">'));
   assert.match(head, /className="suggest-toggle" aria-expanded=\{suggestOpen\}/, "ปุ่มพับอยู่ซ้ายสุดของหัวข้อ");
-  assert.match(head, /ส่งตามที่พิมพ์ \(ไม่แปล\)/, "ติ๊กไม่แปลย้ายมาที่หัวข้อ");
+  assert.match(head, /ส่งตามที่พิมพ์ <\/span>\(ไม่แปล\)/, "ติ๊กไม่แปลย้ายมาที่หัวข้อ (มือถือเหลือ \"(ไม่แปล)\")");
   assert.match(head, /suggestion\?\.needs_human &&/, "คำเตือนเรื่องอาการแสดงแม้พับ");
   assert.match(src, /\{suggestOpen && <div className="sugg-list">/, "พับแล้วซ่อนรายการคำตอบ");
   const foot = src.slice(src.indexOf('<div className="composer-foot">'));
