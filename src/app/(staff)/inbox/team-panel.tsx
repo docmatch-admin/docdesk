@@ -17,7 +17,7 @@ const timeTh = (iso: string) => thaiDateTime(iso);
  * งานของทีมและคอมเมนต์ภายใน: อ่านผ่าน RLS เขียนผ่าน API
  * ทุกอย่างในกล่องนี้ลูกค้าไม่เห็น เพราะเก็บแยกจาก messages
  */
-export function TeamPanel({ conversationId, staff, sensitive, closed = false, onChanged, onError, onNoteCount }: {
+export function TeamPanel({ conversationId, staff, sensitive, closed = false, onChanged, onError, onNoteCount, onFirstTask, children }: {
   conversationId: string;
   /** แชทปิดแล้ว (เสร็จแล้ว): ซ่อนงานที่เสร็จแล้วทันที (ลบถาวรเมื่อปิดครบระยะเก็บ) */
   closed?: boolean;
@@ -27,9 +27,14 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
   onError: (msg: string) => void;
   /** จำนวนคอมเมนต์ภายในของแชท (ป้ายบนแท็บคอมเมนต์ในมือถือ) */
   onNoteCount?: (n: number) => void;
+  /** งานค้างงานแรก (แถบงานค้างในแท็บแชทมือถือ) */
+  onFirstTask?: (text: string | null) => void;
+  /** แทรกระหว่างงานของทีมกับความเห็นภายใน (ประวัติที่คลินิก) ตามลำดับในแบบ */
+  children?: React.ReactNode;
 }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [adding, setAdding] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
   const [newTask, setNewTask] = useState("");
   const [assignee, setAssignee] = useState("");
@@ -87,7 +92,7 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
     if (!newTask.trim()) return;
-    if (await call("tasks", "POST", { text: newTask, assignee_id: assignee || null })) { setNewTask(""); setAssignee(""); }
+    if (await call("tasks", "POST", { text: newTask, assignee_id: assignee || null })) { setNewTask(""); setAssignee(""); setAdding(false); }
   }
 
   async function addNote(e: React.FormEvent, taskId: string | null) {
@@ -105,6 +110,8 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
   const doneCount = finished.length;
   const chatNotes = notes.filter((n) => !n.task_id);
   useEffect(() => { onNoteCount?.(chatNotes.length); }, [chatNotes.length, onNoteCount]);
+  const firstPending = pending[0]?.text ?? null;
+  useEffect(() => { onFirstTask?.(firstPending); }, [firstPending, onFirstTask]);
   const threadOf = (id: string) => notes.filter((n) => n.task_id === id);
   const who = (id: string | null) => (id && name.get(id)) || "เจ้าหน้าที่";
 
@@ -117,14 +124,16 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
           <label className="task-check">
             <input type="checkbox" checked={t.done} disabled={busy}
               onChange={(e) => call("tasks", "PATCH", { task_id: t.id, done: e.target.checked })} />
-            <span className="task-text">{t.text}</span>
+            <span className="task-body">
+              <span className="task-text">{t.text}</span>
+              <span className="task-sub">
+                {t.done && t.done_at ? `เสร็จโดย ${who(t.done_by)} · ${timeTh(t.done_at)}` : t.assignee_id ? who(t.assignee_id) : "ไม่ระบุผู้รับ"}
+                {" · "}
+                <button type="button" className="link-btn task-thread-btn" aria-expanded={expanded}
+                  onClick={(e) => { e.preventDefault(); setOpenThread(expanded ? null : t.id); setReply(""); }}>{expanded ? "ซ่อนความเห็น" : thread.length ? `${thread.length} ความเห็น` : "เพิ่มความเห็น"}</button>
+              </span>
+            </span>
           </label>
-          <div className="task-meta muted small">
-            {t.assignee_id && <span>ผู้รับ: {who(t.assignee_id)}</span>}
-            {t.done && t.done_at && <span>เสร็จโดย {who(t.done_by)} · {timeTh(t.done_at)}</span>}
-            <button type="button" className="link-btn" aria-expanded={expanded}
-              onClick={() => { setOpenThread(expanded ? null : t.id); setReply(""); }}>{expanded ? "ซ่อนคอมเมนต์" : thread.length ? `คอมเมนต์ ${thread.length}` : "เพิ่มคอมเมนต์"}</button>
-          </div>
           {!expanded && latest && (
             <div className="task-latest small"><b>{who(latest.author_id)}:</b> {latest.body}</div>
           )}
@@ -137,7 +146,7 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
                 </div>
               ))}
               <form className="inline-form" onSubmit={(e) => addNote(e, t.id)}>
-                <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="อัปเดตงานนี้…" aria-label="อัปเดตงานนี้" maxLength={2000} />
+                <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder="ความเห็นต่องานนี้…" aria-label="ความเห็นต่องานนี้" maxLength={2000} />
                 <button className="icon-btn dark" disabled={busy || !reply.trim()} aria-label="ส่งคอมเมนต์งานนี้" title="ส่ง"><Icon name="send" /></button>
               </form>
             </div>
@@ -149,10 +158,7 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
   return (
     <>
       <section className="side-block tp-tasks">
-        <div className="side-head">
-          <h3>งานของทีม</h3>
-          {pending.length > 0 && <span className="chip tiny orange">ค้าง {pending.length}</span>}
-        </div>
+        <h3 className="side-title">งานของทีม{pending.length > 0 ? ` (ค้าง ${pending.length})` : ""}</h3>
         {pending.length === 0 && (closed || finished.length === 0) && <div className="muted small">{closed && finished.length ? "ไม่มีงานค้าง (งานที่เสร็จแล้วถูกซ่อนเมื่อปิดแชท)" : "ยังไม่มีงานค้าง"}</div>}
         <ul className="task-list">
           {pending.map(renderTask)}
@@ -163,35 +169,41 @@ export function TeamPanel({ conversationId, staff, sensitive, closed = false, on
             <ul className="task-list">{finished.map(renderTask)}</ul>
           </details>
         )}
-        <form className="task-form" onSubmit={addTask}>
-          <div className="inline-form">
-            <input value={newTask} onChange={(e) => setNewTask(e.target.value)} placeholder="เพิ่มงาน เช่น โทรยืนยันนัด" aria-label="เพิ่มงาน" maxLength={500} />
-            <button className="icon-btn dark" disabled={busy || !newTask.trim()} aria-label="เพิ่มงาน" title="เพิ่มงาน"><Icon name="plus" /></button>
-          </div>
-          <select value={assignee} onChange={(e) => setAssignee(e.target.value)} aria-label="ผู้รับงาน">
-            <option value="">ไม่ระบุผู้รับ</option>
-            {assignable.map((s) => <option key={s.id} value={s.id}>{s.display_name}</option>)}
-          </select>
-        </form>
+        {adding ? (
+          <form className="task-form" onSubmit={async (e) => { await addTask(e); }}>
+            <div className="inline-form">
+              <input autoFocus value={newTask} onChange={(e) => setNewTask(e.target.value)} placeholder="เพิ่มงาน เช่น โทรยืนยันนัด" aria-label="เพิ่มงาน" maxLength={500}
+                onKeyDown={(e) => { if (e.key === "Escape") setAdding(false); }} />
+              <button className="icon-btn dark" disabled={busy || !newTask.trim()} aria-label="เพิ่มงาน" title="เพิ่มงาน"><Icon name="plus" /></button>
+            </div>
+            <select value={assignee} onChange={(e) => setAssignee(e.target.value)} aria-label="ผู้รับงาน">
+              <option value="">ไม่ระบุผู้รับ</option>
+              {assignable.map((s) => <option key={s.id} value={s.id}>{s.display_name}</option>)}
+            </select>
+          </form>
+        ) : (
+          <button type="button" className="task-add" onClick={() => setAdding(true)}>+ เพิ่มงาน</button>
+        )}
       </section>
 
+      {children}
+
       <section className="side-block internal-notes">
-        <div className="side-head">
-          <h3>คอมเมนต์ภายใน</h3>
-          <span className="chip internal-badge">ลูกค้าไม่เห็น</span>
-        </div>
-        {chatNotes.length === 0 && <div className="muted small">ยังไม่มีคอมเมนต์</div>}
+        <h3 className="side-title">ความเห็นภายใน</h3>
+        {chatNotes.length === 0 && <div className="muted small">ยังไม่มีความเห็น (ลูกค้าไม่เห็น)</div>}
         {chatNotes.map((n) => (
-          <div key={n.id} className="note small">
-            <div className="note-by muted">{who(n.author_id)} · {timeTh(n.created_at)}</div>
+          <div key={n.id} className="note">
             <div className="note-body">{n.body}</div>
+            <div className="note-by">{who(n.author_id)} · {timeTh(n.created_at)}</div>
           </div>
         ))}
-        <form className="inline-form" onSubmit={(e) => addNote(e, null)}>
-          <textarea rows={2} value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="เขียนโน้ตถึงทีม ลูกค้าไม่เห็น" aria-label="เขียนโน้ตถึงทีม" maxLength={2000} />
-          <button className="icon-btn dark" disabled={busy || !newNote.trim()} aria-label="บันทึกโน้ตถึงทีม" title="บันทึกโน้ต"><Icon name="send" /></button>
-        </form>
       </section>
+
+      {/* ช่องเขียนความเห็นติดล่างแผง (ตามแบบ) · ลูกค้าไม่เห็น */}
+      <form className="note-compose" onSubmit={(e) => addNote(e, null)}>
+        <input value={newNote} onChange={(e) => setNewNote(e.target.value)} placeholder="เขียนความเห็นถึงทีม…" aria-label="เขียนความเห็นภายใน (ลูกค้าไม่เห็น)" maxLength={2000} />
+        <button className="note-send" disabled={busy || !newNote.trim()} aria-label="ส่งความเห็น" title="ส่งความเห็น (ลูกค้าไม่เห็น)"><Icon name="send" size={18} /></button>
+      </form>
     </>
   );
 }

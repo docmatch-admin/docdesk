@@ -55,7 +55,7 @@ export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, initialMod
   canOpenChat: boolean;
   isAdmin?: boolean;
   /** เปิดมาที่โหมดแก้ไขเลย (ปุ่มดินสอบนการ์ดนัด) */
-  initialMode?: "view" | "edit";
+  initialMode?: "view" | "edit" | "cancel";
   onClose: () => void;
   onChanged: (message?: string) => void;
 }) {
@@ -79,9 +79,9 @@ export function AppointmentDrawer({ id, canOpenChat, isAdmin = false, initialMod
   // เปิดแก้ไขครั้งเดียวเมื่อโหลดแล้วและนัดยังแก้ได้ (บันทึกแล้วโหลดใหม่ไม่เด้งกลับเข้าแก้ไข)
   const editOpened = useRef(false);
   useEffect(() => {
-    if (initialMode !== "edit" || editOpened.current || !data) return;
+    if (initialMode === "view" || editOpened.current || !data) return;
     editOpened.current = true;
-    if (isEditable(data.appointment)) setMode("edit");
+    if (isEditable(data.appointment)) setMode(initialMode);
   }, [initialMode, data]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };

@@ -176,7 +176,7 @@ test("ติดตั้งแอป: hook ดัก beforeinstallprompt ระ�
   assert.match(ui, /if \(!pwa\.ready \|\| pwa\.isInstalled\) return null;/);
   assert.match(ui, /ติดตั้ง DocDesk/);
   assert.match(ui, /try \{ localStorage\.setItem\(INSTALL_SNOOZE_KEY/);
-  assert.match(ui, /กรุณาเปิดลิงก์นี้ใน Safari/);
+  assert.match(ui, /กรุณาเปิดใน \{browser\}/);
   assert.match(ui, /เพิ่มไปยังหน้าจอโฮม/);
   const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
   assert.match(staff, /<StaffBanners \/>/, "แบนเนอร์ติดตั้ง/แจ้งเตือน");

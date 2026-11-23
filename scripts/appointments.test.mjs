@@ -1424,9 +1424,10 @@ test("กล่องขวาของแชท: นัดที่ยังไ
 test("ส่วนนัดครั้งต่อไป: หัวข้อไม่ตัดบรรทัด ปุ่ม + มี tooltip ยกเลิกผูกเป็นลิงก์พร้อมยืนยัน บัญชีบรรทัดเดียว", () => {
   const src = readFileSync("src/app/(staff)/inbox/appointments-side-view.tsx", "utf8");
   assert.match(src, /<h3 className="appt-side-title">นัดครั้งต่อไป<\/h3>/);
-  assert.match(src, /title="ทำนัดใหม่"/);
+  assert.match(src, />\+ ทำนัดใหม่<\/button>/, "ตามแบบ: ลิงก์ + ทำนัดใหม่");
   assert.match(src, /className="link-btn danger-link" onClick=\{\(\) => setAsk\(/);
-  assert.match(src, />รายละเอียด<\/button>/);
+  assert.match(src, />เลื่อนนัด<\/button>[\s\S]*>ยกเลิกนัด<\/button>/, "การ์ดนัดมีปุ่มเลื่อน/ยกเลิก");
+  assert.match(src, /onClick=\{\(\) => props\.onOpen\(a\.id\)\}/, "กดการ์ด = ดูรายละเอียด");
   assert.doesNotMatch(src, /รายละเอียด · แก้ไข\/ยกเลิก/);
   assert.match(src, /ดูนัดที่ผ่านมา \(\{g\.past\.length\}\)/);
   const css = readFileSync("src/app/globals.css", "utf8");

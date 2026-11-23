@@ -98,52 +98,66 @@ function InstallSheet({ kind, platform, onClose }: { kind: Exclude<Sheet, null>;
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const title = kind === "ios-steps" ? "ติดตั้ง DocDesk บน " + (platform.isIPad ? "iPad" : "iPhone")
-    : kind === "open-external" ? (platform.isIOS ? "กรุณาเปิดลิงก์นี้ใน Safari" : "กรุณาเปิดลิงก์นี้ใน Chrome")
-    : "ติดตั้ง DocDesk";
-
+  const isSteps = kind === "ios-steps";
   return createPortal(
     <div className="install-sheet-wrap">
       <button type="button" className="install-sheet-backdrop" aria-label="ปิด" tabIndex={-1} onClick={onClose} />
-      <div className={`install-sheet${platform.isIPad ? " ipad" : ""}`} role="dialog" aria-modal="true" aria-labelledby="install-sheet-title">
-        <div className="install-sheet-head">
-          <b id="install-sheet-title">{title}</b>
-          <button ref={closeRef} type="button" className="icon-btn ghost" aria-label="ปิด" onClick={onClose}><Icon name="x" size={18} /></button>
-        </div>
-        {kind === "ios-steps" && <IosSteps ipad={platform.isIPad} />}
-        {kind === "open-external" && <OpenExternal platform={platform} />}
-        {kind === "manual" && <ManualSteps />}
-      </div>
+      <section className={`install-sheet ${kind}${platform.isIPad ? " ipad" : ""}`} role="dialog" aria-modal="true" aria-labelledby="install-sheet-title">
+        {kind === "open-external" ? (
+          <OpenExternal platform={platform} onClose={onClose} closeRef={closeRef} />
+        ) : (
+          <>
+            <div className="install-grip" aria-hidden="true" />
+            <div className="install-head">
+              <div className="install-app-icon" aria-hidden="true">D</div>
+              <div className="install-head-text">
+                <h1 id="install-sheet-title">ติดตั้ง DocDesk ไว้บนหน้าจอ</h1>
+                <span>ทำครั้งเดียว ต่อไปแตะไอคอนเปิดได้เลย</span>
+              </div>
+              <button ref={closeRef} type="button" className="install-x" aria-label="ปิด" onClick={onClose}><Icon name="x" size={22} /></button>
+            </div>
+            {isSteps ? <IosSteps ipad={platform.isIPad} /> : <ManualSteps />}
+            <button type="button" className="install-later" onClick={onClose}>ไว้ทีหลัง</button>
+          </>
+        )}
+      </section>
       {/* ลูกศรกระพริบชี้ไปที่ปุ่มแชร์ของ Safari: iPhone อยู่แถบล่าง · iPad อยู่มุมขวาบน */}
-      {kind === "ios-steps" && <div className={`install-arrow${platform.isIPad ? " up" : ""}`} aria-hidden="true">{platform.isIPad ? "⬆" : "⬇"}</div>}
+      {isSteps && (
+        <div className={`install-arrow${platform.isIPad ? " up" : ""}`} aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d={platform.isIPad ? "M12 20V5M6 11l6-6 6 6" : "M12 4v15M6 13l6 6 6-6"} /></svg>
+        </div>
+      )}
     </div>,
     document.body,
   );
 }
 
+const SHARE_PATH = "M12 3v12M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7";
+
+/** ขั้นตอนตามแบบ: เลขในวงกลม · คำสั่งสั้น · รูปปุ่มที่ต้องแตะด้านขวา */
 function IosSteps({ ipad }: { ipad: boolean }) {
   return (
     <ol className="install-steps">
       <li>
-        <StepPic><ShareBarPic ipad={ipad} /></StepPic>
-        <div><b>1. แตะปุ่มแชร์ ⬆️</b> {ipad ? "ที่มุมขวาบน" : "ที่แถบด้านล่าง"}ของ Safari
-          <div className="muted small">ถ้าไม่เห็นปุ่มแชร์ ให้แตะ <b>•••</b> ก่อน</div></div>
+        <span className="install-num">1</span>
+        <span className="install-text">แตะปุ่ม <b>แชร์</b> {ipad ? "ที่มุมขวาบน" : "ที่แถบด้านล่าง"}</span>
+        <span className="install-pic share" aria-hidden="true"><svg viewBox="0 0 24 24"><path d={SHARE_PATH} /></svg></span>
       </li>
       <li>
-        <StepPic><AddHomePic /></StepPic>
-        <div><b>2. เลือก &ldquo;เพิ่มไปยังหน้าจอโฮม&rdquo;</b>
-          <div className="muted small">ถ้าไม่เห็น ให้เลื่อนรายการลงด้านล่าง</div></div>
+        <span className="install-num">2</span>
+        <span className="install-text">เลื่อนลง แล้วแตะ</span>
+        <span className="install-pic chip" aria-hidden="true">เพิ่มไปยังหน้าจอโฮม<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M12 8v8M8 12h8" /></svg></span>
       </li>
       <li>
-        <StepPic><AddButtonPic /></StepPic>
-        <div><b>3. กด &ldquo;เพิ่ม&rdquo;</b> ที่มุมขวาบน
-          <div className="muted small">จากนั้นเปิด DocDesk จากไอคอนบนหน้าจอโฮม แล้วเปิด <b>แจ้งเตือนเครื่องนี้</b></div></div>
+        <span className="install-num">3</span>
+        <span className="install-text">แตะ <b>เพิ่ม</b> มุมขวาบน</span>
+        <span className="install-pic add" aria-hidden="true">เพิ่ม</span>
       </li>
     </ol>
   );
 }
 
-function OpenExternal({ platform }: { platform: InstallPlatform }) {
+function OpenExternal({ platform, onClose, closeRef }: { platform: InstallPlatform; onClose: () => void; closeRef: React.RefObject<HTMLButtonElement | null> }) {
   const [href, setHref] = useState("");
   const [copied, setCopied] = useState(false);
   useEffect(() => { setHref(window.location.origin + window.location.pathname); }, []);
@@ -165,19 +179,27 @@ function OpenExternal({ platform }: { platform: InstallPlatform }) {
   }
 
   return (
-    <div className="install-external">
-      <p>{from ? `ตอนนี้เปิดอยู่ในแอป ${from} ซึ่ง` : "เบราว์เซอร์นี้"}ติดตั้ง DocDesk ไม่ได้ กรุณาเปิดลิงก์นี้ใน <b>{browser}</b> แล้วกดติดตั้งอีกครั้ง</p>
-      <div className="install-url" aria-label="ลิงก์">{href}</div>
-      <div className="install-external-actions">
-        {open && <a className="btn primary" href={open}>เปิดใน {platform.inApp === "line" ? "เบราว์เซอร์" : browser}</a>}
-        <button type="button" className={`btn ${open ? "ghost" : "primary"}`} onClick={copy}>{copied ? "คัดลอกแล้ว ✓" : "คัดลอกลิงก์"}</button>
+    <>
+      <div className="install-compass" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M15.5 8.5l-2 5-5 2 2-5z" /></svg></div>
+      <div className="install-ext-text">
+        <h1 id="install-sheet-title">กรุณาเปิดใน {browser}</h1>
+        <p>ตอนนี้เปิดจาก{from ? `แอป ${from}` : "เบราว์เซอร์นี้"}อยู่ ซึ่งติดตั้งลงหน้าจอไม่ได้ คัดลอกลิงก์ไปวางใน {browser} แล้วทำตามขั้นตอนต่อได้เลยค่ะ</p>
       </div>
-      <p className="muted small">
+      <div className="install-url">
+        <span aria-label="ลิงก์">{href}</span>
+        <button ref={closeRef} type="button" onClick={copy}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+          {copied ? "คัดลอกแล้ว ✓" : "คัดลอกลิงก์"}
+        </button>
+      </div>
+      {open && <a className="install-open" href={open}>เปิดใน {platform.inApp === "line" ? "เบราว์เซอร์" : browser}</a>}
+      <div className="install-tip">
         {platform.isIOS
-          ? <>คัดลอกลิงก์แล้วเปิดแอป <b>Safari</b> แตะช่องที่อยู่ด้านบน กดค้างแล้วเลือก <b>วาง</b></>
+          ? <>{from === "LINE" || !from ? <>ใน LINE: แตะ <b>⋯</b> มุมขวาบน แล้วเลือก <b>เปิดในเบราว์เซอร์อื่น</b> ก็ได้ค่ะ</> : <>หรือเปิด <b>Safari</b> แตะช่องที่อยู่ด้านบน กดค้างแล้วเลือก <b>วาง</b></>}</>
           : <>หรือแตะ <b>⋮</b> มุมขวาบน แล้วเลือก <b>เปิดใน Chrome</b> / <b>เปิดในเบราว์เซอร์</b></>}
-      </p>
-    </div>
+      </div>
+      <button type="button" className="install-later" onClick={onClose}>ใช้ต่อแบบนี้ไปก่อน</button>
+    </>
   );
 }
 
@@ -190,65 +212,5 @@ function ManualSteps() {
       </ol>
       <p className="muted small">ถ้าติดตั้งไว้แล้ว ให้เปิด DocDesk จากไอคอนแอปบนเครื่อง · Firefox ยังติดตั้งเป็นแอปไม่ได้ ให้ใช้ Chrome หรือ Edge</p>
     </div>
-  );
-}
-
-/* ---------- รูปประกอบ (วาดเป็น SVG ใช้สีตามธีม) ---------- */
-
-function StepPic({ children }: { children: React.ReactNode }) {
-  return <div className="install-pic" aria-hidden="true">{children}</div>;
-}
-
-function ShareGlyph({ x, y, s = 1 }: { x: number; y: number; s?: number }) {
-  return (
-    <g transform={`translate(${x} ${y}) scale(${s})`} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M-5 -1h-2v10h14V-1h-2M0 -9v11M-4 -5l4-4 4 4" />
-    </g>
-  );
-}
-
-function ShareBarPic({ ipad }: { ipad: boolean }) {
-  // iPhone: แถบล่าง ปุ่มแชร์ตรงกลาง · iPad: แถบบน ปุ่มแชร์ขวา
-  const barY = ipad ? 4 : 44;
-  const icons = ipad ? [20, 40, 140] : [20, 50, 80, 110, 140];
-  const share = ipad ? 140 : 80;
-  return (
-    <svg viewBox="0 0 160 72" width="160" height="72">
-      <rect x="1" y="1" width="158" height="70" rx="10" className="pic-screen" />
-      <rect x="1" y={barY} width="158" height="24" className="pic-bar" />
-      {ipad && <rect x="56" y="9" width="60" height="14" rx="7" className="pic-field" />}
-      {icons.map((x) => x === share
-        ? <g key={x} className="pic-hl"><circle cx={x} cy={barY + 12} r="11" className="pic-ring" /><ShareGlyph x={x} y={barY + 12} s={0.85} /></g>
-        : <rect key={x} x={x - 5} y={barY + 7} width="10" height="10" rx="2" className="pic-dim" />)}
-    </svg>
-  );
-}
-
-function AddHomePic() {
-  return (
-    <svg viewBox="0 0 160 72" width="160" height="72">
-      <rect x="1" y="1" width="158" height="70" rx="10" className="pic-screen" />
-      <rect x="10" y="8" width="140" height="16" rx="5" className="pic-bar" />
-      <rect x="10" y="28" width="140" height="20" rx="5" className="pic-ring-rect" />
-      <text x="18" y="42" className="pic-text">เพิ่มไปยังหน้าจอโฮม</text>
-      <g className="pic-hl" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round">
-        <rect x="129" y="31" width="14" height="14" rx="3" /><path d="M136 34.5v7M132.5 38h7" />
-      </g>
-      <rect x="10" y="52" width="140" height="14" rx="5" className="pic-bar" />
-    </svg>
-  );
-}
-
-function AddButtonPic() {
-  return (
-    <svg viewBox="0 0 160 72" width="160" height="72">
-      <rect x="1" y="1" width="158" height="70" rx="10" className="pic-screen" />
-      <text x="12" y="20" className="pic-text muted">ยกเลิก</text>
-      <rect x="112" y="6" width="40" height="20" rx="6" className="pic-ring-rect" />
-      <text x="132" y="20" textAnchor="middle" className="pic-text strong">เพิ่ม</text>
-      <rect x="12" y="34" width="28" height="28" rx="7" className="pic-app" />
-      <text x="26" y="53" textAnchor="middle" className="pic-app-text">D</text>
-      <text x="50" y="52" className="pic-text">DocDesk</text>
-    </svg>
   );
 }

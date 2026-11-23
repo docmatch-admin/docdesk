@@ -194,7 +194,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
           ))}
         </div>
         <div className="lab-filters">
-          <input className="lab-search" type="search" placeholder="ค้นชื่อ / HN" value={q} onChange={(e) => { setOnlyId(null); setQ(e.target.value); }} />
+          <label className="search-box lab-search"><Icon name="search" size={16} /><input type="search" aria-label="ค้นชื่อ / HN" placeholder="ค้นชื่อ / HN" value={q} onChange={(e) => { setOnlyId(null); setQ(e.target.value); }} /></label>
           <label className="lab-date">ตั้งแต่<input type="date" value={from} onChange={(e) => { setOnlyId(null); setFrom(e.target.value); }} /></label>
           <label className="lab-date">ถึง<input type="date" value={to} onChange={(e) => { setOnlyId(null); setTo(e.target.value); }} /></label>
           {(from || to) && <button type="button" className="link-btn small" onClick={() => { setFrom(""); setTo(""); }}>ล้างวันที่</button>}

@@ -35,7 +35,7 @@ export function VisitHistoryBlock({ history, blurred }: { history: VisitHistory 
       <div className="visit-head">
         <h3>ประวัติที่คลินิก · มา {history.total} ครั้ง</h3>
         {history.visits.length > 1 && (
-          <button type="button" className="link-btn" aria-expanded={all} onClick={() => setAll(!all)}>{all ? "ย่อ" : "ดูทั้งหมด"}</button>
+          <button type="button" className="link-btn" aria-expanded={all} onClick={() => setAll(!all)}>{all ? "ย่อ" : `ดูทั้งหมด (${history.total} ครั้ง)`}</button>
         )}
       </div>
       <ul className="visit-list">
