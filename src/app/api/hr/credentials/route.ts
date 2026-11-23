@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     const result = await applyHrCredential(push);
     if (result === "failed") throw new Error("ตั้งรหัสผ่านไม่สำเร็จ");
     // ไม่ใส่ hash หรือชื่อบัญชีลง log
-    return NextResponse.json({ result }, { status: result === "updated" ? 200 : result === "unmatched" ? 404 : 409 });
+    return NextResponse.json({ result }, { status: result === "updated" ? 200 : result === "unmatched" ? 404 : result === "admin" ? 403 : 409 });
   } catch (e) {
     await logSystemError("api:hr-credentials", e);
     return NextResponse.json({ error: "ตั้งรหัสผ่านไม่สำเร็จ" }, { status: 500 });
