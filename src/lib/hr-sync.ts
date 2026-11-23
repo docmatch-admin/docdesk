@@ -1,4 +1,5 @@
-import { setStaffActive } from "./staff-admin";
+import { generateTempPassword, setStaffActive } from "./staff-admin";
+import { isValidUsername, STAFF_EMAIL_DOMAIN } from "./staff-login";
 import { staffChangeError, type StaffRow } from "./staff-rules";
 import { supabaseAdmin } from "./supabase/admin";
 
@@ -95,6 +96,59 @@ export async function applyHrSync(employees: HrEmployee[], actorId: string): Pro
       account.active = false;
       result.deactivated++;
     }
+  }
+  return result;
+}
+
+export interface HrImportResult { created: number; paired: number; skipped: string[] }
+
+/**
+ * สร้างบัญชีให้พนักงาน HR ที่ยังไม่มีบัญชี (ข้ามคนที่ลาออกแล้ว) ชื่อผู้ใช้ = รหัสพนักงานตัวพิมพ์เล็ก
+ * สิทธิ์เป็น agent เสมอ ไม่ให้ admin อัตโนมัติ รหัสผ่านสุ่มที่ไม่มีใครเห็น พนักงานเข้าได้เมื่อ HR ส่ง hash มา
+ * หรือ admin กดรีเซ็ตรหัส ถ้ามีบัญชีที่ชื่อผู้ใช้ตรงกับรหัสพนักงานเป๊ะและยังไม่จับคู่ จะจับคู่ให้
+ * ที่สร้างผิดคนลบได้จากหน้าพนักงาน
+ */
+export async function importHrEmployees(employees: HrEmployee[]): Promise<HrImportResult> {
+  const db = supabaseAdmin();
+  const { data } = await db.from("staff").select("id, username, hr_employee_id");
+  const staff = (data ?? []) as { id: string; username: string | null; hr_employee_id: string | null }[];
+  const result: HrImportResult = { created: 0, paired: 0, skipped: [] };
+
+  for (const e of employees) {
+    if (hrHasLeft(e) || staff.some((s) => s.hr_employee_id === e.id)) continue;
+    const label = clean(e.employee_code) ?? hrFullName(e) ?? e.id;
+    const username = clean(e.employee_code)?.toLowerCase() ?? "";
+    if (!isValidUsername(username)) {
+      result.skipped.push(`${label}: รหัสพนักงานใช้เป็นชื่อผู้ใช้ไม่ได้`);
+      continue;
+    }
+    const existing = staff.find((s) => s.username === username);
+    if (existing) {
+      if (existing.hr_employee_id) {
+        result.skipped.push(`${label}: ชื่อผู้ใช้นี้จับคู่กับพนักงานคนอื่นแล้ว`);
+        continue;
+      }
+      const { error } = await db.from("staff").update({ hr_employee_id: e.id }).eq("id", existing.id);
+      if (error) { result.skipped.push(`${label}: จับคู่ไม่สำเร็จ`); continue; }
+      existing.hr_employee_id = e.id;
+      result.paired++;
+      continue;
+    }
+    const { data: created, error: createError } = await db.auth.admin.createUser({
+      email: `${username}@${STAFF_EMAIL_DOMAIN}`, password: generateTempPassword(16), email_confirm: true,
+    });
+    if (createError || !created.user) { result.skipped.push(`${label}: สร้างบัญชีไม่สำเร็จ`); continue; }
+    const { error: insertError } = await db.from("staff").insert({
+      id: created.user.id, display_name: hrDisplayName(e) ?? hrFullName(e) ?? username, role: "agent",
+      username, must_change_password: true, hr_employee_id: e.id,
+    });
+    if (insertError) {
+      await db.auth.admin.deleteUser(created.user.id);
+      result.skipped.push(`${label}: สร้างบัญชีไม่สำเร็จ`);
+      continue;
+    }
+    staff.push({ id: created.user.id, username, hr_employee_id: e.id });
+    result.created++;
   }
   return result;
 }
