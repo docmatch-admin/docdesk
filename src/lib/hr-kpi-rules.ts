@@ -29,6 +29,8 @@ export interface KpiStaff { id: string; hr_employee_id: string | null }
 
 export interface ChatKpiRecord {
   date: string;
+  /** staff.hr_employee_id (uuid ของพนักงานใน HR) · kpi-ingest จับคู่ employee_id → employee_code → email */
+  employee_id?: string;
   email?: string;
   employee_code?: string;
   chats: number;
@@ -40,7 +42,8 @@ export interface ChatKpiRecord {
  * แยกรายเจ้าหน้าที่ เฉพาะคนที่มีการตอบในวันนั้น
  * - chats = จำนวนแชทที่ตอบ · replies = จำนวนข้อความที่ส่ง (ข้อความของ AI ไม่อยู่ในชุดนี้)
  * - avg_first_response_sec = เฉลี่ยเวลาจากข้อความลูกค้าที่ยังไม่มีคนตอบ ถึงคำตอบแรก (response_events) ไม่มีก็ไม่ส่งช่องนี้
- * - ตัวตน: จับคู่ HR ไว้และรู้รหัสพนักงาน ส่ง employee_code · ไม่งั้นส่งอีเมล · ไม่มีทั้งคู่ข้าม
+ * - ตัวตน: จับคู่ HR ไว้ (staff.hr_employee_id) ส่ง employee_id · ไม่งั้นส่งอีเมล · ไม่มีทั้งคู่ข้าม
+ *   (ไม่ต้องดึงรายชื่อ HR มาแปลงเป็นรหัสพนักงาน พนักงานบางคนใน HR ไม่มีอีเมล)
  * ไม่มีระบบให้คะแนนจากลูกค้า จึงไม่ส่ง rating_avg
  */
 export function buildChatKpiRecords(input: {
@@ -49,7 +52,6 @@ export function buildChatKpiRecords(input: {
   responses: KpiResponseEvent[];
   staff: KpiStaff[];
   emails: Map<string, string | null | undefined>;
-  hrCodes: Map<string, string | null | undefined>;
 }): ChatKpiRecord[] {
   const stats = new Map<string, { chats: Set<string>; replies: number; seconds: number[] }>();
   const of = (id: string) => {
@@ -70,17 +72,16 @@ export function buildChatKpiRecords(input: {
   const staff = new Map(input.staff.map((s) => [s.id, s]));
   const records: ChatKpiRecord[] = [];
   for (const [id, s] of stats) {
-    const hrId = staff.get(id)?.hr_employee_id;
-    const code = hrId ? input.hrCodes.get(hrId)?.trim() : undefined;
-    const email = input.emails.get(id)?.trim().toLowerCase();
-    if (!code && !email) continue;
+    const hrId = staff.get(id)?.hr_employee_id?.trim() || undefined;
+    const email = input.emails.get(id)?.trim().toLowerCase() || undefined;
+    if (!hrId && !email) continue;
     records.push({
       date: input.date,
-      ...(code ? { employee_code: code } : { email }),
+      ...(hrId ? { employee_id: hrId } : { email }),
       chats: s.chats.size,
       replies: s.replies,
       ...(s.seconds.length ? { avg_first_response_sec: Math.round(s.seconds.reduce((a, b) => a + b, 0) / s.seconds.length) } : {}),
     });
   }
-  return records.sort((a, b) => (a.employee_code ?? a.email ?? "").localeCompare(b.employee_code ?? b.email ?? ""));
+  return records.sort((a, b) => (a.employee_id ?? a.email ?? "").localeCompare(b.employee_id ?? b.email ?? ""));
 }

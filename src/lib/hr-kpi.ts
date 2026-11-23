@@ -1,4 +1,5 @@
-import { fetchHrEmployees, hrKpiEnabled, hrKpiUrl } from "./hr-sync";
+import { logSystemError } from "./health";
+import { hrKpiEnabled, hrKpiUrl } from "./hr-sync";
 import {
   bangkokDayRange, buildChatKpiRecords, HR_KPI_METRIC,
   type ChatKpiRecord, type KpiResponseEvent, type KpiStaff, type KpiStaffMessage,
@@ -34,18 +35,9 @@ export async function loadChatKpi(date: string): Promise<ChatKpiRecord[]> {
   ]);
   if (staffError) throw staffError;
   const staffRows = (staff ?? []) as KpiStaff[];
-
-  // จับคู่ HR ไว้แล้วส่งรหัสพนักงาน (HR ยังไม่มีอีเมลก็จับคู่ได้) · อ่านรายชื่อไม่ได้ ใช้อีเมลแทน ไม่ล้มทั้งชุด
-  const hrCodes = new Map<string, string | null>();
-  if (staffRows.some((s) => s.hr_employee_id)) {
-    try {
-      for (const e of await fetchHrEmployees()) hrCodes.set(e.id, e.employee_code);
-    } catch (e) {
-      console.error("hr-kpi: อ่านรายชื่อ HR ไม่สำเร็จ ใช้อีเมลแทน", e instanceof Error ? e.message : e);
-    }
-  }
+  // จับคู่ HR ไว้ = ส่ง employee_id ตรง ๆ (ไม่ต้องดึงรายชื่อ HR) · ไม่ได้จับคู่ = อีเมล
   const emails = new Map((auth?.users ?? []).map((u) => [u.id, u.email ?? null]));
-  return buildChatKpiRecords({ date, messages, responses, staff: staffRows, emails, hrCodes });
+  return buildChatKpiRecords({ date, messages, responses, staff: staffRows, emails });
 }
 
 export interface HrKpiSendResult {
@@ -71,6 +63,11 @@ export async function sendChatKpi(date: string): Promise<HrKpiSendResult> {
   const body = (await res.json().catch(() => null)) as { unmatched?: unknown[]; error?: string } | null;
   if (!res.ok) return { date, sent: 0, unmatched: [], error: `HR ตอบกลับ ${res.status}${body?.error ? `: ${body.error}` : ""}` };
   const unmatched = Array.isArray(body?.unmatched) ? body.unmatched : [];
-  if (unmatched.length) console.warn(`hr-kpi ${date}: HR หาเจ้าหน้าที่ไม่เจอ ${unmatched.length} คน`, JSON.stringify(unmatched));
+  if (unmatched.length) {
+    const msg = `hr-kpi ${date}: HR หาเจ้าหน้าที่ไม่เจอ ${unmatched.length} คน`;
+    console.warn(msg, JSON.stringify(unmatched));
+    // ให้เห็นในหน้าสุขภาพระบบ (ส่งสำเร็จแต่ HR บันทึกไม่ได้บางคน)
+    await logSystemError("cron:hr-kpi", new Error(`${msg}: ${JSON.stringify(unmatched)}`));
+  }
   return { date, sent: records.length, unmatched };
 }

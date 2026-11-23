@@ -94,7 +94,7 @@ test("สรุปรายเจ้าหน้าที่: chats · replies �
   const records = await loadChatKpi(DATE);
   assert.deepEqual(records, [
     { date: DATE, email: "bee@clinic.test", chats: 1, replies: 1 },
-    { date: DATE, employee_code: "E001", chats: 2, replies: 3, avg_first_response_sec: 96 },
+    { date: DATE, employee_id: "hr-a", chats: 2, replies: 3, avg_first_response_sec: 96 },
   ]);
 });
 
@@ -103,15 +103,23 @@ test("ไม่มีระบบให้คะแนนจากลูกค�
   for (const r of await loadChatKpi(DATE)) assert.equal("rating_avg" in r, false);
 });
 
-test("จับคู่ HR ไว้แต่อ่านรายชื่อ HR ไม่ได้: ใช้อีเมลแทน ไม่ล้ม", async (t) => {
-  t.mock.method(console, "error", () => {});
-  fakeHr({ employeesStatus: 500 });
+test("จับคู่ HR ไว้ = ส่ง employee_id (hr_employee_id) ตรง ๆ ไม่ดึงรายชื่อ HR · ไม่ส่งอีเมลซ้อน · ไม่จับคู่ = อีเมล", async () => {
+  const calls = fakeHr({ employeesStatus: 500 });
   const records = await loadChatKpi(DATE);
-  assert.equal(records.find((r) => r.email === "a@staff.docdesk.local")?.replies, 3);
-  assert.equal(records.some((r) => r.employee_code), false);
+  assert.equal(calls.length, 0, "ไม่เรียก HR ตอนเตรียมข้อมูล (เดิมดึงรายชื่อมาแปลงเป็น employee_code)");
+  const a = records.find((r) => r.employee_id === "hr-a");
+  assert.equal(a.replies, 3);
+  assert.equal("email" in a, false);
+  assert.equal("employee_code" in a, false);
+  assert.equal(records.find((r) => r.email === "bee@clinic.test")?.employee_id, undefined);
+  // HR ไม่มีอีเมลของพนักงานคนนี้ก็จับคู่ได้: ไม่มีอีเมลใน DocDesk แต่จับคู่ HR ไว้ ยังส่ง
+  state.authUsers = state.authUsers.filter((u) => u.id !== A);
+  assert.equal((await loadChatKpi(DATE)).find((r) => r.employee_id === "hr-a")?.replies, 3);
+  const src = readFileSync("src/lib/hr-kpi.ts", "utf8");
+  assert.doesNotMatch(src, /fetchHrEmployees|hrCodes/);
 });
 
-test("ส่งเข้า HR: POST พร้อม x-api-key และ body ตามรูปแบบ · log unmatched", async (t) => {
+test("ส่งเข้า HR: POST พร้อม x-api-key และ body ตามรูปแบบ · unmatched ลงหน้าสุขภาพระบบ", async (t) => {
   const warn = t.mock.method(console, "warn", () => {});
   const calls = fakeHr({ unmatched: [{ email: "bee@clinic.test" }] });
   const result = await sendChatKpi(DATE);
@@ -121,8 +129,16 @@ test("ส่งเข้า HR: POST พร้อม x-api-key และ body �
   assert.equal(post.body.metric, "chat_reply");
   assert.equal(post.body.records.length, 2);
   assert.deepEqual(result, { date: DATE, sent: 2, unmatched: [{ email: "bee@clinic.test" }] });
+  assert.equal(post.body.records.find((r) => r.employee_id)?.employee_id, "hr-a");
   assert.equal(warn.mock.callCount(), 1);
   assert.match(warn.mock.calls[0].arguments[0], /หาเจ้าหน้าที่ไม่เจอ 1 คน/);
+  const logged = state.tables.system_errors.filter((e) => e.source === "cron:hr-kpi");
+  assert.equal(logged.length, 1, "บันทึกในหน้าสุขภาพระบบ ไม่ใช่แค่ console.warn");
+  assert.match(logged[0].message, /หาเจ้าหน้าที่ไม่เจอ 1 คน/);
+  // HR จับคู่ได้ครบ: ไม่บันทึก error
+  fakeHr();
+  await sendChatKpi(DATE);
+  assert.equal(state.tables.system_errors.filter((e) => e.source === "cron:hr-kpi").length, 1);
 });
 
 test("วันที่ไม่มีใครตอบ: ไม่ส่ง · HR ล่ม: คืน error", async () => {
