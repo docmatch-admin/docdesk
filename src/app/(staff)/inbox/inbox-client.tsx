@@ -124,6 +124,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const [text, setText] = useState("");
   const [chosen, setChosen] = useState<number | null>(null);
   const [rawMode, setRawMode] = useState(false); // ส่งตามที่พิมพ์ ไม่แปล
+  // พับกล่องคำตอบแนะนำ (จำต่อเครื่อง) · พับแล้วเหลือแค่หัวข้อ
+  const [suggestOpen, setSuggestOpen] = useState(true);
+  useEffect(() => { try { if (localStorage.getItem("docdesk:suggest-open") === "0") setSuggestOpen(false); } catch {} }, []);
+  const toggleSuggest = () => setSuggestOpen((v) => { try { localStorage.setItem("docdesk:suggest-open", v ? "0" : "1"); } catch {} return !v; });
   const [sending, setSending] = useState(false);
   // ส่งไม่ออก (เช่น โควตา LINE หมด): แสดงค้างไว้ ไม่หายเงียบ
   const [sendError, setSendError] = useState("");
@@ -1107,23 +1111,36 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             ) : (
             <>
             {/* ---------- คำแนะนำ ---------- */}
-            <div className={`suggest ${blurred ? "sensitive-blur" : ""}`}>
+            <div className={`suggest ${suggestOpen ? "" : "closed"} ${blurred ? "sensitive-blur" : ""}`}>
+              {/* หัวข้อบรรทัดเดียว: [พับ] คำตอบแนะนำ · แท็กที่ AI แนะนำ · ส่งตามที่พิมพ์ · แนะนำใหม่ */}
               <div className="suggest-head">
-                <span className="suggest-title"><Icon name="sparkle" /> คำตอบแนะนำ <span className="muted small">(Alt+1/2)</span></span>
-                {suggestion?.needs_human && <span className="chip red">⚠️ เรื่องอาการ/ยา/ร้องเรียน — โปรดตรวจก่อนส่ง</span>}
-                <button className="btn ghost small" onClick={refreshSuggestions} disabled={suggesting}>
-                  {suggesting ? "กำลังคิด…" : "↻ แนะนำใหม่"}
+                <button type="button" className="suggest-toggle" aria-expanded={suggestOpen} onClick={toggleSuggest}
+                  aria-label={suggestOpen ? "พับคำตอบแนะนำ" : "เปิดคำตอบแนะนำ"} title={suggestOpen ? "พับ" : "เปิด"}>
+                  <Icon name="chevronLeft" size={16} />
                 </button>
+                <span className="suggest-title"><Icon name="sparkle" /> คำตอบแนะนำ <span className="muted small">(Alt+1/2)</span></span>
+                {/* เตือนเรื่องอาการ/ยา: แสดงแม้พับ (ความปลอดภัย) */}
+                {suggestion?.needs_human && <span className="chip red needs-human" title="เรื่องอาการ/ยา/ร้องเรียน — โปรดตรวจก่อนส่ง"><Icon name="alert" size={14} /> โปรดตรวจก่อนส่ง</span>}
+                {suggestOpen && suggestedTags.length > 0 && (
+                  <span className="ai-tags" aria-label="แท็กที่ AI แนะนำ">
+                    {suggestedTags.map((t) => (
+                      <button key={t} className="ai-tag" aria-label={`ติดแท็ก ${t}`} onClick={() => changeTag(t, "add")}>{t} ✓</button>
+                    ))}
+                  </span>
+                )}
+                {customerLang !== "th" && (
+                  <label className="raw">
+                    <input type="checkbox" checked={rawMode} onChange={(e) => setRawMode(e.target.checked)} />
+                    ส่งตามที่พิมพ์ (ไม่แปล)
+                  </label>
+                )}
+                {suggestOpen && (
+                  <button className="btn ghost small suggest-refresh" onClick={refreshSuggestions} disabled={suggesting}>
+                    {suggesting ? "กำลังคิด…" : "↻ แนะนำใหม่"}
+                  </button>
+                )}
               </div>
-              {suggestedTags.length > 0 && (
-                <div className="ai-tags">
-                  <span className="muted small">AI แนะนำ:</span>
-                  {suggestedTags.map((t) => (
-                    <button key={t} className="ai-tag" aria-label={`ติดแท็ก ${t}`} onClick={() => changeTag(t, "add")}>{t} ✓</button>
-                  ))}
-                </div>
-              )}
-              <div className="sugg-list">
+              {suggestOpen && <div className="sugg-list">
                 {!suggestion && !suggesting && <div className="muted small">ยังไม่มีคำแนะนำ กด “แนะนำใหม่”</div>}
                 {suggestion?.options.map((o, i) => (
                   <button key={i} className={`sugg ${chosen === i ? "on" : ""}`} onClick={() => pick(i)}>
@@ -1137,7 +1154,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                     {o.note && <div className="note">ℹ️ {o.note}</div>}
                   </button>
                 ))}
-              </div>
+              </div>}
             </div>
 
             {/* ---------- ช่องพิมพ์ ---------- */}
@@ -1203,12 +1220,6 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                 <div className="muted small">
                   {cancelBookingId && "📅 ส่งข้อความนี้แล้วนัดจะถูกยกเลิก "}
                   {chosen != null && (edited ? "✏️ แก้จากคำแนะนำ — ระบบจะจำสำนวนนี้" : "✅ ใช้คำแนะนำตามเดิม")}
-                  {customerLang !== "th" && (
-                    <label className="raw">
-                      <input type="checkbox" checked={rawMode} onChange={(e) => setRawMode(e.target.checked)} />
-                      ส่งตามที่พิมพ์ (ไม่แปล)
-                    </label>
-                  )}
                 </div>
               </div>
             </div>

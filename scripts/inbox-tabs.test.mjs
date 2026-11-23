@@ -1,5 +1,6 @@
 // ทดสอบการย้ายแท็บ inbox ด้วยโค้ดจริงของ pipeline: npm test
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { beforeEach, test } from "node:test";
 import sharp from "sharp";
 import { fake } from "./fakes/hooks.mjs";
@@ -640,4 +641,15 @@ test("migration 063: คอลัมน์ queue + trigger ทุกตารา
   assert.match(sql, /gin_trgm_ops/);
   assert.match(sql, /hits as \(/);
   assert.match(sql, /update conversations set queue_touch_at = now\(\);/, "backfill");
+});
+
+test("กล่องคำตอบแนะนำ: หัวข้อบรรทัดเดียว พับได้ และ 'ส่งตามที่พิมพ์' อยู่ที่หัวข้อ", () => {
+  const src = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
+  const head = src.slice(src.indexOf('<div className="suggest-head">'), src.indexOf('<div className="sugg-list">'));
+  assert.match(head, /className="suggest-toggle" aria-expanded=\{suggestOpen\}/, "ปุ่มพับอยู่ซ้ายสุดของหัวข้อ");
+  assert.match(head, /ส่งตามที่พิมพ์ \(ไม่แปล\)/, "ติ๊กไม่แปลย้ายมาที่หัวข้อ");
+  assert.match(head, /suggestion\?\.needs_human &&/, "คำเตือนเรื่องอาการแสดงแม้พับ");
+  assert.match(src, /\{suggestOpen && <div className="sugg-list">/, "พับแล้วซ่อนรายการคำตอบ");
+  const foot = src.slice(src.indexOf('<div className="composer-foot">'));
+  assert.doesNotMatch(foot.slice(0, 800), /ส่งตามที่พิมพ์/, "ไม่ซ้ำที่ด้านล่าง");
 });
