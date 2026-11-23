@@ -180,8 +180,10 @@ test("prompt: มีกฎความยาว แบบตัวเลือ�
   assert.match(p, /ห้ามขึ้นต้นด้วยการขอบคุณ/);
   assert.match(p, /ถามกลับได้ครั้งละ 1 คำถาม/);
   assert.match(p, /\(1\) สั้นที่สุด/);
-  assert.match(p, /\(2\) คำตอบเดียวกับข้อ 1 แล้วเพิ่มรายละเอียด/);
-  assert.match(p, /\(3\) ถามกลับ/);
+  assert.match(p, /ให้ 2 ตัวเลือกพอดี/);
+  assert.match(p, /\(2\) ถ้าข้อมูลพอ = คำตอบเดียวกับข้อ 1 แล้วเพิ่มรายละเอียด/);
+  assert.match(p, /ถ้าข้อมูลไม่พอ = ถามกลับ 1 คำถาม/);
+  assert.doesNotMatch(p, /\(3\)/);
   assert.match(p, /ไข้หวัดใหญ่เข็มละ 390 บาทค่ะ/);
   assert.equal((p.match(/^- "/gm) ?? []).length, 3);
   assert.match(p, /ห้ามนำราคา เวลา หรือเงื่อนไขในตัวอย่างไปตอบ/);
@@ -288,4 +290,12 @@ test("แชท LINE: พรอมต์บอกช่องทางและ�
   assert.match(calls.lastPrompt, /มองไม่เห็นเนื้อหารูป/);
   assert.ok(r.options[0].confidence < AUTO_SEND_MIN_CONFIDENCE);
   assert.equal(r.options[1].confidence, 0.9);
+});
+
+test("คำตอบแนะนำไม่เกิน 2 ตัวเลือก แม้ AI ส่งมา 3", async () => {
+  replies.next = llmReply([opt("ก"), opt("ข"), opt("ค")]);
+  const s = await incoming();
+  const r = await generateSuggestions(s.conversationId);
+  assert.equal(r.options.length, 2);
+  assert.deepEqual(r.options.map((o) => o.text), ["ก", "ข"]);
 });

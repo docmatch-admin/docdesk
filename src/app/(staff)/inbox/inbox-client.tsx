@@ -820,7 +820,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
 
   function onKey(e: React.KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); if (attachment) sendAttachment(); else send(); }
-    if (e.altKey && ["1", "2", "3"].includes(e.key)) { e.preventDefault(); pick(Number(e.key) - 1); }
+    if (e.altKey && ["1", "2"].includes(e.key)) { e.preventDefault(); pick(Number(e.key) - 1); }
   }
 
   const effectiveMode = (c: Conversation): AiMode => c.ai_mode ?? c.channels?.ai_mode ?? globalMode;
@@ -1109,7 +1109,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             {/* ---------- คำแนะนำ ---------- */}
             <div className={`suggest ${blurred ? "sensitive-blur" : ""}`}>
               <div className="suggest-head">
-                <span className="suggest-title"><Icon name="sparkle" /> คำตอบแนะนำ <span className="muted small">(Alt+1/2/3)</span></span>
+                <span className="suggest-title"><Icon name="sparkle" /> คำตอบแนะนำ <span className="muted small">(Alt+1/2)</span></span>
                 {suggestion?.needs_human && <span className="chip red">⚠️ เรื่องอาการ/ยา/ร้องเรียน — โปรดตรวจก่อนส่ง</span>}
                 <button className="btn ghost small" onClick={refreshSuggestions} disabled={suggesting}>
                   {suggesting ? "กำลังคิด…" : "↻ แนะนำใหม่"}
