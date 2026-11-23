@@ -569,10 +569,12 @@ export async function listLabResults(opts: LabListOptions = {}): Promise<LabPage
   };
   let page = clampLabPage(opts.page);
   let got = await fetchPage(page);
-  // ขอหน้าเกินหน้าสุดท้าย (เช่นรายการลดลงระหว่างดู): ส่งหน้าสุดท้ายแทนหน้าว่าง
-  if (!got.rows.length && got.total > 0 && page > 1) {
-    page = clampLabPage(page, got.total);
-    got = await fetchPage(page);
+  // ขอหน้าเกินหน้าสุดท้าย (เช่นรายการลดลงระหว่างดู): PostgREST ตอบ range ไม่ได้ (ไม่มี count)
+  // → ดูจำนวนจากหน้าแรก แล้วส่งหน้าสุดท้ายแทนหน้าว่าง
+  if (!got.rows.length && page > 1) {
+    const first = await fetchPage(1);
+    page = clampLabPage(page, first.total);
+    got = page === 1 ? first : await fetchPage(page);
   }
   return { rows: got.rows, total: got.total, page, pageSize: LAB_PAGE_SIZE };
 }

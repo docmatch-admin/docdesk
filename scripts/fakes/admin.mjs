@@ -232,7 +232,12 @@ function query(name) {
     range(a, z) { skip = a; max = z - a + 1; return b; },
     async single() { return { data: run()[0] ?? null, error: null }; },
     async maybeSingle() { return { data: run()[0] ?? null, error: null }; },
-    then(resolve) { const data = run(); return resolve({ data: head ? null : data, error: null, count: op === "select" ? total : data.length }); },
+    then(resolve) {
+      const data = run();
+      // เหมือน PostgREST: ขอ range เลยท้ายตาราง = error 416 (PGRST103) ไม่มี data/count
+      if (op === "select" && skip > 0 && skip >= total) return resolve({ data: null, error: { code: "PGRST103", message: "Requested range not satisfiable" }, count: null });
+      return resolve({ data: head ? null : data, error: null, count: op === "select" ? total : data.length });
+    },
   };
   return b;
 }

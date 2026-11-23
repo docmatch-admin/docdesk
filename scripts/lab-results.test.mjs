@@ -905,7 +905,10 @@ test("แบ่งหน้า 30 รายการ: หน้าแรก · �
   const a = [...(await store.listLabResults({ page: 1 })).rows, ...(await store.listLabResults({ page: 2 })).rows].map((r) => r.id);
   assert.equal(new Set(a).size, 40);
   state.tables.lab_results = [];
-  assert.deepEqual(await store.listLabResults({ page: 4 }), { rows: [], total: 0, page: 4, pageSize: 30 }, "ไม่มีรายการ");
+  assert.deepEqual(await store.listLabResults({ page: 4 }), { rows: [], total: 0, page: 1, pageSize: 30 }, "ไม่มีรายการ = หน้า 1 จาก 1");
+  // เจอบน production: 14 รายการ ขอหน้า 2 → PostgREST ตอบ range ไม่ได้ (ไม่มี count) ต้องได้หน้าสุดท้ายพร้อมจำนวนจริง
+  state.tables.lab_results = Array.from({ length: 14 }, (_, k) => labRow(k + 1));
+  assert.deepEqual((({ page, total, rows }) => [page, total, rows.length])(await store.listLabResults({ page: 2 })), [1, 14, 14]);
   assert.equal(rules.lastLabPage(0), 1);
   assert.equal(rules.lastLabPage(60), 2);
   assert.equal(rules.lastLabPage(61), 3);
