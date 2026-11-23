@@ -1,5 +1,5 @@
 // ผลแล็บจากแล็บนอก: ฟังก์ชันล้วน ไม่แตะฐานข้อมูล ใช้ได้ทั้ง server และหน้าเว็บ
-import { OPEN_STATUSES, postbackData, thaiFullDate, type AppointmentStatus } from "./appointment-rules";
+import { localDate, OPEN_STATUSES, phrase, postbackData, thaiFullDate, type AppointmentStatus, type LanguagePack, type PhraseKey } from "./appointment-rules";
 import { clock, timeRange } from "./time-format";
 
 export const LAB_BUCKET = "lab-results";
@@ -121,6 +121,12 @@ export function resultHearingAppointment(appts: LabAppointment[], today: string)
 export const apptWhen = (a: Pick<LabAppointment, "appoint_date" | "time_mode" | "time_start" | "time_end">) =>
   `${thaiFullDate(a.appoint_date)} ${a.time_mode !== "exact" && a.time_end ? timeRange(a.time_start, a.time_end) : clock(a.time_start)} น.`;
 
+/** วันเวลานัดฟังผลตามภาษาของลูกค้า: ไม่มี pack = ไทย (apptWhen เดิม) · มี pack = วันที่ตาม locale ของ pack (ไม่มี locale = อังกฤษ) */
+export const apptWhenFor = (a: Pick<LabAppointment, "appoint_date" | "time_mode" | "time_start" | "time_end">, pack?: Pick<LanguagePack, "locale"> | null) =>
+  pack
+    ? `${localDate(a.appoint_date, pack)}, ${a.time_mode !== "exact" && a.time_end ? timeRange(a.time_start, a.time_end) : clock(a.time_start)}`
+    : apptWhen(a);
+
 // ---------------------------------------------------------------------------
 // ข้อความ (ไม่มีค่าผลตรวจ มีแค่แจ้งว่าออกแล้ว + ปุ่มเปิดดู)
 // ---------------------------------------------------------------------------
@@ -178,16 +184,25 @@ export interface PatientNotice {
   /** หน้าเลือกวันนัดฟังผล (แสดงเมื่อยังไม่มีนัด) */
   bookUrl: string;
   appointment: LabAppointment | null;
+  /** ภาษาของบัญชี LINE นี้ (ไม่ใช่ไทย) · ไม่มี = ฉบับไทยเดิม · มี pack ต้องใช้ชื่อคลินิกภาษาอังกฤษใน clinic */
+  pack?: LanguagePack | null;
 }
 
+/** ข้อความในการ์ด: ไทยตามเดิม หรือวลีจาก pack (อังกฤษ/ภาษาที่แปลแล้ว) */
+const tr = (n: PatientNotice, th: string, key: PhraseKey) => (n.pack ? phrase(n.pack, key) : th);
+/** ชื่อปุ่ม LINE ยาวได้ไม่เกิน 20 ตัวอักษร (คำแปลอาจยาวกว่าต้นฉบับ) */
+const btn = (label: string) => [...label].slice(0, 20).join("");
+const noticeWhen = (n: PatientNotice, a: LabAppointment) => apptWhenFor(a, n.pack);
+const noticeHead = (n: PatientNotice) => (n.updated ? tr(n, "ผลแล็บของคุณมีการปรับปรุง", "lab.updated") : tr(n, "ผลแล็บของคุณออกแล้ว", "lab.ready"));
+
 export function patientNoticeText(n: PatientNotice): string {
-  const head = n.updated ? "ผลแล็บของคุณมีการปรับปรุง" : "ผลแล็บของคุณออกแล้ว";
+  const head = noticeHead(n);
   return [
     `${head}${n.showName && n.patientName ? ` (${n.patientName})` : ""}`,
-    n.updated ? "แล็บแก้ไขผลตรวจ กรุณาดูฉบับล่าสุด" : "กดลิงก์เพื่อดูผล (ลิงก์ใช้ได้เฉพาะบัญชี LINE นี้)",
-    ...(n.appointment ? [`นัดฟังผล: ${apptWhen(n.appointment)}`] : []),
+    n.updated ? tr(n, "แล็บแก้ไขผลตรวจ กรุณาดูฉบับล่าสุด", "lab.updatedHint") : tr(n, "กดลิงก์เพื่อดูผล (ลิงก์ใช้ได้เฉพาะบัญชี LINE นี้)", "lab.linkHint"),
+    ...(n.appointment ? [n.pack ? phrase(n.pack, "lab.apptLine", { when: noticeWhen(n, n.appointment) }) : `นัดฟังผล: ${apptWhen(n.appointment)}`] : []),
     n.viewUrl,
-    `ดูผลแล็บทั้งหมดของฉัน: ${n.mineUrl}`,
+    n.pack ? phrase(n.pack, "lab.mineLink", { url: n.mineUrl }) : `ดูผลแล็บทั้งหมดของฉัน: ${n.mineUrl}`,
     n.clinic,
   ].join("\n");
 }
@@ -204,46 +219,51 @@ export function staffTimelineText(n: PatientNotice, staffPdfUrl: string): string
 }
 
 export function patientNoticeFlex(n: PatientNotice) {
-  const head = n.updated ? "ผลแล็บของคุณมีการปรับปรุง" : "ผลแล็บของคุณออกแล้ว";
+  const head = noticeHead(n);
   const a = n.appointment;
   const body: Record<string, unknown>[] = [
     { type: "text", text: head, weight: "bold", size: "md", wrap: true, color: n.updated ? "#8a5200" : "#0f7a5f" },
     ...(n.showName && n.patientName ? [{ type: "text", text: n.patientName, size: "sm", weight: "bold", wrap: true }] : []),
-    { type: "text", text: n.updated ? "แล็บแก้ไขผลตรวจ กรุณากดดูฉบับล่าสุด" : "กดปุ่ม \"ดูผล\" เพื่อเปิดผลตรวจ (เปิดได้เฉพาะบัญชี LINE นี้)", size: "xs", color: "#6b7280", wrap: true },
+    { type: "text", text: n.updated ? tr(n, "แล็บแก้ไขผลตรวจ กรุณากดดูฉบับล่าสุด", "lab.updatedHint") : tr(n, "กดปุ่ม \"ดูผล\" เพื่อเปิดผลตรวจ (เปิดได้เฉพาะบัญชี LINE นี้)", "lab.viewHint"), size: "xs", color: "#6b7280", wrap: true },
     // ส่วนนัดฟังผลมีทุกใบ: มีนัด = วันเวลา + ยืนยัน/เลื่อน · ไม่มี = ปุ่มเลือกวันนัดฟังผล
     { type: "separator", margin: "md" },
-    { type: "text", text: "นัดฟังผล", size: "xs", color: "#6b7280", margin: "md" },
+    { type: "text", text: tr(n, "นัดฟังผล", "lab.appt"), size: "xs", color: "#6b7280", margin: "md" },
     a
-      ? { type: "text", text: apptWhen(a), size: "sm", weight: "bold", color: "#4a63e0", wrap: true }
+      ? { type: "text", text: noticeWhen(n, a), size: "sm", weight: "bold", color: "#4a63e0", wrap: true }
       // ไม่มีนัด: กล่องเหลือง ให้เห็นชัดว่าต้องเลือกวัน
       : {
         type: "box", layout: "vertical", backgroundColor: "#fff4e0", cornerRadius: "8px", paddingAll: "10px",
         contents: [
-          { type: "text", text: "ยังไม่มีนัดฟังผล", size: "sm", weight: "bold", color: "#8a5200", wrap: true },
-          { type: "text", text: "กด \"เลือกวันนัดฟังผล\" ด้านล่าง แล้วคลินิกจะยืนยันนัดให้", size: "xs", color: "#8a5200", wrap: true },
+          { type: "text", text: tr(n, "ยังไม่มีนัดฟังผล", "lab.noAppt"), size: "sm", weight: "bold", color: "#8a5200", wrap: true },
+          { type: "text", text: tr(n, "กด \"เลือกวันนัดฟังผล\" ด้านล่าง แล้วคลินิกจะยืนยันนัดให้", "lab.noApptHint"), size: "xs", color: "#8a5200", wrap: true },
         ],
       },
     { type: "text", text: n.clinic, size: "xxs", color: "#8a8f9c", wrap: true, margin: "md" },
   ];
   const buttons: Record<string, unknown>[] = [
-    { type: "button", style: "primary", color: "#0f7a5f", height: "sm", action: { type: "uri", label: "ดูผล", uri: n.viewUrl } },
-    { type: "button", style: "link", height: "sm", action: { type: "uri", label: "ดูผลแล็บทั้งหมดของฉัน", uri: n.mineUrl } },
+    { type: "button", style: "primary", color: "#0f7a5f", height: "sm", action: { type: "uri", label: n.pack ? btn(phrase(n.pack, "lab.view")) : "ดูผล", uri: n.viewUrl } },
+    { type: "button", style: "link", height: "sm", action: { type: "uri", label: n.pack ? btn(phrase(n.pack, "lab.mine")) : "ดูผลแล็บทั้งหมดของฉัน", uri: n.mineUrl } },
   ];
   // ปุ่มยืนยัน/เลื่อนนัด ใช้ postback เดิมของระบบนัด (นัดที่มี telemed_id = นัดออนไลน์ เลื่อนเองไม่ได้ จึงมีแค่ยืนยัน)
   if (a) {
+    const confirm = n.pack ? btn(phrase(n.pack, "button.confirm")) : "ยืนยันนัด";
+    const reschedule = n.pack ? btn(phrase(n.pack, "button.reschedule")) : "ขอเลื่อนนัด";
     buttons.push({
       type: "box", layout: "horizontal", spacing: "sm",
       contents: [
-        { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "ยืนยันนัด", data: postbackData("confirm", a.id), displayText: "ยืนยันนัด" } },
-        ...(a.telemed_id ? [] : [{ type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "ขอเลื่อนนัด", data: postbackData("reschedule", a.id), displayText: "ขอเลื่อนนัด" } }]),
+        { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: confirm, data: postbackData("confirm", a.id), displayText: confirm } },
+        ...(a.telemed_id ? [] : [{ type: "button", style: "secondary", height: "sm", action: { type: "postback", label: reschedule, data: postbackData("reschedule", a.id), displayText: reschedule } }]),
       ],
     });
   } else {
-    buttons.push({ type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "เลือกวันนัดฟังผล", uri: n.bookUrl } });
+    buttons.push({ type: "button", style: "secondary", height: "sm", action: { type: "uri", label: n.pack ? btn(phrase(n.pack, "lab.choose")) : "เลือกวันนัดฟังผล", uri: n.bookUrl } });
   }
+  const alt = n.pack
+    ? `${head} · ${a ? phrase(n.pack, "lab.apptLine", { when: noticeWhen(n, a) }) : phrase(n.pack, "lab.altChoose")}`
+    : `${head}${a ? ` · นัดฟังผล ${apptWhen(a)}` : " · เลือกวันนัดฟังผลได้"}`;
   return {
     type: "flex",
-    altText: `${head}${a ? ` · นัดฟังผล ${apptWhen(a)}` : " · เลือกวันนัดฟังผลได้"}`.slice(0, 400),
+    altText: alt.slice(0, 400),
     contents: {
       type: "bubble", size: "kilo",
       body: { type: "box", layout: "vertical", spacing: "sm", contents: body },

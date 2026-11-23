@@ -1,6 +1,7 @@
 // ผลแล็บจากแล็บนอก: sync → เก็บ PDF ใน Storage (private) → จับคู่ HN → แจ้งคนไข้ทาง LINE + แจ้งทีมในกลุ่ม LINE
 // ข้อมูลผลแล็บไม่ส่งเข้า AI: ไม่มีค่าผลในข้อความแชท ข้อความแจ้งเป็น sender_type 'system' ที่ suggest.ts ข้ามอยู่แล้ว
-import { addDays, bangkokToday, OPEN_STATUSES } from "./appointment-rules";
+import { addDays, bangkokToday, dayButtonLabel, EN_PHRASES, englishDate, OPEN_STATUSES, pickLanguage, type LanguagePack } from "./appointment-rules";
+import { languagePack } from "./appointment-language";
 import { BmlError, bmlEnabled, bmlLabPdf, bmlListLabs, sameCursor, type BmlCursor, type BmlLabItem } from "./bml-client";
 import { lineSendMessages } from "./channels/line";
 import { LineQuotaError } from "./channels/line-log";
@@ -8,9 +9,9 @@ import {
   bmlTime, isUpdateNotice, labBeforeStart, LAB_BUCKET, LAB_COLUMNS, LAB_SENDER_NAME, LAB_SIGNED_URL_SECONDS, LAB_SYNC_LOOKBACK_DAYS, LAB_SYNC_MAX_PAGES,
   LAB_SYNC_STATE_KEY, LAB_TEAM_GROUP_KEY, labHn, labBookUrl, labMineUrl, labViewUrl, HEARING_SERVICE, type HearingRequest, inLabTab, bangkokDateRange, labSummary, patientNoticeFlex, staffTimelineText,
   resultHearingAppointment, shouldAutoNotify, syncAction, syncDue, teamNoticeText, versionOf,
-  apptWhen, type LabAppointment, type LabResult, type LabSummary, type LabSyncState, type LabTab,
+  apptWhen, apptWhenFor, type LabAppointment, type LabResult, type LabSummary, type LabSyncState, type LabTab,
 } from "./lab-results-rules";
-import { logAppointmentEvent, recipientIds } from "./appointment-store";
+import { loadAppointmentSettings, logAppointmentEvent, recipientIds } from "./appointment-store";
 import { selfBookingAllowed, selfBookingDays, thaiDate, thaiTime, thaiWeekday } from "./booking-rules";
 import { loadBusinessHours } from "./booking-store";
 import { DEFAULT_CLINIC_PROFILE, getSetting } from "./mode";
@@ -201,24 +202,24 @@ export async function runLabSync(now = Date.now()): Promise<LabSyncSummary> {
 // ---------------------------------------------------------------------------
 // แจ้งคนไข้ทาง LINE (บัญชีที่ผูก HN จาก QR ใบนัด: คนไข้ + ญาติ)
 // ---------------------------------------------------------------------------
-interface LineTarget { conversationId: string; userId: string }
+interface LineTarget { conversationId: string; userId: string; language: string | null }
 
 /** บัญชี LINE ที่ผูกกับ HN นี้: ส่งได้ / ส่งไม่ได้เพราะบล็อก·เลิกติดตาม OA หรือแชทถูกเก็บถาวร */
 async function lineTargetsOf(hn: string): Promise<{ targets: LineTarget[]; blocked: string[] }> {
   const links = await linkedConversationsOf(hn);
   if (!links.length) return { targets: [], blocked: [] };
   const { data } = await supabaseAdmin().from("conversations")
-    .select("id, archived, contacts(external_id, line_unfollowed_at), channels(type)")
+    .select("id, archived, contacts(external_id, line_unfollowed_at, language), channels(type)")
     .in("id", links.map((l) => l.conversation_id));
   const out: LineTarget[] = [];
   const blocked: string[] = [];
   for (const c of (data ?? []) as { id: string; archived?: boolean | null; contacts: unknown; channels: unknown }[]) {
-    const contact = (Array.isArray(c.contacts) ? c.contacts[0] : c.contacts) as { external_id?: string; line_unfollowed_at?: string | null } | null;
+    const contact = (Array.isArray(c.contacts) ? c.contacts[0] : c.contacts) as { external_id?: string; line_unfollowed_at?: string | null; language?: string | null } | null;
     const channel = (Array.isArray(c.channels) ? c.channels[0] : c.channels) as { type?: string } | null;
     if (channel?.type !== "line" || !contact?.external_id) continue;
     if (contact.line_unfollowed_at) { blocked.push("คนไข้บล็อกหรือเลิกติดตาม LINE OA"); continue; }
     if (c.archived) { blocked.push("แชท LINE นี้เป็นแชทนำเข้า (ส่งไม่ได้)"); continue; }
-    out.push({ conversationId: c.id, userId: contact.external_id });
+    out.push({ conversationId: c.id, userId: contact.external_id, language: contact.language ?? null });
   }
   return { targets: out, blocked };
 }
@@ -288,17 +289,30 @@ export async function notifyLabResult(id: string, opts: { now?: number } = {}): 
     await db.from("lab_results").update({ notify_status: "unreachable", notify_error: "ไม่ได้ผูก LINE", updated_at: nowIso() }).eq("id", r.id);
     return { sent: false, reason: "unreachable" };
   }
-  const [clinic, appointment] = await Promise.all([clinicName(), hearingAppointment(r.patient_id, now)]);
+  const [clinic, appointment, settings] = await Promise.all([clinicName(), hearingAppointment(r.patient_id, now), loadAppointmentSettings()]);
   const updated = isUpdateNotice(r);
+  // ภาษาของแต่ละบัญชี LINE (เหมือนข้อความนัด): ไทย = ฉบับเดิม · อื่น ๆ = pack (แปลครั้งเดียวต่อภาษา AI ล่ม = อังกฤษ ไม่กันการส่ง)
+  const packs = new Map<string, LanguagePack>();
+  const packOf = async (language: string | null): Promise<LanguagePack | null> => {
+    if (pickLanguage(language) === "th") return null;
+    const code = (language ?? "").trim().toLowerCase();
+    if (!packs.has(code)) {
+      const pack = await languagePack(code, settings).catch((e) => { console.error("lab notice language", errText(e)); return null; });
+      packs.set(code, pack ?? { lang: "en", phrases: { ...EN_PHRASES }, template: settings.template_en });
+    }
+    return packs.get(code)!;
+  };
+  const clinicEn = settings.clinic_name_en.trim() || clinic;
   let sent = 0;
   const errors: string[] = [...blocked];
   for (const t of targets) {
     const showName = (await linksOfConversation(t.conversationId)).length > 1;
-    const notice = { clinic, patientName: r.patient_name, showName, updated, orderDate: r.order_datetime, viewUrl: labViewUrl(liffId(), appUrl(), r.id), mineUrl: labMineUrl(liffId(), appUrl()), bookUrl: labBookUrl(liffId(), appUrl(), r.id), appointment };
+    const pack = await packOf(t.language);
+    const notice = { clinic: pack ? clinicEn : clinic, patientName: r.patient_name, showName, updated, orderDate: r.order_datetime, viewUrl: labViewUrl(liffId(), appUrl(), r.id), mineUrl: labMineUrl(liffId(), appUrl()), bookUrl: labBookUrl(liffId(), appUrl(), r.id), appointment, pack };
     try {
       await lineSendMessages(t.userId, [patientNoticeFlex(notice)], undefined, { kind: "lab", conversationId: t.conversationId });
       await db.from("messages").insert({
-        conversation_id: t.conversationId, direction: "out", sender_type: "system", body: staffTimelineText(notice, `${appUrl().replace(/\/$/, "")}/api/lab-results/${r.id}/pdf`), language: "th",
+        conversation_id: t.conversationId, direction: "out", sender_type: "system", body: staffTimelineText(notice, `${appUrl().replace(/\/$/, "")}/api/lab-results/${r.id}/pdf`), language: pack ? pack.lang : "th",
         external_id: null, imported_sender_name: LAB_SENDER_NAME,
       });
       sent++;
@@ -422,9 +436,24 @@ async function lineUserLinks(userId: string): Promise<{ hns: string[]; conversat
   return { hns: [...hns], conversationIds };
 }
 
+/** ภาษาของหน้า LIFF ตามบัญชี LINE นี้: ไทย / อังกฤษ (ทุกภาษาที่ไม่ใช่ไทย) · ไม่มีรายชื่อ = null (หน้าเว็บใช้ภาษาเบราว์เซอร์) */
+export type PatientLang = "th" | "en";
+async function lineUserLang(userId: string): Promise<PatientLang | null> {
+  const db = supabaseAdmin();
+  const { data: contacts } = await db.from("contacts").select("channel_id, language").eq("external_id", userId);
+  const rows = (contacts ?? []) as { channel_id: string; language: string | null }[];
+  if (!rows.length) return null;
+  const { data: channels } = await db.from("channels").select("id, type").in("id", [...new Set(rows.map((c) => c.channel_id))]);
+  const line = new Set(((channels ?? []) as { id: string; type: string }[]).filter((c) => c.type === "line").map((c) => c.id));
+  const contact = rows.find((c) => line.has(c.channel_id));
+  return contact ? pickLanguage(contact.language) : null;
+}
+/** อังกฤษ: วันที่แบบอังกฤษ (ไม่ใช้ AI) */
+const EN_DATES = {} as const;
+
 export interface PatientAppointment { id: string; when: string; status: string; canConfirm: boolean }
-const patientAppt = (a: LabAppointment | null): PatientAppointment | null =>
-  a ? { id: a.id, when: apptWhen(a), status: a.status, canConfirm: a.status === "scheduled" || a.status === "reschedule_requested" } : null;
+const patientAppt = (a: LabAppointment | null, lang: PatientLang | null = "th"): PatientAppointment | null =>
+  a ? { id: a.id, when: lang === "en" ? apptWhenFor(a, EN_DATES) : apptWhen(a), status: a.status, canConfirm: a.status === "scheduled" || a.status === "reschedule_requested" } : null;
 
 export async function patientViewLab(id: string, idToken: string, now = Date.now()) {
   const userId = await verifyLineIdToken(idToken);
@@ -433,37 +462,38 @@ export async function patientViewLab(id: string, idToken: string, now = Date.now
   if (!r || !r.patient_id || !r.pdf_path || !(await lineUserOwnsHn(userId, r.patient_id))) {
     throw new LabError("ไม่พบผลแล็บนี้ในบัญชี LINE ของคุณ", 404);
   }
-  const [url, downloadUrl, appointment, pending] = await Promise.all([
+  const [url, downloadUrl, appointment, pending, lang] = await Promise.all([
     signedPdfUrl(r.pdf_path),
     signedPdfUrl(r.pdf_path, `lab-${(r.order_datetime ?? "").slice(0, 10) || r.ln || "result"}.pdf`),
     hearingAppointment(r.patient_id, now),
     pendingHearingRequest(r.patient_id, now),
+    lineUserLang(userId),
   ]);
   const at = nowIso();
   await supabaseAdmin().from("lab_results").update({ view_count: (r.view_count ?? 0) + 1, first_viewed_at: r.first_viewed_at ?? at, last_viewed_at: at }).eq("id", r.id);
   return {
     url, downloadUrl, expiresIn: LAB_SIGNED_URL_SECONDS, patientName: r.patient_name, orderDate: r.order_datetime, ln: r.ln,
-    updated: r.version_number > 1, version: r.version_number, appointment: patientAppt(appointment),
-    request: appointment ? null : requestView(pending),
+    updated: r.version_number > 1, version: r.version_number, appointment: patientAppt(appointment, lang),
+    request: appointment ? null : requestView(pending, lang), lang,
   };
 }
 
 /** หน้า "ผลแล็บของฉัน": ผลทุกรายการของทุก HN ที่บัญชี LINE นี้ผูก เรียงล่าสุดก่อน (ไม่มี URL ไฟล์ เปิดทีละรายการ) */
 export async function patientLabList(idToken: string, now = Date.now()) {
   const userId = await verifyLineIdToken(idToken);
-  const { hns } = await lineUserLinks(userId);
-  if (!hns.length) return { linked: false, results: [] };
+  const [{ hns }, lang] = await Promise.all([lineUserLinks(userId), lineUserLang(userId)]);
+  if (!hns.length) return { linked: false, results: [], lang };
   const { data } = await supabaseAdmin().from("lab_results").select(LAB_COLUMNS).in("patient_id", hns).order("order_datetime", { ascending: false }).limit(200);
   const rows = ((data ?? []) as unknown as LabResult[]).filter((r) => r.pdf_path);
   const appts = new Map<string, PatientAppointment | null>();
   const requests = new Map<string, PatientRequest | null>();
   for (const hn of new Set(rows.map((r) => r.patient_id as string))) {
     const a = await hearingAppointment(hn, now);
-    appts.set(hn, patientAppt(a));
-    requests.set(hn, a ? null : requestView(await pendingHearingRequest(hn, now)));
+    appts.set(hn, patientAppt(a, lang));
+    requests.set(hn, a ? null : requestView(await pendingHearingRequest(hn, now), lang));
   }
   return {
-    linked: true,
+    linked: true, lang,
     results: rows.map((r) => ({
       id: r.id, ln: r.ln, orderDate: r.order_datetime, patientName: hns.length > 1 ? r.patient_name : null,
       updated: r.version_number > 1, version: r.version_number, viewed: !!r.first_viewed_at, appointment: appts.get(r.patient_id as string) ?? null,
@@ -592,7 +622,9 @@ export async function labUnmatchedCount(): Promise<number> {
 // ---------------------------------------------------------------------------
 export interface PatientRequest { date: string; time: string; when: string }
 const whenText = (date: string, time: string) => `วัน${thaiWeekday(date)}ที่ ${thaiDate(date)} เวลา ${thaiTime(time)} น.`;
-const requestView = (q: HearingRequest | null): PatientRequest | null => (q ? { date: q.date, time: q.time, when: whenText(q.date, q.time) } : null);
+const whenTextFor = (date: string, time: string, lang: PatientLang | null) => (lang === "en" ? `${englishDate(date)}, ${time}` : whenText(date, time));
+const requestView = (q: HearingRequest | null, lang: PatientLang | null = "th"): PatientRequest | null =>
+  (q ? { date: q.date, time: q.time, when: whenTextFor(q.date, q.time, lang) } : null);
 
 /** คำขอนัดฟังผลที่ยังรอเจ้าหน้าที่ลงนัด ของ HN นี้ (ทุกแชทที่ผูก HN) */
 async function pendingHearingRequest(hn: string, now = Date.now()): Promise<HearingRequest | null> {
@@ -623,24 +655,24 @@ async function ownedResult(id: string, idToken: string) {
   const linked = new Set((await linkedConversationsOf(r.patient_id)).map((l) => l.conversation_id));
   const conversationId = conversationIds.find((c) => linked.has(c));
   if (!conversationId) throw new LabError("ไม่พบผลแล็บนี้ในบัญชี LINE ของคุณ", 404);
-  return { r: r as LabResult & { patient_id: string }, conversationId };
+  return { r: r as LabResult & { patient_id: string }, conversationId, userId };
 }
 
 /** หน้าเลือกวันนัดฟังผล: วัน/เวลาที่เลือกได้ + นัดหรือคำขอที่มีอยู่แล้ว */
 export async function patientBookingInfo(id: string, idToken: string, now = Date.now()) {
-  const { r } = await ownedResult(id, idToken);
-  const [appointment, pending, hours] = await Promise.all([hearingAppointment(r.patient_id, now), pendingHearingRequest(r.patient_id, now), loadBusinessHours()]);
+  const { r, userId } = await ownedResult(id, idToken);
+  const [appointment, pending, hours, lang] = await Promise.all([hearingAppointment(r.patient_id, now), pendingHearingRequest(r.patient_id, now), loadBusinessHours(), lineUserLang(userId)]);
   return {
-    patientName: r.patient_name, orderDate: r.order_datetime,
-    appointment: patientAppt(appointment),
-    request: appointment ? null : requestView(pending),
-    days: appointment ? [] : selfBookingDays(hours, now).map((d) => ({ ...d, label: `${thaiWeekday(d.date)} ${thaiDate(d.date)}` })),
+    patientName: r.patient_name, orderDate: r.order_datetime, lang,
+    appointment: patientAppt(appointment, lang),
+    request: appointment ? null : requestView(pending, lang),
+    days: appointment ? [] : selfBookingDays(hours, now).map((d) => ({ ...d, label: lang === "en" ? dayButtonLabel(d.date, "en") : `${thaiWeekday(d.date)} ${thaiDate(d.date)}` })),
   };
 }
 
 /** คนไข้ส่งคำขอนัดฟังผล: มีคำขอค้างของ HN นี้ = อัปเดตอันเดิม · มีนัดจริงแล้ว = ไม่รับ */
 export async function patientRequestAppointment(id: string, idToken: string, dateIn: unknown, timeIn: unknown, now = Date.now()) {
-  const { r, conversationId } = await ownedResult(id, idToken);
+  const { r, conversationId, userId } = await ownedResult(id, idToken);
   const date = typeof dateIn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateIn) ? dateIn : "";
   const time = typeof timeIn === "string" && /^\d{2}:\d{2}$/.test(timeIn) ? timeIn : "";
   if (await hearingAppointment(r.patient_id, now)) throw new LabError("มีนัดฟังผลอยู่แล้ว ดูวันนัดได้ในหน้าผลแล็บ", 409);
@@ -666,5 +698,7 @@ export async function patientRequestAppointment(id: string, idToken: string, dat
   });
   // ให้แชทขึ้นมาให้เจ้าหน้าที่เห็น (เหมือนนัดที่ AI รับไว้)
   await db.from("conversations").update({ last_message_at: at, last_message_preview: `คนไข้ขอนัดฟังผล ${when}`.slice(0, 120) }).eq("id", conv);
-  return { date, time, when, updated: !!existing };
+  const lang = await lineUserLang(userId);
+  // ข้อความในแชทของเจ้าหน้าที่เป็นไทยเสมอ · ที่คืนให้หน้าคนไข้ตามภาษาของบัญชี
+  return { date, time, when: whenTextFor(date, time, lang), updated: !!existing, lang };
 }

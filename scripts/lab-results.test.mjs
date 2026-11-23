@@ -441,7 +441,7 @@ test("LIFF ผลแล็บของฉัน: เฉพาะผลของ 
   assert.match(mine.results[0].appointment.when, /09:30/);
   assert.ok(!JSON.stringify(mine).includes("storage.test"), "รายการไม่มีลิงก์ไฟล์ เปิดทีละรายการ");
   const other = await (await postJson(mineRoute, { idToken: "tok-other" })).json();
-  assert.deepEqual(other, { linked: false, results: [] });
+  assert.deepEqual(other, { linked: false, results: [], lang: "th" }, "ภาษาของบัญชี (ไทย) ส่งไปกับรายการ");
 });
 
 test("หน้าดูผล: ปุ่มดาวน์โหลด PDF + วันนัด + ยืนยันนัดได้เฉพาะบัญชีที่ผูก", async () => {
@@ -731,4 +731,123 @@ test("แล็บอ่าน HN ได้แต่คนไข้ยังไ�
   assert.equal(row("2401").match_status, "matched");
   assert.equal(row("2401").patient_id, "000004823");
   assert.ok(state.tables.patients.some((p) => p.hn === "000004823"));
+});
+
+// ---------------------------------------------------------------------------
+// ภาษาของการ์ดแจ้งผลแล็บ = ภาษาของบัญชี LINE (เหมือนข้อความนัด) · หน้า LIFF อังกฤษเมื่อบัญชีไม่ใช่ไทย
+// ---------------------------------------------------------------------------
+const ai = await import(fake("ai"));
+const apptRules = await import("../src/lib/appointment-rules.ts");
+const HEARING = "11111111-2222-4333-8444-666666666666";
+const inDays = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+async function notifyInLanguage(language, bmlId, { appointment = true } = {}) {
+  state.tables.appointment_translations = [];
+  state.tables.slip_translations = [];
+  state.tables.contacts.find((c) => c.id === "c1").language = language;
+  if (appointment) {
+    state.tables.appointments.push({ id: HEARING, hn: "000004714", appoint_date: inDays(5), time_mode: "exact", time_start: "10:30:00", time_end: null, status: "scheduled", purpose_text: "ฟังผลแล็บ", telemed_id: null });
+  }
+  const next = await initialize(Date.now());
+  labs = [item(bmlId)];
+  const summary = await store.runLabSync(next);
+  const toPatient = pushes().find((p) => p.to === LINE_USER);
+  assert.ok(toPatient, "ส่งการ์ดถึงคนไข้");
+  const msg = (state.tables.messages ?? []).filter((m) => m.conversation_id === "conv1" && m.sender_type === "system").at(-1);
+  return { summary, flex: toPatient.messages[0], json: JSON.stringify(toPatient.messages[0]), msg };
+}
+const buttonLabels = (flex) => (JSON.stringify(flex.contents.footer).match(/"label":"[^"]*"/g) ?? []).map((s) => JSON.parse(`{${s}}`).label);
+
+test("ภาษาการ์ดผลแล็บ: บัญชีไทย = ฉบับไทยเดิมทุกคำ ไม่เรียก AI · ข้อความในแชทเป็นภาษา th", async () => {
+  ai.reset();
+  const { flex, json, msg } = await notifyInLanguage("th", "901");
+  assert.match(json, /ผลแล็บของคุณออกแล้ว/);
+  assert.deepEqual(buttonLabels(flex), ["ดูผล", "ดูผลแล็บทั้งหมดของฉัน", "ยืนยันนัด", "ขอเลื่อนนัด"]);
+  assert.match(json, /คลินิกทดสอบ/);
+  assert.match(flex.altText, /^ผลแล็บของคุณออกแล้ว · นัดฟังผล .* น\.$/);
+  assert.equal(ai.calls.chat, 0);
+  assert.equal(msg.language, "th");
+});
+
+test("ภาษาการ์ดผลแล็บ: บัญชีอังกฤษ = การ์ดอังกฤษ + ชื่อคลินิกอังกฤษ + วันที่อังกฤษ · ไม่เรียก AI · ไทม์ไลน์เจ้าหน้าที่ยังเป็นไทย", async () => {
+  ai.reset();
+  const { flex, json, msg } = await notifyInLanguage("en", "902");
+  assert.match(json, /Your lab results are ready/);
+  assert.match(json, /Results appointment/);
+  assert.deepEqual(buttonLabels(flex), ["View results", "All my lab results", "Confirm", "Reschedule"]);
+  assert.match(json, /HappiWell Medical Clinic/, "ชื่อคลินิกอังกฤษจากตั้งค่านัด");
+  assert.doesNotMatch(json, /คลินิกทดสอบ|ผลแล็บ|นัดฟังผล|ยืนยันนัด/, "ไม่มีภาษาไทยในการ์ด");
+  assert.match(json, new RegExp(escapeRe(apptRules.englishDate(inDays(5)))));
+  assert.match(json, /10:30/);
+  assert.match(json, /appt:confirm:11111111-2222-4333-8444-666666666666/, "postback เดิมของระบบนัด");
+  assert.match(flex.altText, /^Your lab results are ready · Results appointment: /);
+  assert.equal(ai.calls.chat, 0);
+  assert.equal(msg.language, "en");
+  assert.match(msg.body, /ผลแล็บของคุณออกแล้ว/, "ไทม์ไลน์ในแชทเจ้าหน้าที่เป็นไทย");
+});
+
+test("ภาษาการ์ดผลแล็บ: ภาษาอื่น (ja) แปลวลีผ่าน pack ครั้งเดียว · ตัวแปร/ตัวเลขครบ · วลีที่ตัวแปรหายใช้อังกฤษ · ปุ่ม ≤ 20 ตัว", async () => {
+  ai.reset();
+  const settings = apptRules.normalizeAppointmentSettings({});
+  const items = Object.fromEntries([...Object.entries(apptRules.EN_PHRASES), ["template", settings.template_en]].map(([k, v]) => [k, `日本語:${v}`]));
+  items["lab.apptLine"] = "日本語 予約"; // {when} หาย → ใช้อังกฤษเฉพาะวลีนี้
+  items["lab.view"] = "結果を見る結果を見る結果を見る結果を見る結果"; // ยาวเกิน 20
+  ai.replies.next = { items };
+  const { flex, json, msg } = await notifyInLanguage("ja", "903");
+  assert.equal(ai.calls.chat, 1, "แปลชุดวลีครั้งเดียว");
+  assert.match(json, /日本語:Your lab results are ready/);
+  assert.match(json, /日本語:Results appointment/);
+  assert.ok(buttonLabels(flex).every((l) => [...l].length <= 20), "ปุ่ม LINE ≤ 20 ตัวอักษร");
+  assert.equal(buttonLabels(flex)[0], [...items["lab.view"]].slice(0, 20).join(""));
+  assert.match(flex.altText, /Results appointment: .*10:30/, "วลีที่ตัวแปรหายใช้อังกฤษ แล้วเติมวันเวลา");
+  assert.doesNotMatch(flex.altText, /日本語 予約/);
+  assert.equal(msg.language, "ja");
+});
+
+test("ภาษาการ์ดผลแล็บ: AI ล่ม = การ์ดอังกฤษ ส่งได้ตามปกติ", async () => {
+  ai.reset();
+  ai.calls.failNext = new Error("AI down");
+  const { summary, json, msg } = await notifyInLanguage("ko", "904", { appointment: false });
+  assert.equal(summary.notified, 1, "ไม่กันการส่ง");
+  assert.match(json, /Your lab results are ready/);
+  assert.match(json, /No results appointment yet/);
+  assert.match(json, /Choose a date/, "ไม่มีนัด = ปุ่มเลือกวัน (อังกฤษ)");
+  assert.equal(row("904").notify_status, "sent");
+  assert.equal(msg.language, "en", "AI ล่ม = เก็บเป็นอังกฤษ");
+});
+
+test("patientNoticeText: ไทยเดิม · มี pack = ตามภาษา ลิงก์เติมหลังแปล", () => {
+  const base = { clinic: "คลินิก", patientName: null, showName: false, updated: false, orderDate: null, viewUrl: "https://liff/v", mineUrl: "https://liff/m", bookUrl: "https://liff/b", appointment: null };
+  assert.equal(rules.patientNoticeText(base), ["ผลแล็บของคุณออกแล้ว", "กดลิงก์เพื่อดูผล (ลิงก์ใช้ได้เฉพาะบัญชี LINE นี้)", "https://liff/v", "ดูผลแล็บทั้งหมดของฉัน: https://liff/m", "คลินิก"].join("\n"));
+  const en = rules.patientNoticeText({ ...base, clinic: "HappiWell", updated: true, pack: { lang: "en", phrases: { ...apptRules.EN_PHRASES }, template: "" } });
+  assert.equal(en, ["Your lab results were updated", apptRules.EN_PHRASES["lab.updatedHint"], "https://liff/v", "All my lab results: https://liff/m", "HappiWell"].join("\n"));
+});
+
+test("หน้า LIFF: บัญชีอังกฤษได้ lang=en + วันนัดอังกฤษ · บัญชีไทยได้ th · หน้าเว็บมีข้อความอังกฤษครบ + บรรทัดใบผลภาษาต้นฉบับ", async () => {
+  state.tables.contacts.find((c) => c.id === "c1").language = "en";
+  state.tables.appointments.push({ id: HEARING, hn: "000004714", appoint_date: inDays(3), time_mode: "exact", time_start: "09:00:00", time_end: null, status: "scheduled", purpose_text: "ฟังผลแล็บ", telemed_id: null });
+  const next = await initialize(Date.now());
+  labs = [item("905")];
+  await store.runLabSync(next);
+  const id = row("905").id;
+  const res = await viewRoute.POST(new Request("https://app.test/api/lab-results/view", { method: "POST", body: JSON.stringify({ id, idToken: "tok-owner" }) }));
+  const j = await res.json();
+  assert.equal(j.lang, "en");
+  assert.equal(j.appointment.when, `${apptRules.englishDate(inDays(3))}, 09:00`);
+  const mine = await store.patientLabList("tok-owner");
+  assert.equal(mine.lang, "en");
+  assert.equal(mine.results[0].appointment.when, j.appointment.when);
+  state.tables.contacts.find((c) => c.id === "c1").language = "th";
+  const th = await store.patientViewLab(id, "tok-owner");
+  assert.equal(th.lang, "th");
+  assert.match(th.appointment.when, / น\.$/);
+
+  const src = readFileSync("src/app/lab-result/viewer.tsx", "utf8");
+  assert.match(src, /This report is issued by the laboratory in its original language\./);
+  assert.match(src, /applyLang\(r\.data\.lang\)/, "ใช้ภาษาของบัญชีจาก server");
+  assert.match(src, /browserLang\(navigator\.language\)/, "ยังไม่รู้ภาษาบัญชี = ภาษาเบราว์เซอร์");
+  const thKeys = src.slice(src.indexOf("  th: {"), src.indexOf("  en: {")).match(/^\s{4}(\w+):|, (\w+):/gm).length;
+  const enKeys = src.slice(src.indexOf("  en: {"), src.indexOf("/** ภาษาเริ่มต้น")).match(/^\s{4}(\w+):|, (\w+):/gm).length;
+  assert.equal(enKeys, thKeys, "ข้อความอังกฤษครบทุกคำ");
 });

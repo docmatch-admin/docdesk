@@ -551,6 +551,21 @@ export const EN_PHRASES = {
   "reply.callMe": "Our staff will contact you to set a new date.",
   "button.callMe": "Ask staff to call",
   "reply.slotGone": "That time is no longer available. Please choose again 👇",
+  // การ์ดแจ้งผลแล็บทาง LINE (lab-results-rules) · ปุ่ม ≤ 20 ตัวอักษร (ตัดเองถ้าคำแปลยาวเกิน)
+  "lab.ready": "Your lab results are ready",
+  "lab.updated": "Your lab results were updated",
+  "lab.viewHint": "Tap \"View results\" to open your results (only this LINE account can open them)",
+  "lab.updatedHint": "The laboratory corrected your results. Please view the latest version",
+  "lab.linkHint": "Open the link to view your results (only this LINE account can open it)",
+  "lab.view": "View results",
+  "lab.mine": "All my lab results",
+  "lab.mineLink": "All my lab results: {url}",
+  "lab.appt": "Results appointment",
+  "lab.apptLine": "Results appointment: {when}",
+  "lab.noAppt": "No results appointment yet",
+  "lab.noApptHint": "Tap \"Choose a date\" below and the clinic will confirm your appointment",
+  "lab.choose": "Choose a date",
+  "lab.altChoose": "You can choose a results appointment date",
 } as const;
 export type PhraseKey = keyof typeof EN_PHRASES;
 export type Phrases = Record<PhraseKey, string>;
