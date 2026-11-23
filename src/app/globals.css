@@ -2231,9 +2231,9 @@ html { scrollbar-gutter: stable; }
 
 @media (min-width: 900px) {
   .team-panel { width: 320px; padding: 0 16px; gap: 20px; font-size: 13px; }
-  /* เมนูซ้ายพับ (224→68px): ยกพื้นที่ที่ได้คืนให้แผงข้อมูลลูกค้า แต่ให้ช่องแชทกว้างอย่างน้อย 420px */
+  /* เมนูซ้ายพับ: แผงข้อมูลลูกค้ากว้างขึ้นเล็กน้อย (320→360px) ที่เหลือให้ช่องแชท */
   .team-panel { transition: width .15s ease; }
-  html[data-nav="collapsed"] .team-panel { width: max(320px, min(476px, calc(100vw - 828px))); }
+  html[data-nav="collapsed"] .team-panel { width: 360px; }
   .team-panel > .side-block { padding: 0; border-bottom: 0; gap: 8px; }
   .team-panel > .tp-info { gap: 10px; }
   .cust-header { height: 56px; margin: 0 -16px 6px; padding: 0 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; background: var(--card); }
