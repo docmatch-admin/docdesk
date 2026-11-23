@@ -71,11 +71,37 @@ export function usePreferencesOptional(): PrefsCtx | null {
 export function ThemeQuickToggle() {
   const { prefs, update, systemDark } = usePreferences();
   const dark = effectiveTheme(prefs.theme, systemDark) === "dark";
-  const label = dark ? "เปลี่ยนเป็นธีมสว่าง" : "เปลี่ยนเป็นธีมมืด";
+  const label = dark ? "เปลี่ยนเป็นโหมดสว่าง" : "เปลี่ยนเป็นโหมดมืด";
   return (
     <button type="button" className="btn ghost small nav-quick" onClick={() => update({ theme: dark ? "light" : "dark" })} aria-label={label} title={label}>
       <Icon name={dark ? "sun" : "moon"} size={16} />
-      <span className="nav-label">{dark ? "ธีมสว่าง" : "ธีมมืด"}</span>
+      <span className="nav-label">{dark ? "โหมดสว่าง" : "โหมดมืด"}</span>
+    </button>
+  );
+}
+
+/** แถวสวิตช์ในหน้าเมนูมือถือ */
+export function ThemeSwitchRow() {
+  const { prefs, update, systemDark } = usePreferences();
+  const dark = effectiveTheme(prefs.theme, systemDark) === "dark";
+  return (
+    <button type="button" role="switch" aria-checked={dark} className="m-row m-switch-row" onClick={() => update({ theme: dark ? "light" : "dark" })}>
+      <Icon name="moon" size={22} />
+      <span className="m-row-label">โหมดมืด</span>
+      <span className="m-switch" aria-hidden="true" />
+    </button>
+  );
+}
+
+/** เสียงเตือนแชทรอตอบ (ค่าเดียวกับเมนูซ้าย ใช้ทุกเครื่อง) ตัวเล่นเสียงอยู่ในเมนูซ้ายตัวเดียว */
+export function SoundSwitchRow() {
+  const { prefs, update } = usePreferences();
+  const on = !prefs.sound_muted;
+  return (
+    <button type="button" role="switch" aria-checked={on} className="m-row m-switch-row" onClick={() => update({ sound_muted: on })}>
+      <Icon name={on ? "bell" : "bellOff"} size={22} />
+      <span className="m-row-label">เสียงเตือน</span>
+      <span className="m-switch" aria-hidden="true" />
     </button>
   );
 }

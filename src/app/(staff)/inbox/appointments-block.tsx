@@ -14,7 +14,7 @@ import { summarize, type ApptSummary } from "./mobile-chat";
  * นัดครั้งต่อไปของแชทนี้ ใช้ฟอร์มเดียวกับหน้านัดหมาย
  * แชท (บัญชี) ผูกได้หลาย HN: แสดงนัดแยกตามคนไข้ ทำนัดให้ HN ไหนเติม HN ชื่อ เบอร์ของคนนั้น ยังไม่ผูกให้กรอกเอง
  */
-export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmin, onChanged, onMessage, onSummary }: {
+export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmin, onChanged, onMessage, onSummary, footer }: {
   conversationId: string;
   isAdmin: boolean;
   contactName: string | null;
@@ -23,12 +23,22 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
   onMessage: (msg: string) => void;
   /** นัดที่ยังไม่ถึงทั้งหมด + นัดที่ใกล้สุด (แถบ "นัดถัดไป" และป้ายบนแท็บนัดในมือถือ) */
   onSummary?: (s: ApptSummary) => void;
+  /** ท้ายการ์ดนัด (ผลแล็บล่าสุด) */
+  footer?: React.ReactNode;
 }) {
   const sb = useMemo(() => supabaseBrowser(), []);
   const [groups, setGroups] = useState<SideGroup[]>([]);
   // ทำนัดให้ HN ไหน (null = กรอกเอง) undefined = ไม่ได้เปิดฟอร์ม
   const [creatingFor, setCreatingFor] = useState<string | null | undefined>(undefined);
-  const [open, setOpen] = useState<{ id: string; edit: boolean } | null>(null);
+  // ปุ่มจากกล่องข้อมูลลูกค้า: "ทำนัด" (มือถือ) และ "แก้ไขการเชื่อมคนไข้" (คอม)
+  useEffect(() => {
+    const onNew = () => setCreatingFor((cur) => (cur !== undefined ? cur : null));
+    const onLink = () => setLinking(true);
+    window.addEventListener("docdesk:new-appt", onNew);
+    window.addEventListener("docdesk:link-hn", onLink);
+    return () => { window.removeEventListener("docdesk:new-appt", onNew); window.removeEventListener("docdesk:link-hn", onLink); };
+  }, []);
+  const [open, setOpen] = useState<{ id: string; mode: "view" | "edit" | "cancel" } | null>(null);
   // แอดมินยืนยันการจับคู่ HN: ค้นชื่อจาก iService ก่อน แล้วกดยืนยัน
   const [linking, setLinking] = useState(false);
   const [hnInput, setHnInput] = useState("");
@@ -115,8 +125,8 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
         onPrimary={(hn) => patchLink(conversationId, { primary_hn: hn }, `ตั้ง HN ${hn} เป็นหลักแล้ว`)}
         onRelation={(a: LinkedAccountRow, relation, hn) => patchLink(a.conversation_id, { relation, hn }, "แก้ป้ายบัญชีแล้ว")}
         onDetach={(a, hn) => unlink(a.conversation_id, hn)}
-        onOpen={(id) => setOpen({ id, edit: false })} onEdit={(id) => setOpen({ id, edit: true })}
-        printHref={(id) => `/appointments/${id}/print?reprint=1`}>
+        onOpen={(id) => setOpen({ id, mode: "view" })} onEdit={(id) => setOpen({ id, mode: "edit" })}
+        onCancel={(id) => setOpen({ id, mode: "cancel" })} footer={footer}>
         {linking && (
           <div className="appt-link-box">
             <form className="row" onSubmit={checkHn}>
@@ -137,7 +147,7 @@ export function AppointmentsBlock({ conversationId, contactName, blurred, isAdmi
         )}
       </AppointmentsSideView>
       {open && (
-        <AppointmentDrawer id={open.id} canOpenChat={false} isAdmin={isAdmin} initialMode={open.edit ? "edit" : "view"} onClose={() => setOpen(null)}
+        <AppointmentDrawer id={open.id} canOpenChat={false} isAdmin={isAdmin} initialMode={open.mode} onClose={() => setOpen(null)}
           onChanged={(m) => { if (m) onMessage(m); load(); onChanged(); }} />
       )}
     </>

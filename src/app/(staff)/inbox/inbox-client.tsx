@@ -30,7 +30,7 @@ import { TeamPanel } from "./team-panel";
 import { CustomerCard } from "./customer-card";
 import { latestFacts, useVisitHistory, VisitHistoryBlock } from "./visit-history";
 import { WebBookingCard } from "./web-booking-card";
-import { MobileChatTabs, NextAppointmentStrip, useMobileTyping, type ApptSummary, type MobileTab } from "./mobile-chat";
+import { MobileChatTabs, useMobileTyping, type ApptSummary, type MobileTab } from "./mobile-chat";
 import {
   AI_MODE_HINT, AI_MODE_LABEL, CHANNEL_LABEL,
   type AiMode, type Conversation, type Message, type SuggestionOption, type SuggestionResult,
@@ -121,6 +121,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const [apptSummary, setApptSummary] = useState<ApptSummary | null>(null);
   const visitHistory = useVisitHistory(selectedId, apptSummary?.patient?.hn);
   const [noteCount, setNoteCount] = useState(0);
+  const [firstTask, setFirstTask] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -850,6 +851,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   const canSplitImported = messages.some((m) => m.imported)
     && !messages.some((m) => m.direction === "out" && m.sender_type === "staff" && !m.imported);
 
+  const headHn = (apptSummary?.patient?.hn ?? selected?.contacts?.hn ?? null)?.toString().replace(/^0+(?=\d)/, "") ?? null;
+  const headRights = headHn ? latestFacts(visitHistory)?.rights ?? null : null;
   const dueMin = selected?.ai_due_at ? Math.max(0, Math.ceil((new Date(selected.ai_due_at).getTime() - Date.now()) / 60000)) : null;
   // กติกา 24 ชม. ของ Facebook/Instagram
   const isMeta = selected?.channels?.type === "facebook" || selected?.channels?.type === "instagram";
@@ -868,8 +871,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       <aside className="conv-list">
         <div className="m-inbox-head" aria-hidden="true">Doc<span>Desk</span></div>
         <div className="inbox-search">
-          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ ข้อความ หรือแท็ก…" aria-label="ค้นหาแชท" />
+          <label className="search-box">
+            <Icon name="search" size={16} />
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="ค้นหาชื่อ ข้อความ หรือแท็ก…" aria-label="ค้นหาแชท" />
+          </label>
         </div>
         {/* ขอบเขตแชท 3 ช่อง อยู่ที่เดิมเสมอ · ช่วง รอตอบ / งานค้าง / ล่าสุด ดูจากหัวข้อในรายการ (ไม่ซ้ำกัน) */}
         <div className="q-filters" role="group" aria-label="ขอบเขตแชท">
@@ -988,7 +994,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                   </form>
                 ) : (
                   <div className="head-line">
-                    <span className={`name ${blurred ? "sensitive-text" : ""}`}>{contactName(selected.contacts)}</span>
+                    <span className={`name ${blurred ? "sensitive-text" : ""}`}>{contactName(selected.contacts)}{headHn && !blurred && <span className="head-hn"> · HN {headHn}</span>}</span>
                     {!blurred && (staffMayRename(selected.contacts) ? (
                       <button className="icon-btn ghost tiny" type="button" title="แก้ชื่อลูกค้า" aria-label="แก้ชื่อลูกค้า"
                         onClick={() => setEditingName(selected.contacts?.display_name ?? "")}><Icon name="pencil" size={14} /></button>
@@ -996,6 +1002,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                       <span className="icon-btn ghost tiny static" role="img" aria-label="ชื่อจาก HIS (ล็อก)"
                         title="ชื่อจาก HIS แก้ไม่ได้ ต้องยกเลิกการผูก HN ก่อน"><Icon name="lock" size={14} /></span>
                     ))}
+                    {/* มือถือ (ตามแบบ): ช่องทาง · สิทธิ + แท็ก */}
+                    <span className="head-sub-m">
+                      <span className="head-ch">{selected.channels ? CHANNEL_LABEL[selected.channels.type] : ""}{headRights ? ` · ${headRights}` : ""}</span>
+                      {!blurred && selected.tags.filter((t) => t !== SENSITIVE_TAG).map((t) => <TagChip key={t} name={t} color={tagColor.get(t)} />)}
+                    </span>
                     <span className="head-sub">
                       {!blurred && contactLabel(selected.contacts).secondary && <span className="name-platform">{contactLabel(selected.contacts).secondary} · </span>}
                       {selected.channels?.name}
@@ -1028,8 +1039,16 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             {!selected.archived && (
               <MobileChatTabs tab={mtab} onTab={setMtab} appointments={apptSummary?.count ?? 0} tasks={openTasks} notes={noteCount} />
             )}
-            {!selected.archived && apptSummary?.next && mtab === "chat" && (
-              <NextAppointmentStrip next={apptSummary.next} blurred={blurred} onOpen={() => setMtab("info")} />
+            {!selected.archived && (
+              <div className="m-assignee-row">
+                <AssigneeControl me={me} assignedTo={selected.assigned_to} onChange={assign} showClaim
+                  staff={selected.sensitive ? staffList.filter((s) => s.role === "admin" || s.can_view_sensitive) : staffList} />
+              </div>
+            )}
+            {!selected.archived && openTasks > 0 && mtab === "chat" && (
+              <button type="button" className="m-task-banner" onClick={() => setMtab("info")}>
+                <Icon name="check" size={16} /><span className="one">งานค้าง {openTasks}{firstTask ? `: ${firstTask}` : ""}</span>
+              </button>
             )}
 
             <details className="customer-panel">
@@ -1233,21 +1252,30 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       {selected && !locked && (
         <aside className="team-panel" aria-label="ข้อมูลลูกค้า">
           <section className="side-block tp-info">
-            <h2 className="cust-title">ข้อมูลลูกค้า</h2>
-            <CustomerCard conversation={selected} patient={apptSummary?.patient ?? null} facts={latestFacts(visitHistory)} blurred={blurred} />
-            {!selected.archived && (
-              <div className="m-only m-assignee">
-                <AssigneeControl me={me} assignedTo={selected.assigned_to} onChange={assign}
-                  staff={selected.sensitive ? staffList.filter((s) => s.role === "admin" || s.can_view_sensitive) : staffList} />
-              </div>
-            )}
-            <div className="side-tags">
-              {selected.tags.map((t) => (
-                <TagChip key={t} name={t} color={tagColor.get(t)} ai={tagSources[t] === "ai"}
-                  onRemove={t === SENSITIVE_TAG ? undefined : () => changeTag(t, "remove")} />
-              ))}
-              <TagPicker tags={tags} current={selected.tags} onPick={(t) => changeTag(t, "add")} onCreate={isAdmin ? createTag : undefined} />
+            <div className="cust-header">
+              <h2 className="cust-title">ข้อมูลลูกค้า</h2>
+              {isAdmin && !selected.archived && (
+                <button type="button" className="icon-btn cust-link" aria-label="แก้ไขการเชื่อมคนไข้" title="เปลี่ยนคนไข้ที่เชื่อม (ผูก HN)"
+                  onClick={() => window.dispatchEvent(new CustomEvent("docdesk:link-hn"))}><Icon name="link" /></button>
+              )}
             </div>
+            <CustomerCard conversation={selected} patient={apptSummary?.patient ?? null} facts={latestFacts(visitHistory)} blurred={blurred}
+              onNewAppointment={selected.archived ? undefined : () => window.dispatchEvent(new CustomEvent("docdesk:new-appt"))}
+              tags={<>
+                {selected.tags.map((t) => (
+                  <TagChip key={t} name={t} color={tagColor.get(t)} ai={tagSources[t] === "ai"}
+                    onRemove={t === SENSITIVE_TAG ? undefined : () => changeTag(t, "remove")} />
+                ))}
+                <TagPicker tags={tags} current={selected.tags} onPick={(t) => changeTag(t, "add")} onCreate={isAdmin ? createTag : undefined} />
+              </>}
+              lockSwitch={selected.archived ? undefined : (
+                <button type="button" role="switch" aria-checked={!!selected.sensitive} className={`lock-switch ${confirmUntag ? "confirm" : ""}`}
+                  disabled={!!selected.sensitive && !isAdmin}
+                  title={selected.sensitive ? (isAdmin ? (confirmUntag ? "กดอีกครั้งเพื่อยืนยันเอาออกจากแชทลับ" : "เอาออกจากแชทลับ") : "แชทลับ (admin เท่านั้นที่เอาออกได้)") : "แชทลับ: เห็นเฉพาะผู้มีสิทธิ์ และ AI ไม่อ่านแชทนี้"}
+                  onClick={() => (!selected.sensitive ? setSensitive(true) : confirmUntag ? setSensitive(false) : setConfirmUntag(true))}>
+                  <Icon name="lock" size={14} />{confirmUntag ? "ยืนยัน?" : "แชทลับ"}<span className="m-switch" aria-hidden="true" />
+                </button>
+              )} />
             {!selected.archived && (
               <div className="side-row">
                 <select aria-label="AI แชทนี้" title={AI_MODE_HINT[effectiveMode(selected)]} value={selected.ai_mode ?? ""} disabled={!isAdmin}
@@ -1256,13 +1284,13 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
                   {(Object.keys(AI_MODE_LABEL) as AiMode[]).map((m) => <option key={m} value={m}>AI: {AI_MODE_LABEL[m]}</option>)}
                 </select>
                 {!selected.sensitive ? (
-                  <button type="button" className="icon-btn" aria-label="ตั้งเป็นแชทลับ" title="ตั้งเป็นแชทลับ" onClick={() => setSensitive(true)}><Icon name="lock" /></button>
+                  <button type="button" className="icon-btn side-lock" aria-label="ตั้งเป็นแชทลับ" title="ตั้งเป็นแชทลับ" onClick={() => setSensitive(true)}><Icon name="lock" /></button>
                 ) : isAdmin ? (
-                  <button type="button" className={`icon-btn on ${confirmUntag ? "confirm" : ""}`} aria-label={confirmUntag ? "ยืนยันเอาออกจากแชทลับ" : "เอาออกจากแชทลับ"}
+                  <button type="button" className={`icon-btn on side-lock ${confirmUntag ? "confirm" : ""}`} aria-label={confirmUntag ? "ยืนยันเอาออกจากแชทลับ" : "เอาออกจากแชทลับ"}
                     title={confirmUntag ? "กดอีกครั้งเพื่อยืนยันเอาออกจากแชทลับ" : "เอาออกจากแชทลับ"}
                     onClick={() => (confirmUntag ? setSensitive(false) : setConfirmUntag(true))}><Icon name="unlock" /></button>
                 ) : (
-                  <span className="icon-btn on static" role="img" aria-label="แชทลับ" title="แชทลับ (admin เท่านั้นที่เอาออกได้)"><Icon name="lock" /></span>
+                  <span className="icon-btn on static side-lock" role="img" aria-label="แชทลับ" title="แชทลับ (admin เท่านั้นที่เอาออกได้)"><Icon name="lock" /></span>
                 )}
                 {selected.status === "closed" && (
                   <button type="button" className="icon-btn" aria-label="เปิดแชทนี้ใหม่" title="เปิดแชทนี้ใหม่" onClick={reopenCase}><Icon name="reopen" /></button>
@@ -1282,11 +1310,12 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               <WebBookingCard messages={messages} conversationId={selected.id} bookedDates={apptSummary?.dates ?? []} latestApptAt={apptSummary?.latestCreatedAt ?? null} blurred={blurred}
                 onError={flash} onSaved={() => { loadBookings(selected.id); scheduleWork(); }} />
               <AppointmentsBlock onSummary={setApptSummary} conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
-                onMessage={flash} onChanged={() => { loadBookings(selected.id); scheduleWork(); }} />
-              <LabResultsBlock conversationId={selected.id} blurred={blurred} />
-              <VisitHistoryBlock history={visitHistory} blurred={blurred} />
-              <TeamPanel onNoteCount={setNoteCount} conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
-                staff={staffList} onChanged={scheduleWork} onError={flash} />
+                onMessage={flash} onChanged={() => { loadBookings(selected.id); scheduleWork(); }}
+                footer={<LabResultsBlock conversationId={selected.id} blurred={blurred} />} />
+              <TeamPanel onNoteCount={setNoteCount} onFirstTask={setFirstTask} conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
+                staff={staffList} onChanged={scheduleWork} onError={flash}>
+                <VisitHistoryBlock history={visitHistory} blurred={blurred} />
+              </TeamPanel>
             </>
           )}
         </aside>

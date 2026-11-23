@@ -384,12 +384,15 @@ html[data-nav="collapsed"] .brand-short { display: inline; }
 .btn.done { background: var(--success-solid); color: var(--on-accent); }
 .btn.done:hover { background: var(--success-solid-hover); }
 .badge.muted-badge { background: var(--line); color: var(--ink); }
-.chip.wait-normal { color: var(--muted); }
+.chip.wait-normal { color: var(--muted); border-color: transparent; }
 .chip.wait-warn { background: var(--warn-soft); color: var(--warn-ink); border-color: transparent; }
 .chip.wait-late { background: var(--red-soft); color: var(--red-ink); border-color: transparent; font-weight: 600; }
 
 /* ---------- แท็บ inbox ---------- */
 .inbox-search { padding: 8px 10px; background: var(--card); }
+.search-box { display: flex; flex-direction: row; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 0 10px; background: var(--card); color: var(--muted); font-weight: 400; }
+.search-box input { border: 0; outline: none; flex: 1; min-width: 0; background: transparent; padding: 8px 0; box-shadow: none; }
+.search-box:focus-within { border-color: var(--blue); }
 .inbox-tabs { display: flex; position: sticky; top: 0; z-index: 2; background: var(--card); border-bottom: 1px solid var(--line); }
 .inbox-tabs button { flex: 1; min-width: 0; height: 48px; font-size: 16px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; padding: 0 2px; }
 .inbox-tabs button:hover { background: var(--bg); }
@@ -1525,7 +1528,7 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 /* ===========================================================================
    แอปมือถือ (PWA) ≤ 900px: แถบเมนูล่าง แชท · นัดหมาย · เมนู · เมนูเต็มเป็นแผ่นเลื่อนขึ้น
    ======================================================================== */
-.mobile-tabbar, .mnav-backdrop { display: none; }
+.mobile-tabbar { display: none; }
 .install-help { margin: 4px 0 0; padding: 8px 10px 8px 26px; border-radius: 8px; background: var(--bg); color: var(--ink); line-height: 1.6; }
 /* ---------- ติดตั้ง DocDesk: แบนเนอร์บน · ปุ่มท้ายเมนู · แผ่นวิธีติดตั้ง ---------- */
 .install-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex-shrink: 0; padding: 8px 16px; background: var(--blue-soft); color: var(--blue-ink); border-bottom: 1px solid var(--line); font-weight: 600; }
@@ -1535,38 +1538,49 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .install-banner .btn.ghost { color: var(--blue-ink); border-color: transparent; }
 .install-btn { width: 100%; min-height: 36px; }
 /* "ติดตั้ง DocDesk" ในเมนู: เฉพาะหน้าเมนูมือถือ (html[data-mnav-open]) */
-.nav .mnav-only { display: none; }
 .install-btn.installed, .install-btn.installed:hover { opacity: .55; cursor: default; background: transparent; }
 html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-content: center; padding: 4px 0; }
 .install-sheet-wrap { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-end; justify-content: center; }
-.install-sheet-backdrop { position: absolute; inset: 0; border: 0; background: rgba(0, 0, 0, .45); cursor: default; }
-.install-sheet { position: relative; width: 100%; max-width: 480px; max-height: 88dvh; overflow-y: auto; background: var(--card); color: var(--ink); border-radius: 18px 18px 0 0; box-shadow: 0 -8px 30px var(--shadow); padding: 14px 16px calc(64px + env(safe-area-inset-bottom)); animation: mnav-up .18s ease-out; }
-.install-sheet.ipad { align-self: center; border-radius: 18px; padding-bottom: 18px; }
-.install-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 16px; }
+.install-sheet-backdrop { position: absolute; inset: 0; border: 0; background: rgba(15, 18, 24, .45); cursor: default; }
+/* ตามแบบ: การ์ดลอยมุม 20px เว้นขอบ 12px · ใต้การ์ดเว้นที่ให้ลูกศรชี้ปุ่มแชร์ของ Safari */
+.install-sheet { position: relative; width: calc(100% - 24px); max-width: 456px; max-height: 88dvh; overflow-y: auto; margin: 0 12px calc(64px + env(safe-area-inset-bottom)); background: var(--card); color: var(--ink); border-radius: 20px; box-shadow: 0 -8px 24px var(--shadow); padding: 10px 20px 20px; display: flex; flex-direction: column; gap: 16px; animation: mnav-up .18s ease-out; }
+.install-sheet.open-external { margin-bottom: calc(24px + env(safe-area-inset-bottom)); padding-top: 24px; }
+.install-sheet.manual { margin-bottom: calc(24px + env(safe-area-inset-bottom)); }
+.install-sheet.ipad { align-self: center; margin-bottom: 0; }
+.install-grip { align-self: center; width: 40px; height: 4px; border-radius: 999px; background: var(--switch-off); }
+.install-head { display: flex; align-items: center; gap: 12px; }
+.install-app-icon { width: 52px; height: 52px; border-radius: 12px; background: var(--accent-solid); color: var(--on-accent); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 22px; flex: none; }
+.install-head-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.install-head-text h1, .install-ext-text h1 { margin: 0; font-size: 18px; font-weight: 700; }
+.install-head-text span { font-size: 13px; color: var(--muted-strong); }
+.install-x { width: 44px; height: 44px; border: 0; background: transparent; color: var(--muted-strong); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex: none; cursor: pointer; }
 .install-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
 .install-steps li { display: flex; align-items: center; gap: 12px; }
-.install-pic { flex: none; width: 128px; color: var(--blue); }
-.install-pic svg { display: block; width: 100%; height: auto; }
-.install-pic .pic-screen { fill: var(--bg); stroke: var(--line); }
-.install-pic .pic-bar { fill: var(--card); stroke: var(--line); }
-.install-pic .pic-field, .install-pic .pic-dim { fill: var(--line); }
-.install-pic .pic-ring { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 1.5; }
-.install-pic .pic-ring-rect { fill: var(--blue-soft); stroke: var(--blue); stroke-width: 1.5; }
-.install-pic .pic-text { font-size: 10px; fill: var(--ink); font-family: inherit; }
-.install-pic .pic-text.muted { fill: var(--muted); }
-.install-pic .pic-text.strong { fill: var(--blue); font-weight: 700; }
-.install-pic .pic-app { fill: var(--accent-solid); }
-.install-pic .pic-app-text { font-size: 14px; font-weight: 700; fill: var(--on-accent); font-family: inherit; }
-.install-pic .pic-hl { color: var(--blue); }
-.install-external p { margin: 0 0 10px; }
-.install-url { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font-size: 13px; word-break: break-all; user-select: all; margin-bottom: 10px; }
-.install-external-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-.install-external-actions .btn { flex: 1 1 140px; text-align: center; }
-.install-arrow { position: absolute; left: 50%; bottom: calc(6px + env(safe-area-inset-bottom)); transform: translateX(-50%); font-size: 34px; line-height: 1; color: var(--blue); pointer-events: none; animation: install-blink 1s ease-in-out infinite; }
-.install-arrow.up { top: 6px; bottom: auto; left: auto; right: 24px; transform: none; }
-@keyframes install-blink { 0%, 100% { opacity: 1; translate: 0 0; } 50% { opacity: .15; translate: 0 6px; } }
-.install-arrow.up { animation-name: install-blink-up; }
-@keyframes install-blink-up { 0%, 100% { opacity: 1; translate: 0 0; } 50% { opacity: .15; translate: 0 -6px; } }
+.install-num { width: 28px; height: 28px; border-radius: 999px; background: var(--accent-solid); color: var(--on-accent); font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; flex: none; }
+.install-text { flex: 1; min-width: 0; font-size: 15px; }
+.install-pic { flex: none; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.install-pic svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.install-pic.share { width: 44px; background: var(--blue-soft); color: var(--blue); }
+.install-pic.share svg { width: 22px; height: 22px; }
+.install-pic.chip { padding: 0 12px; gap: 8px; background: var(--bg); border: 1px solid var(--line); font-size: 14px; white-space: nowrap; }
+.install-pic.chip svg { width: 18px; height: 18px; }
+.install-pic.add { padding: 0 16px; background: var(--bg); border: 1px solid var(--line); font-size: 15px; font-weight: 600; color: var(--blue); }
+.install-later { height: 48px; border: 0; border-radius: 12px; background: var(--bg); color: var(--muted-strong); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; }
+.install-compass { width: 56px; height: 56px; border-radius: 999px; background: var(--warning-soft); color: var(--warning-ink); display: flex; align-items: center; justify-content: center; align-self: center; }
+.install-compass svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.install-ext-text { display: flex; flex-direction: column; gap: 6px; text-align: center; }
+.install-ext-text p { margin: 0; font-size: 15px; color: var(--muted-strong); }
+.install-url { height: 48px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); display: flex; align-items: center; padding: 0 6px 0 14px; gap: 8px; }
+.install-url > span { flex: 1; min-width: 0; font-size: 14px; color: var(--muted-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: all; }
+.install-url button { height: 36px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--accent-solid); color: var(--on-accent); font: inherit; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; flex: none; cursor: pointer; }
+.install-url button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.install-open { height: 44px; border-radius: 12px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; text-decoration: none; color: var(--blue); font-weight: 600; }
+.install-tip { background: var(--blue-soft); border-radius: 12px; padding: 12px 14px; font-size: 14px; color: var(--blue-ink); }
+.install-arrow { position: absolute; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); margin-left: -18px; width: 36px; height: 40px; pointer-events: none; animation: install-bounce 1.2s ease-in-out infinite; }
+.install-arrow svg { width: 36px; height: 36px; fill: none; stroke: var(--on-accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.install-arrow.up { top: 6px; bottom: auto; left: auto; right: 24px; margin: 0; animation-name: install-bounce-up; }
+@keyframes install-bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(8px); } }
+@keyframes install-bounce-up { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 @media (prefers-reduced-motion: reduce) {
   .install-arrow, .install-arrow.up { animation: install-fade 1.6s ease-in-out infinite; }
   @keyframes install-fade { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
@@ -1586,7 +1600,7 @@ html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-conte
   .mobile-tabbar svg { display: block; }
   .mnav-icon { position: relative; display: inline-flex; }
   .mnav-icon .nav-count { position: absolute; top: -6px; right: -12px; margin: 0; font-size: 11px; min-width: 18px; padding: 0 5px; }
-  .mnav-icon .mnav-dot { position: absolute; top: -2px; right: -4px; width: 9px; height: 9px; border-radius: 999px; background: var(--danger); border: 2px solid var(--card); }
+  .mnav-icon .mnav-dot { position: absolute; top: -2px; right: -4px; width: 9px; height: 9px; box-sizing: content-box; border-radius: 999px; background: var(--danger); border: 2px solid var(--card); }
 
   /* เนื้อหาไม่ถูกแถบล่างบัง */
   .staff-root .main { padding-bottom: calc(56px + env(safe-area-inset-bottom)); }
@@ -1596,19 +1610,6 @@ html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-conte
   .staff-root:has(.inbox.has-chat) .main { padding-bottom: env(safe-area-inset-bottom); }
   .chat-area > .chat { height: 100dvh; }
 
-  /* เมนูเต็ม = เมนูซ้ายเดิมแสดงเป็นแผ่นเลื่อนขึ้น */
-  html[data-mnav-open] .nav {
-    display: flex !important; position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; width: auto !important;
-    max-height: 85dvh; overflow-y: auto; border-right: 0; border-radius: 18px 18px 0 0;
-    padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 30px var(--shadow);
-    animation: mnav-up .18s ease-out; scrollbar-gutter: stable; }
-  html[data-mnav-open] .nav .nav-label, html[data-mnav-open] .nav .nav-extra { display: flex !important; }
-  html[data-mnav-open] .nav a { justify-content: flex-start !important; padding: 9px 12px !important; }
-  html[data-mnav-open] .nav .brand { display: none; }
-  html[data-mnav-open] .nav .nav-toggle { display: none; }
-  html[data-mnav-open] .nav-foot { padding: 8px 0 0; border-top: 1px solid var(--line); margin-top: 8px; }
-  html[data-mnav-open] .nav .mnav-only { display: block; }
-  .mnav-backdrop { display: block; position: fixed; inset: 0; z-index: 55; border: 0; background: rgba(0, 0, 0, .4); }
   @keyframes mnav-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 
   /* ปุ่ม/ช่องกรอกบนมือถือ: ตัวอักษร ≥16px กัน iPhone ซูมเอง และกดง่าย */
@@ -1637,27 +1638,27 @@ html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-conte
 .m-send { display: none; }
 
 @media (max-width: 899px) {
-  /* ---------- เมนูลอย ---------- */
-  .mobile-tabbar {
-    left: 20px; right: 20px; bottom: calc(14px + env(safe-area-inset-bottom)); height: 60px; padding: 4px;
-    border: 1px solid var(--line); border-radius: 30px; background: var(--card); box-shadow: 0 10px 30px var(--shadow);
-  }
-  .mobile-tabbar a, .mobile-tabbar button { flex-direction: row; gap: 6px; min-height: 0; border-radius: 26px; font-size: 14px; color: var(--muted); }
-  .mobile-tabbar a:not(.on) > span:last-child, .mobile-tabbar button:not(.on) > span:last-child { display: none; }
-  .mobile-tabbar .on { background: var(--accent-solid); color: var(--on-accent); font-weight: 600; }
-  .mobile-tabbar .on .nav-count { display: none; }
-  .mnav-icon .nav-count { top: -4px; right: -10px; }
-  .staff-root .main { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
-  /* รายการแชทเลื่อนลอดใต้เมนูลอยได้ */
-  .staff-root:has(.inbox:not(.has-chat)) .main { padding-bottom: 0; }
-  .inbox:not(.has-chat) .conv-list { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+  /* ---------- แถบล่าง (ตามแบบ): ติดขอบล่าง สูง 68px ไอคอน + ชื่อทุกปุ่ม ปุ่มที่อยู่เป็นสีหลัก ---------- */
+  .mobile-tabbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); height: calc(68px + env(safe-area-inset-bottom)); box-sizing: border-box; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .mobile-tabbar a, .mobile-tabbar button { min-height: 0; }
+  .staff-root .main { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
 
   /* ---------- รายการแชท ---------- */
   .conv-list { background: var(--card); }
-  .m-inbox-head { display: block; padding: calc(14px + env(safe-area-inset-top)) 16px 2px; font-size: 22px; font-weight: 700; }
+  /* ตามแบบ: หัว 52px · ช่องค้นหา 44px มีไอคอน · ตัวกรอง 3 ช่อง · แถว 72px รูปกลม 44px */
+  .m-inbox-head { display: flex; align-items: center; height: 52px; box-sizing: content-box; padding: env(safe-area-inset-top) 16px 0; font-size: 18px; font-weight: 600; color: var(--blue); }
   .m-inbox-head span { color: var(--red); }
-  .inbox-search { padding: 8px 16px; }
-  .inbox-search input { height: 44px; border-radius: 12px; background: var(--bg); padding: 0 14px; }
+  .inbox-search { padding: 0 12px 6px; }
+  .search-box { height: 44px; border-radius: 10px; padding: 0 12px; box-sizing: border-box; }
+  .search-box input { height: 40px; padding: 0; font-size: 15px; }
+  .q-filters { margin: 0 12px 8px; }
+  .q-filter { height: 36px; }
+  .q-filter .badge { font-weight: 400; }
+  .conv-list > .tag-filter { display: none; }
+  .conv.q-row { padding: 10px 12px; gap: 10px; }
+  .q-row .conv-avatar .avatar { width: 44px; height: 44px; border-radius: 50%; }
+  .q-section { border-top: 0; }
+  .conv-list > .q-section:first-of-type { border-top: 1px solid var(--line); }
   .inbox-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 4px 16px 10px; border-bottom: 1px solid var(--line); }
   .inbox-tabs button { height: 40px; font-size: 14px; border: 1px solid var(--line); border-radius: 20px; color: var(--muted-strong); }
   .inbox-tabs button:nth-child(2) { order: -1; }
@@ -1744,7 +1745,7 @@ html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-conte
   .inbox[data-mtab="chat"] .team-panel { display: none; }
   .inbox[data-mtab] .customer-panel { display: none; }
   .inbox:not([data-mtab="chat"]) .chat-area > .chat { height: auto; flex: none; position: sticky; top: 0; z-index: 3; }
-  .inbox:not([data-mtab="chat"]) .chat > :not(.chat-head):not(.mtabs):not(.sensitive-banner) { display: none; }
+  .inbox:not([data-mtab="chat"]) .chat > :not(.chat-head):not(.mtabs):not(.m-assignee-row):not(.sensitive-banner) { display: none; }
   .inbox:not([data-mtab="chat"]) .team-panel { flex: 1; border-top: 0; font-size: 14px; padding-bottom: env(safe-area-inset-bottom); }
   .mtab-dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: var(--danger); margin-left: 6px; vertical-align: middle; }
   .inbox:not([data-mtab="chat"]) .team-panel .side-block { padding: 14px 16px; border-bottom: 0; gap: 10px; }
@@ -1755,45 +1756,36 @@ html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-conte
   .page.appt-page { padding: 0; gap: 0; }
   .appt-page > .appt-matches { margin: 0 16px 12px; }
   .appt-m { display: flex; flex-direction: column; }
-  .appt-m-head { display: flex; align-items: center; gap: 8px; padding: calc(14px + env(safe-area-inset-top)) 16px 12px; }
-  .appt-m-head h1 { margin: 0; flex: 1; font-size: 24px; font-weight: 700; }
-  .appt-m-icon, .appt-m-add { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  /* ตามแบบ: หัว 52px · แถบวันเป็นปุ่มเม็ดยา · การ์ดขาว แถวมีเวลาด้านซ้าย สถานะด้านขวา */
+  .appt-m-icon, .appt-m-add { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
   .appt-m-icon { border: 1px solid var(--line); background: var(--card); color: var(--ink); }
   .appt-m-add { border: 0; background: var(--accent-solid); color: var(--on-accent); }
-  .appt-m-search { display: flex; align-items: center; gap: 8px; margin: 0 16px 12px; padding: 0 14px; height: 44px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--muted); }
-  .appt-m-search input { border: 0; padding: 0; background: none; height: 100%; outline: none; }
-  .appt-m-days { display: flex; gap: 6px; padding: 0 16px 12px; scroll-padding-inline: 16px; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; scrollbar-gutter: stable; }
+  .appt-m-search { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; padding: 0 12px 10px; height: 44px; background: var(--card); color: var(--muted); }
+  .appt-m-search input { border: 1px solid var(--line); border-radius: 10px; padding: 0 12px; background: none; height: 44px; outline: none; flex: 1; min-width: 0; }
+  .appt-m-days { display: flex; gap: 8px; padding: 0 12px 10px; background: var(--card); overflow-x: auto; scrollbar-width: none; scrollbar-gutter: stable; }
   .appt-m-days::-webkit-scrollbar { display: none; }
-  .appt-m-days button { flex: 0 0 54px; height: 68px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--muted-strong); display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; scroll-snap-align: start; padding: 0; }
-  .appt-m-days button.on { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
-  .appt-m-days .d-dow { font-size: 12px; }
-  .appt-m-days .d-num { font-size: 18px; font-weight: 700; line-height: 1.2; }
-  .appt-m-days .d-count { font-size: 11px; }
-  .appt-m-sum { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 16px 12px; }
-  .appt-m-sum .sum { padding: 10px 12px; border-radius: 12px; border: 1px solid transparent; display: flex; flex-direction: column; }
-  .appt-m-sum .sum span { font-size: 12px; }
-  .appt-m-sum .sum b { font-size: 20px; line-height: 1.3; }
-  .appt-m-sum .call { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger-ink); }
-  .appt-m-sum .warn { background: var(--warning-soft); border-color: var(--warning-border); color: var(--warning-ink); }
-  .appt-m-sum .ok { background: var(--success-soft); border-color: var(--success-soft); color: var(--success-ink); }
-  .appt-m-list { display: flex; flex-direction: column; gap: 6px; padding: 0 16px 16px; }
-  .appt-m-slot { margin: 6px 0; font-size: 12px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .appt-m-list section { display: flex; flex-direction: column; gap: 6px; }
-  .appt-m-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 0; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .appt-m-days button { flex: none; height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--card); color: var(--muted-strong); font: inherit; font-size: 14px; white-space: nowrap; cursor: pointer; }
+  .appt-m-days button.on { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); font-weight: 600; }
+  .appt-m-list { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+  .appt-m-card { gap: 8px; }
+  .appt-m-row { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .appt-m-time { width: 56px; flex: none; font-weight: 700; font-size: 16px; font-variant-numeric: tabular-nums; }
   .appt-m-row.faded { opacity: .6; }
   .appt-m-row.done .appt-m-name, .appt-m-row.done .appt-m-sub { text-decoration: line-through; }
   .appt-m-row.arrived { background: var(--bg); }
   .appt-m-row.arrived .appt-m-name { color: var(--muted-strong); }
-  .appt-m-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 6px 0 6px 12px; border: 0; background: none; color: var(--ink); text-align: left; cursor: pointer; }
+  .appt-m-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 0; border: 0; background: none; color: var(--ink); text-align: left; cursor: pointer; font: inherit; }
   .appt-m-name { font-weight: 600; font-size: 15px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .appt-m-sub { font-size: 13px; color: var(--muted); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .appt-m-state { flex: none; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 7px; background: var(--neutral-soft); color: var(--ink); white-space: nowrap; }
+  .appt-m-state { flex: none; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--neutral-soft); color: var(--muted-strong); white-space: nowrap; }
   .appt-m-state.ok { background: var(--success-soft); color: var(--success-ink); }
   .appt-m-state.warn { background: var(--warning-soft); color: var(--warning-ink); }
   .appt-m-state.bad { background: var(--danger-soft); color: var(--danger-ink); }
   .appt-m-call { flex: none; height: 36px; padding: 0 12px; border-radius: 10px; background: var(--danger-solid); color: var(--on-accent); text-decoration: none; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
   .appt-m-called { flex: none; width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--muted-strong); display: flex; align-items: center; justify-content: center; cursor: pointer; }
-  .appt-m-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 40px 0; color: var(--muted); }
+  .appt-m-note { font-size: 13px; color: var(--muted); padding-top: 2px; }
+  .appt-m-note .link-btn { font-weight: 600; text-decoration: none; }
+  .appt-m-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 24px 0; color: var(--muted); }
 
   /* รายละเอียดนัด: แผ่นเต็มจอ */
   .drawer-overlay { z-index: 65; }
@@ -1864,15 +1856,14 @@ html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-conte
 .appt-ai-banner span { font-weight: 600; }
 .booking-convert-row td { background: var(--bg); padding: 12px; white-space: normal; }
 @media (max-width: 899px) { .appt-ai-banner { margin: calc(10px + env(safe-area-inset-top)) 16px 0; } }
-@media (max-width: 899px) { .appt-ai-banner + .appt-m .appt-m-head { padding-top: 12px; } }
+@media (max-width: 899px) { .appt-ai-banner + .appt-m .appt-m-head { padding-top: 0; } }
 /* คำขอเลื่อนนัดที่คนไข้เลือกวันเวลาเองในแชท */
 .drawer-reschedule { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--warning-border); border-radius: 12px; background: var(--warning-soft); color: var(--ink); }
 .drawer-reschedule b { color: var(--warning-ink); }
 /* ป้าย ต้องโทร / ขอเลื่อน กดได้: ไปดูเฉพาะรายการนั้น */
 .appt-queue-chip { border: 0; cursor: pointer; font: inherit; }
 .appt-queue-chip:hover, .appt-queue-chip.on { box-shadow: 0 0 0 2px currentColor inset; }
-.appt-m-queue-head { display: flex; align-items: center; gap: 12px; padding: 0 16px 12px; font-size: 16px; }
-@media (max-width: 899px) { .appt-m-sum .sum { font: inherit; text-align: left; cursor: pointer; } }
+.appt-m-queue-head { display: flex; align-items: center; gap: 12px; padding: 0 12px 10px; font-size: 16px; background: var(--card); }
 /* ---------- ผลแล็บ ---------- */
 .lab-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin: 12px 0; }
 .lab-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -2012,7 +2003,7 @@ button.lab-card { cursor: pointer; }
 
 /* ---------- รายการแชทแบบคิวงาน: 3 ช่วง รอตอบ / งานค้าง / ล่าสุด ---------- */
 .q-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; margin: 6px 10px 8px; padding: 3px; border-radius: 11px; background: var(--line); }
-.q-filter { height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--muted-strong); font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; padding: 0 4px; }
+.q-filter { height: 34px; border: 0; border-radius: 8px; background: transparent; color: var(--muted-strong); font: inherit; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap; padding: 0 4px; }
 .q-filter.on { background: var(--card); color: var(--blue); font-weight: 600; box-shadow: 0 1px 3px rgba(20, 30, 60, .15); }
 .q-filter .badge { font-size: 11px; min-width: 18px; height: 18px; }
 .q-section { display: flex; flex-direction: column; }
@@ -2113,3 +2104,254 @@ html { scrollbar-gutter: stable; }
 .visit-list li { padding: 8px 12px; font-size: 13px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .visit-list li + li { border-top: 1px solid var(--line); }
 .visit-row { display: flex; justify-content: space-between; gap: 8px; }
+
+/* ---------- หน้ามือถือตามแบบ: หัว 52px · พื้นเทา · การ์ดขาวมุม 14px ---------- */
+.m-page { display: none; }
+@media (max-width: 899px) {
+  .m-page { display: flex; flex-direction: column; min-height: 100%; background: var(--bg); }
+  .m-page-head { display: flex; align-items: center; gap: 4px; height: 52px; box-sizing: content-box; padding: env(safe-area-inset-top) 16px 0; background: var(--card); flex: none; }
+  .m-page-head h1 { margin: 0; font-size: 18px; font-weight: 600; flex: 1; min-width: 0; }
+  .m-page-head.with-back { padding-left: 8px; }
+  .m-back { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--muted-strong); text-decoration: none; flex: none; }
+  .m-page-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .m-card { background: var(--card); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; }
+  .m-row { display: flex; align-items: center; gap: 12px; min-height: 48px; width: 100%; color: var(--ink); text-decoration: none; border: 0; background: none; padding: 0; font: inherit; font-size: 15px; text-align: left; cursor: pointer; }
+  .m-row > svg:last-child { color: var(--muted); }
+  .m-row-label { flex: 1; min-width: 0; }
+  .m-row .lab-badge { position: static; margin: 0; font-size: 12px; min-width: 20px; height: 20px; padding: 0 6px; }
+  .m-switch { width: 44px; height: 26px; border-radius: 999px; background: var(--switch-off); display: flex; align-items: center; padding: 3px; box-sizing: border-box; flex: none; transition: background .15s; }
+  .m-switch::after { content: ""; width: 20px; height: 20px; border-radius: 999px; background: var(--card); box-shadow: 0 1px 2px var(--shadow); transition: transform .15s; }
+  .m-switch-row[aria-checked="true"] .m-switch { background: var(--accent-solid); }
+  .m-switch-row[aria-checked="true"] .m-switch::after { transform: translateX(18px); }
+  .m-menu .today-score { font-size: 14px; padding: 4px 0; }
+  .m-me { flex-direction: row; align-items: center; justify-content: space-between; min-height: 44px; }
+  .m-me .btn { height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+  /* หน้าเมนูไม่มีบนคอม ใช้เมนูซ้ายแทน */
+}
+@media (min-width: 900px) { .m-menu { display: none; } }
+
+/* ---------- ผลแล็บบนมือถือ (ตามแบบ) ---------- */
+@media (max-width: 899px) {
+  .page.lab-page { padding: 0; }
+  .lab-page > :not(.lab-m):not(.toast):not(.drawer-overlay) { display: none; }
+  .lab-m-tabs { display: flex; gap: 8px; padding: 0 12px 10px; background: var(--card); overflow-x: auto; scrollbar-width: none; }
+  .lab-m-tabs::-webkit-scrollbar { display: none; }
+  .lab-m-tabs button { flex: none; height: 36px; padding: 0 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--card); color: var(--muted-strong); font: inherit; font-size: 14px; white-space: nowrap; cursor: pointer; }
+  .lab-m-tabs button.on { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); font-weight: 600; }
+  .lab-m-list { gap: 10px; }
+  .lab-m-item { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
+  .lab-m-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .lab-m-name { font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lab-m-name .muted { font-size: 12px; font-weight: 400; }
+  .lab-m-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .lab-m-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; align-items: center; }
+  .lab-m-btn { height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink); font: inherit; font-size: 14px; display: flex; align-items: center; justify-content: center; text-decoration: none; cursor: pointer; }
+  .lab-m-btn:disabled { color: var(--muted); cursor: default; }
+}
+
+/* ---------- การ์ดนัดในกล่องข้อมูลลูกค้า (ตามแบบ) ---------- */
+.appt-side-title { font-size: 12px; font-weight: 600; color: var(--muted-strong); }
+.appt-side-add.link-btn { font-size: 12px; text-decoration: none; padding: 0; min-height: 0; width: auto; height: auto; }
+.appt-card { border: 1px solid var(--line); border-left: 4px solid var(--accent-solid); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; background: var(--card); cursor: pointer; text-align: left; }
+.appt-card:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.appt-card-top { display: flex; align-items: flex-start; gap: 12px; }
+.appt-date { width: 52px; flex: none; border-radius: 10px; background: var(--blue-soft); color: var(--blue); display: flex; flex-direction: column; align-items: center; padding: 4px 0; line-height: 1.2; }
+.appt-date span:first-child { font-size: 12px; font-weight: 600; }
+.appt-date b { font-size: 22px; font-weight: 700; }
+.appt-date span:last-child { font-size: 12px; }
+.appt-card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.appt-card-title { font-weight: 700; font-size: 15px; overflow-wrap: anywhere; }
+.appt-card-time { font-size: 13px; }
+.appt-card-in { font-size: 12px; color: var(--muted); }
+.appt-card-chips { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; }
+.appt-card-chips .appt-side-state { font-size: 12px; font-weight: 400; }
+.appt-card-chip { padding: 1px 8px; border-radius: 999px; background: var(--bg); color: var(--muted-strong); }
+.appt-card-actions { display: flex; gap: 8px; }
+.appt-card-btn { flex: 1; height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; }
+.appt-card-btn.danger { color: var(--danger-ink); }
+@media (max-width: 899px) { .appt-card-btn { height: 44px; border-radius: 10px; font-size: 14px; } .appt-side-title, .appt-side-add.link-btn { font-size: 13px; } }
+.lab-latest { border: 1px solid var(--line); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: var(--ink); }
+.lab-latest-label { font-size: 12px; font-weight: 600; color: var(--muted-strong); }
+.lab-latest-date { font-size: 13px; }
+.lab-latest-status { font-size: 12px; color: var(--muted-strong); }
+.lab-latest-status.sent { color: var(--success-ink); }
+.lab-latest-status.failed { color: var(--danger-ink); }
+@media (max-width: 899px) {
+  .lab-latest { flex-direction: row; align-items: center; gap: 6px; border: 0; background: var(--bg); border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+  .lab-latest-label { font-size: 13px; font-weight: 400; color: var(--muted); }
+  .lab-latest-label::after { content: " ·"; }
+  .lab-latest-date { flex: 1; min-width: 0; }
+  .lab-latest-status { font-size: 13px; }
+}
+
+/* ===========================================================================
+   แผงขวา "ข้อมูลลูกค้า" ตามแบบ (คอม): กว้าง 320 · หัว 56px · เนื้อหา padding 16 เว้น 20 · ช่องความเห็นติดล่าง
+   ======================================================================== */
+.d-only { display: block; }
+.cust-grid.d-only { display: grid; }
+@media (max-width: 899px) { .d-only { display: none !important; } }
+.cust-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cust-link { width: 36px; height: 36px; }
+.cust-sub { font-size: 13px; color: var(--muted-strong); }
+.cust-ok { color: var(--success-ink); flex: none; }
+.cust-tagrow { display: flex; align-items: center; gap: 8px; }
+.cust-tags { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; align-items: center; }
+.cust-tags .tag-chip { border: 0; padding: 0 8px; background: color-mix(in srgb, var(--tag, var(--muted)) 14%, var(--card)); color: color-mix(in srgb, var(--tag, var(--muted)) 75%, var(--ink)); }
+.cust-tags .tag-chip > i { display: none; }
+.cust-tags .tag-picker .icon-btn { width: auto; height: auto; min-height: 0; padding: 0 8px; border-radius: 999px; font-size: 12px; }
+.cust-grid { grid-template-columns: 88px minmax(0, 1fr); row-gap: 6px; }
+.ch-tag.line { background: var(--ch-line-soft); color: var(--ch-line-ink); }
+.ch-tag.facebook { background: var(--ch-facebook-soft); color: var(--ch-facebook-ink); }
+.ch-tag.instagram { background: var(--ch-instagram-soft); color: var(--ch-instagram-ink); }
+.lock-switch { flex: none; display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); color: var(--muted-strong); font: inherit; font-size: 12px; cursor: pointer; }
+.lock-switch .m-switch { width: 30px; height: 18px; border-radius: 999px; background: var(--switch-off); display: flex; align-items: center; padding: 2px; }
+.lock-switch .m-switch::after { content: ""; width: 14px; height: 14px; border-radius: 999px; background: var(--card); box-shadow: 0 1px 2px var(--shadow); transition: transform .15s; }
+.lock-switch[aria-checked="true"] .m-switch { background: var(--accent-solid); }
+.lock-switch[aria-checked="true"] .m-switch::after { transform: translateX(12px); }
+.lock-switch.confirm { border-color: var(--danger-border); color: var(--danger-ink); }
+.lock-switch:disabled { cursor: default; opacity: .7; }
+.side-title { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted-strong); }
+.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.task .task-check { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; gap: 10px; align-items: flex-start; }
+.task-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 13px; }
+.task-text { font-weight: 600; }
+.task-sub { color: var(--warning-ink); }
+.task-thread-btn { color: inherit; font-size: inherit; padding: 0; min-height: 0; text-decoration: none; }
+.task-add { height: 36px; border: 1px dashed var(--switch-off); border-radius: 8px; background: var(--card); color: var(--muted-strong); font: inherit; font-size: 13px; cursor: pointer; }
+.internal-notes .note { border: 0; border-radius: 12px; padding: 10px 12px; font-size: 13px; background: var(--bubble-note-bg); color: var(--ink); }
+.internal-notes .note-by { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.note-compose { position: sticky; bottom: 0; margin-top: auto; display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--card); z-index: 2; }
+.note-compose input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; font-size: 13px; }
+.note-send { width: 40px; height: 40px; flex: none; border: 0; border-radius: 8px; background: var(--accent-solid); color: var(--on-accent); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.note-send:disabled { opacity: .5; cursor: default; }
+.lab-latest { cursor: pointer; }
+.side-lock { display: none; }
+.head-hn { font-weight: 400; color: var(--muted-strong); }
+.head-sub-m, .m-assignee-row, .m-task-banner { display: none; }
+
+@media (min-width: 900px) {
+  .team-panel { width: 320px; padding: 0 16px; gap: 20px; font-size: 13px; }
+  /* เมนูซ้ายพับ (224→68px): ยกพื้นที่ที่ได้คืนให้แผงข้อมูลลูกค้า แต่ให้ช่องแชทกว้างอย่างน้อย 420px */
+  .team-panel { transition: width .15s ease; }
+  html[data-nav="collapsed"] .team-panel { width: max(320px, min(476px, calc(100vw - 828px))); }
+  .team-panel > .side-block { padding: 0; border-bottom: 0; gap: 8px; }
+  .team-panel > .tp-info { gap: 10px; }
+  .cust-header { height: 56px; margin: 0 -16px 6px; padding: 0 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; background: var(--card); }
+  .cust-header .cust-title { margin: 0; font-size: 16px; }
+  .note-compose { margin: auto -16px 0; }
+}
+
+/* ===========================================================================
+   มือถือ: หน้าแชท + แท็บข้อมูลลูกค้า ตามแบบ
+   ======================================================================== */
+@media (max-width: 899px) {
+  /* แถบล่างอยู่ในห้องแชทด้วย (ตามแบบ) ซ่อนเฉพาะตอนพิมพ์ (คีย์บอร์ดขึ้น) */
+  .staff-root:has(.inbox.has-chat) .mobile-tabbar { display: grid; }
+  html[data-typing] .mobile-tabbar { display: none !important; }
+  .staff-root:has(.inbox.has-chat) .main { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  .chat-area > .chat { height: calc(100dvh - 68px - env(safe-area-inset-bottom)); background: var(--bg); }
+
+  /* หัวแชท 60px: ← · ชื่อ · HN / ช่องทาง · สิทธิ · แท็ก · เสร็จแล้ว */
+  .chat-head { min-height: 60px; padding: calc(env(safe-area-inset-top)) 8px 0; gap: 8px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .chat-head .chat-back { width: 44px; height: 44px; }
+  .chat-head .name { font-size: 15px; font-weight: 600; }
+  .chat-head .head-sub { display: none; }
+  .head-sub-m { display: flex; flex-basis: 100%; align-items: center; gap: 4px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12px; }
+  .head-ch { color: var(--success-ink); flex: none; }
+  .head-sub-m .tag-chip { border: 0; padding: 0 6px; flex: none; background: color-mix(in srgb, var(--tag, var(--muted)) 14%, var(--card)); color: color-mix(in srgb, var(--tag, var(--muted)) 75%, var(--ink)); }
+  .head-sub-m .tag-chip:last-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .head-sub-m .tag-chip > i { display: none; }
+  .btn.done.head-done { height: 40px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--success-solid); color: var(--on-accent); font-size: 14px; }
+  .btn.done.head-done svg { display: none; }
+  .btn.done.head-done:disabled { background: var(--success-solid); color: var(--on-accent); opacity: .4; border: 0; }
+
+  /* แท็บ 2 ช่อง 44px เส้นสีหลัก */
+  .mtabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0; gap: 0; }
+  .mtabs button { height: 44px; font-size: 14px; color: var(--muted-strong); border-bottom-width: 2px; }
+  .mtabs button.on { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+
+  /* ผู้ดูแล 48px */
+  .m-assignee-row { display: block; flex: none; background: var(--card); border-bottom: 1px solid var(--line); }
+  .m-assignee-row .assignee { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 12px; font-size: 14px; }
+  .m-assignee-row .mode-select { flex: 1; min-width: 0; flex-direction: row; align-items: center; gap: 8px; font-weight: 400; color: var(--muted-strong); }
+  .m-assignee-row select { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border-radius: 10px; color: var(--ink); }
+  .m-assignee-row .assignee > .muted { flex: 1; font-size: 14px; }
+  .m-assignee-row .assignee-claim { height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; }
+  .m-assignee-row .assignee-claim:disabled { opacity: .45; }
+
+  /* งานค้าง */
+  .m-task-banner { display: flex; flex: none; align-items: center; gap: 8px; width: 100%; padding: 8px 16px; border: 0; background: var(--warning-soft); color: var(--warning-ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+  .m-task-banner .one { flex: 1; min-width: 0; }
+
+  /* ข้อความ: เวลาอยู่ในฟอง */
+  .messages { padding: 16px; gap: 10px; background: var(--bg); }
+  .msg { max-width: 82%; padding: 10px 14px; border-radius: 14px; }
+  .msg.in { background: var(--bubble-in-bg); color: var(--bubble-in-ink); border: 1px solid var(--bubble-in-border); border-bottom-left-radius: 4px; }
+  .msg.out { background: var(--bubble-out-bg); color: var(--bubble-out-ink); border-bottom-right-radius: 4px; align-items: stretch; }
+  .msg.out.ai { background: var(--bubble-ai-bg); color: var(--bubble-ai-ink); }
+  .msg .bubble, .msg.in .bubble, .msg.out .bubble, .msg.out.ai .bubble { padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font-size: 15px; }
+  .msg .meta { font-size: 12px; margin-top: 2px; color: var(--muted); flex-wrap: wrap; }
+  .msg.out .meta { color: inherit; opacity: .85; }
+  .msg.out .meta .star { color: inherit; }
+
+  /* ช่องพิมพ์: กล่องเดียว แนบ · พิมพ์ · ส่ง */
+  .composer { background: transparent; border-top: 0; padding: 0 12px 8px; }
+  .composer-input { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 4px; gap: 4px; align-items: flex-end; }
+  .composer-input .c-attach { border: 0; background: transparent; border-radius: 10px; }
+  .composer-input textarea, .composer textarea { border: 0; background: transparent; padding: 10px 4px; outline: none; box-shadow: none; }
+  .m-send { border-radius: 10px; }
+  .suggest { background: transparent; border-top: 0; padding: 0 12px 8px; }
+
+  /* แท็บข้อมูลลูกค้า: พื้นเทา การ์ดขาวมุม 14 · ช่องความเห็นติดล่าง */
+  .inbox:not([data-mtab="chat"]) .team-panel { background: var(--bg); padding: 12px 12px 0; gap: 12px; display: flex; flex-direction: column; }
+  .inbox:not([data-mtab="chat"]) .team-panel > .side-block { background: var(--card); border-radius: 14px; padding: 14px; border: 0; gap: 10px; }
+  .cust-header { display: none; }
+  .cust-name b { font-size: 17px; font-weight: 700; }
+  .cust-tags.m-only { display: flex; margin-top: 4px; }
+  .cust-head > .rights-chip { flex: none; padding: 1px 10px; align-self: flex-start; }
+  .cust-actions.m-only { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .cust-call { height: 44px; border-radius: 10px; background: var(--accent-solid); color: var(--on-accent); text-decoration: none; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .cust-appt { height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 14px; cursor: pointer; }
+  .cust-actions:has(> :only-child) { grid-template-columns: 1fr; }
+  .cust-contact.m-only { display: block; font-size: 13px; color: var(--muted-strong); }
+  .cust-contact span { color: var(--ink); }
+  .cust-contact .ok { color: var(--success-ink); }
+  .side-lock { display: inline-flex; }
+  .side-title { font-size: 13px; }
+  .task .task-check { border: 0; padding: 0; min-height: 44px; align-items: center; }
+  .task .task-check input { width: 22px; height: 22px; margin: 0; }
+  .task-body { font-size: 14px; }
+  .task-sub { font-size: 13px; }
+  .internal-notes .note { font-size: 14px; border-radius: 10px; }
+  .note-compose { margin: auto -12px 0; padding: 8px 12px; }
+  .note-compose input { height: 44px; border-radius: 10px; font-size: 15px; }
+  .note-send { width: 44px; height: 44px; border-radius: 10px; }
+}
+
+/* ปรับละเอียดตามภาพเทียบ */
+.cust-tags.m-only { display: none; }
+.cust-avatar.avatar { background: var(--neutral-soft); color: var(--ink); font-weight: 700; }
+.cust-grid a { color: var(--blue); }
+.cust-head > .rights-chip { align-self: center; }
+@media (max-width: 899px) {
+  .cust-tags.m-only { display: flex; }
+  .chat-head .chat-back { border: 0; background: transparent; }
+  .m-assignee-row .mode-select select { flex: 1 1 0; width: 100%; max-width: none; }
+  .inbox:not([data-mtab="chat"]) .head-sub-m .tag-chip { display: none; }
+  .mtabs button.on .mtab-dot { display: none; }
+}
+
+/* ---------- ผลแล็บ (คอม) ตามแบบ ---------- */
+.install-external p { margin: 0; }
+.lab-page .lab-cards .lab-card { padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); }
+.lab-page .lab-cards .lab-card.warn { border-color: var(--warning-border); }
+.lab-page .lab-cards .lab-card b { font-size: 22px; }
+.lab-page .lab-cards .lab-card.warn b { color: var(--ink); }
+.lab-page .lab-cards .lab-card .muted { font-size: 13px; }
+.lab-tabs .btn { height: 34px; min-height: 34px; padding: 0 14px; border-radius: 9px; font-size: 14px; }
+.lab-tabs .btn.ghost { background: var(--card); border: 1px solid var(--line); color: var(--muted-strong); font-weight: 400; }
+.lab-tabs .btn.primary { font-weight: 600; }
+.search-box.lab-search { height: 36px; max-width: none; width: auto; }
+.search-box.lab-search input { width: 140px; padding: 0; }
+.lab-sync { padding: 2px 10px; }
+.lab-page .lab-table thead th { background: var(--bg); color: var(--muted); font-size: 13px; font-weight: 500; }
