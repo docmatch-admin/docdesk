@@ -11,6 +11,8 @@ export interface ApptSummary {
   count: number; next: Appointment | null; dates: string[];
   /** นัดที่สร้างล่าสุด (ทุกสถานะ) ใช้ซ่อนคำขอจองจากเว็บที่ทำนัดไปแล้ว แม้เลื่อนวัน/ยกเลิกภายหลัง */
   latestCreatedAt: string | null;
+  /** คนไข้หลักที่ผูกกับแชทนี้ (ไม่มี = ยังไม่ผูก HN) ใช้ในหัวกล่องข้อมูลลูกค้า */
+  patient?: { hn: string; name: string | null; phone: string | null; role: "patient" | "relative" } | null;
 }
 
 /** นัดที่ยังไม่ถึงของทุก HN ที่ผูกกับแชทนี้ · นัดถัดไป = ใกล้สุด */
@@ -18,7 +20,11 @@ export function summarize(groups: SideGroup[]): ApptSummary {
   const upcoming = groups.flatMap((g) => g.upcoming).filter((a) => !a.series_done && a.status !== "cancelled");
   upcoming.sort((a, b) => (a.appoint_date + a.time_start).localeCompare(b.appoint_date + b.time_start));
   const created = groups.flatMap((g) => [...g.upcoming, ...g.past]).map((a) => a.created_at ?? "").filter(Boolean).sort();
-  return { count: upcoming.length, next: upcoming[0] ?? null, dates: [...new Set(upcoming.map((a) => a.appoint_date))], latestCreatedAt: created.at(-1) ?? null };
+  // คนไข้หลัก: HN ที่ตั้งเป็นหลัก > ของตัวเอง > HN แรก
+  const linked = groups.filter((g) => g.hn);
+  const main = linked.find((g) => g.primary) ?? linked.find((g) => g.role === "patient") ?? linked[0];
+  const patient = main?.hn ? { hn: main.hn, name: main.name, phone: main.phone ?? null, role: main.role } : null;
+  return { count: upcoming.length, next: upcoming[0] ?? null, dates: [...new Set(upcoming.map((a) => a.appoint_date))], latestCreatedAt: created.at(-1) ?? null, patient };
 }
 
 export function MobileChatTabs({ tab, onTab, appointments, tasks, notes }: {

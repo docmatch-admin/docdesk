@@ -2086,3 +2086,21 @@ html { scrollbar-gutter: stable; }
 .file-chip > svg { vertical-align: -3px; margin-right: 4px; }
 .avatar > svg { display: block; }
 .chat-file-icon > svg { display: block; }
+
+/* ---------- กล่องข้อมูลลูกค้า (หัวแผงขวา) ---------- */
+.cust-title { margin: 0 0 2px; font-size: 16px; font-weight: 700; }
+.cust-card { display: flex; flex-direction: column; gap: 8px; }
+.cust-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cust-avatar { width: 48px; height: 48px; font-size: 18px; }
+.cust-name { display: flex; flex-direction: column; min-width: 0; }
+.cust-name b { font-size: 16px; }
+.cust-grid { margin: 0; display: grid; grid-template-columns: 72px minmax(0, 1fr); row-gap: 4px; font-size: 13px; }
+.cust-grid dt { color: var(--muted); }
+.cust-grid dd { margin: 0; min-width: 0; }
+.cust-grid a { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; text-decoration: none; }
+.cust-channel { display: flex; align-items: center; gap: 6px; }
+.ch-tag { flex: none; font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 4px; background: var(--bg); color: var(--muted-strong); }
+.ch-tag.line { background: var(--ch-line); color: var(--on-accent); }
+.ch-tag.facebook { background: var(--ch-facebook); color: var(--on-accent); }
+.ch-tag.instagram { background: var(--ch-instagram); color: var(--on-accent); }
+@media (max-width: 899px) { .cust-title { display: none; } }

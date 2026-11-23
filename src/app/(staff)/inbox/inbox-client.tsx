@@ -27,6 +27,7 @@ import { Icon } from "../icons";
 import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import { TeamPanel } from "./team-panel";
+import { CustomerCard } from "./customer-card";
 import { WebBookingCard } from "./web-booking-card";
 import { MobileChatTabs, NextAppointmentStrip, useMobileTyping, type ApptSummary, type MobileTab } from "./mobile-chat";
 import {
@@ -1030,9 +1031,8 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
             )}
 
             <details className="customer-panel">
-              <summary>ข้อมูลลูกค้า</summary>
-              <div className="small">ช่องทาง: {selected.channels?.name} · ภาษา: {LANGUAGE_NAME[customerLang] ?? customerLang}</div>
-              <div className="small"><b>ประวัติผู้ดูแล</b></div>
+              <summary>ประวัติผู้ดูแล</summary>
+              <div className="small">ช่องทาง: {selected.channels?.name}</div>
               {history.length === 0 && <div className="muted small">ยังไม่มีการเปลี่ยนผู้ดูแล</div>}
               {history.map((h) => (
                 <div key={h.id} className="muted small">
@@ -1229,8 +1229,10 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         )}
       </section>
       {selected && !locked && (
-        <aside className="team-panel" aria-label="ข้อมูลแชทและงานของทีม">
+        <aside className="team-panel" aria-label="ข้อมูลลูกค้า">
           <section className="side-block tp-info">
+            <h2 className="cust-title">ข้อมูลลูกค้า</h2>
+            <CustomerCard conversation={selected} patient={apptSummary?.patient ?? null} blurred={blurred} />
             {!selected.archived && (
               <div className="m-only m-assignee">
                 <AssigneeControl me={me} assignedTo={selected.assigned_to} onChange={assign}

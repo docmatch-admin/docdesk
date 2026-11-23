@@ -653,3 +653,14 @@ test("กล่องคำตอบแนะนำ: หัวข้อบรร
   const foot = src.slice(src.indexOf('<div className="composer-foot">'));
   assert.doesNotMatch(foot.slice(0, 800), /ส่งตามที่พิมพ์/, "ไม่ซ้ำที่ด้านล่าง");
 });
+
+test("กล่องข้อมูลลูกค้า: แสดงเฉพาะข้อมูลที่มี ไม่มีช่องว่าง/ข้อมูล HIS ที่ยังไม่เชื่อม", () => {
+  const card = readFileSync("src/app/(staff)/inbox/customer-card.tsx", "utf8");
+  assert.match(card, /\{hn && /, "ไม่ผูก HN = ไม่มีบรรทัด HN");
+  assert.match(card, /\{phone && /, "ไม่มีเบอร์ = ไม่มีบรรทัดเบอร์");
+  assert.doesNotMatch(card, /แพ้ยา|สิทธิ|ประวัติที่คลินิก/, "ข้อมูล HIS ที่ยังดึงไม่ได้ ไม่โชว์");
+  const inbox = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
+  assert.match(inbox, /<h2 className="cust-title">ข้อมูลลูกค้า<\/h2>\s*<CustomerCard /, "ข้อมูลลูกค้าอยู่บนสุดของแผงขวา");
+  const mc = readFileSync("src/app/(staff)/inbox/mobile-chat.tsx", "utf8");
+  assert.match(mc, /linked\.find\(\(g\) => g\.primary\)/, "คนไข้หลัก = HN ที่ตั้งเป็นหลักก่อน");
+});
