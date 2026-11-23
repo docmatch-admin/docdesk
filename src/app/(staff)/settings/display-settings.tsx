@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { DEFAULT_PREFERENCES, FONT_LABEL, THEME_LABEL, type FontSize, type Preferences, type ThemeChoice } from "@/lib/theme";
 import { usePreferencesOptional } from "../preferences";
+import { InstallApp, useShowInstallItem } from "../install-app";
 import { PushSettingsControl } from "../push-control";
 import { SetGroup, SetLine, Switch } from "./settings-save";
 
@@ -18,6 +19,7 @@ export function DisplaySettings({ initial }: { initial?: Preferences } = {}) {
   // นอก provider (ภาพตัวอย่าง) ใช้ค่าในหน้านี้
   const [local, setLocal] = useState<Preferences>(initial ?? DEFAULT_PREFERENCES);
   const prefs = ctx?.prefs ?? local;
+  const showInstall = useShowInstallItem();
   const [err, setErr] = useState("");
   const update = async (patch: Partial<Preferences>) => {
     if (!ctx) return setLocal((p) => ({ ...p, ...patch }));
@@ -58,6 +60,14 @@ export function DisplaySettings({ initial }: { initial?: Preferences } = {}) {
         </SetLine>
         {err && <p className="error small" role="alert">{err}</p>}
       </SetGroup>
+
+      {showInstall && (
+        <SetGroup title="แอปบนเครื่องนี้">
+          <SetLine label="ติดตั้ง DocDesk" desc="เปิดจากไอคอนบนหน้าจอได้ทันที · iPhone ต้องติดตั้งก่อนจึงจะรับแจ้งเตือนได้">
+            <InstallApp variant="settings" />
+          </SetLine>
+        </SetGroup>
+      )}
     </>
   );
 }

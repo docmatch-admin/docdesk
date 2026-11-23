@@ -1529,6 +1529,8 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .install-banner-actions { display: flex; gap: 6px; margin-left: auto; }
 .install-banner .btn.ghost { color: var(--blue-ink); border-color: transparent; }
 .install-btn { width: 100%; min-height: 36px; }
+/* "ติดตั้ง DocDesk" ในเมนู: เฉพาะหน้าเมนูมือถือ (html[data-mnav-open]) */
+.nav .mnav-only { display: none; }
 .install-btn.installed, .install-btn.installed:hover { opacity: .55; cursor: default; background: transparent; }
 html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-content: center; padding: 4px 0; }
 .install-sheet-wrap { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-end; justify-content: center; }
@@ -1600,6 +1602,7 @@ html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-conte
   html[data-mnav-open] .nav .brand { display: none; }
   html[data-mnav-open] .nav .nav-toggle { display: none; }
   html[data-mnav-open] .nav-foot { padding: 8px 0 0; border-top: 1px solid var(--line); margin-top: 8px; }
+  html[data-mnav-open] .nav .mnav-only { display: block; }
   .mnav-backdrop { display: block; position: fixed; inset: 0; z-index: 55; border: 0; background: rgba(0, 0, 0, .4); }
   @keyframes mnav-up { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
 

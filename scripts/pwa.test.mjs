@@ -76,10 +76,18 @@ test("layout: ลงทะเบียน SW ทุกหน้า · meta iPhon
   assert.match(root, /<RegisterSW \/>/);
   assert.match(root, /appleWebApp: \{ capable: true/);
   assert.match(root, /viewportFit: "cover"/);
+  const css = readFileSync("src/app/globals.css", "utf8");
   const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
   assert.match(staff, /<MobileNav chatStaff=\{chatStaff\} calls=\{calls\} labUnmatched=\{labUnmatched\} \/>/);
-  assert.doesNotMatch(staff, /<InstallApp \/>/, "ไม่มีปุ่มติดตั้งถาวรในเมนู (ใช้แบนเนอร์ด้านบน ติดตั้งแล้วหายเอง)");
-  const css = readFileSync("src/app/globals.css", "utf8");
+  assert.doesNotMatch(staff, /<\/div>\s*(\{\/\*[^}]*\*\/\}\s*)?<InstallApp \/>\s*<NavToggle \/>/, "ไม่มีปุ่มติดตั้งถาวรในเมนูซ้าย (ใช้แบนเนอร์ด้านบน)");
+  assert.match(staff, /<div className="mnav-only"><InstallApp \/><\/div>/, "ติดตั้ง DocDesk ในหน้าเมนูมือถือ");
+  assert.match(css, /\.nav \.mnav-only \{ display: none; \}/, "จอใหญ่ไม่แสดง");
+  assert.match(css, /html\[data-mnav-open\] \.nav \.mnav-only \{ display: block; \}/, "แสดงในหน้าเมนูมือถือ");
+  const inst = readFileSync("src/app/(staff)/install-app.tsx", "utf8");
+  assert.match(inst, /if \(!pwa\.ready \|\| pwa\.isInstalled\) return null;/, "แสดงเฉพาะตอนยังไม่ได้ติดตั้ง");
+  const disp = readFileSync("src/app/(staff)/settings/display-settings.tsx", "utf8");
+  assert.match(disp, /\{showInstall && \(/, "หน้าตั้งค่า: แถวติดตั้งเฉพาะยังไม่ได้ติดตั้ง");
+  assert.match(disp, /<InstallApp variant="settings" \/>/);
   assert.match(css, /\.staff-root:has\(\.inbox\.has-chat\) \.mobile-tabbar \{ display: none; \}/, "ในห้องแชทซ่อนแถบล่าง");
   assert.match(css, /html\[data-mnav-open\] \.nav \{/, "เมนูเต็มใช้ .nav ตัวเดิม ไม่ render ซ้ำ");
   const badge = readFileSync("src/app/(staff)/mobile-nav.tsx", "utf8");
@@ -153,16 +161,16 @@ test("ติดตั้งแอป: ลิงก์เปิดนอกแอ
   assert.equal(pwa.externalOpenUrl(href, pwa.detectInstallPlatform(UA.iphoneFb, "iPhone", 5)), null, "iOS Facebook: คัดลอกลิงก์");
 });
 
-test("ติดตั้งแอป: hook ดัก beforeinstallprompt ระดับ module · ปุ่มในเมนูแสดงเสมอ (ติดตั้งแล้ว = disabled) · localStorage ครอบ try/catch", () => {
+test("ติดตั้งแอป: hook ดัก beforeinstallprompt ระดับ module · รายการติดตั้งแสดงเฉพาะยังไม่ได้ติดตั้ง · localStorage ครอบ try/catch", () => {
   const hook = readFileSync("src/hooks/use-pwa-install.ts", "utf8");
   assert.match(hook, /addEventListener\("beforeinstallprompt", \(e\) => \{\s*e\.preventDefault\(\);/);
   assert.match(hook, /addEventListener\("appinstalled"/);
   assert.match(hook, /\(display-mode: standalone\)/);
   assert.match(hook, /\.standalone === true/);
   const ui = readFileSync("src/app/(staff)/install-app.tsx", "utf8");
-  assert.doesNotMatch(ui, /if \(done\) return null|isInstalled\) return null/, "ห้ามซ่อนปุ่มเมื่อติดตั้งแล้ว");
-  assert.match(ui, /disabled=\{done\}/);
-  assert.match(ui, /ติดตั้งแล้ว ✓/);
+  // เจ้าของเปลี่ยนกฎ 23 พ.ย. 2026: ไม่มีปุ่มถาวรในเมนูซ้าย · รายการในเมนูมือถือ/ตั้งค่าแสดงเฉพาะยังไม่ได้ติดตั้ง
+  assert.match(ui, /if \(!pwa\.ready \|\| pwa\.isInstalled\) return null;/);
+  assert.match(ui, /ติดตั้ง DocDesk/);
   assert.match(ui, /try \{ localStorage\.setItem\(INSTALL_SNOOZE_KEY/);
   assert.match(ui, /กรุณาเปิดลิงก์นี้ใน Safari/);
   assert.match(ui, /เพิ่มไปยังหน้าจอโฮม/);

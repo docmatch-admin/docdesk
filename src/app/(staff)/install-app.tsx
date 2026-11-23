@@ -35,23 +35,29 @@ function useInstall() {
 }
 
 /**
- * ปุ่ม "ติดตั้ง DocDesk" ในเมนูซ้ายด้านล่าง — แสดงเสมอที่ตำแหน่งเดิม ไม่ซ่อน
- * ติดตั้งแล้ว: จางและกดไม่ได้ "ติดตั้งแล้ว ✓"
+ * รายการ "ติดตั้ง DocDesk" ในหน้าเมนูมือถือ และหน้าตั้งค่า (เผื่อกด "ไว้ทีหลัง" ที่แบนเนอร์)
+ * แสดงเฉพาะตอนที่ยังไม่ได้ติดตั้ง — ติดตั้งแล้ว (หรือยังเช็กไม่เสร็จ) ไม่แสดง (เจ้าของสั่ง 23 พ.ย. 2026)
  * (iPhone ได้รับแจ้งเตือนเฉพาะเมื่อเปิดจากไอคอนบนหน้าจอโฮม iOS 16.4 ขึ้นไป)
  */
-export function InstallApp() {
+export function InstallApp({ variant = "nav" }: { variant?: "nav" | "settings" }) {
   const { pwa, install, sheetEl } = useInstall();
-  const done = pwa.isInstalled;
+  if (!pwa.ready || pwa.isInstalled) return null;
   return (
     <div className="install-app">
-      <button type="button" className={`btn ghost small nav-quick install-btn${done ? " installed" : ""}`} onClick={install}
-        disabled={done} aria-disabled={done} aria-haspopup={done || pwa.canPrompt ? undefined : "dialog"}>
-        <Icon name={done ? "check" : "download"} size={16} />
-        <span className="nav-label">{done ? "ติดตั้งแล้ว ✓" : "ติดตั้ง DocDesk"}</span>
+      <button type="button" className={variant === "nav" ? "btn ghost small nav-quick install-btn" : "btn small"} onClick={install}
+        aria-haspopup={pwa.canPrompt ? undefined : "dialog"}>
+        <Icon name="download" size={16} />
+        <span className="nav-label">ติดตั้ง DocDesk</span>
       </button>
       {sheetEl}
     </div>
   );
+}
+
+/** แถว "ติดตั้ง DocDesk" ในหน้าตั้งค่า: แสดงเฉพาะเครื่องที่ยังไม่ได้ติดตั้ง */
+export function useShowInstallItem() {
+  const pwa = usePwaInstall();
+  return pwa.ready && !pwa.isInstalled;
 }
 
 /** แบนเนอร์ด้านบนหลังล็อกอิน จนกว่าจะติดตั้ง · "ไว้ทีหลัง" ซ่อน 7 วัน (แสดงผ่าน StaffBanners ใน push-control) */

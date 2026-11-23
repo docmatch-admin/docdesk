@@ -1,4 +1,5 @@
 import { NavLink } from "./nav-link";
+import { InstallApp } from "./install-app";
 import { redirect } from "next/navigation";
 import { appointmentCallCounts } from "@/lib/appointment-store";
 import { getAuthUser, getStaffContext } from "@/lib/auth";
@@ -74,6 +75,8 @@ export default async function StaffLayout({ children }: { children: React.ReactN
             {chatStaff && <TodayScore meId={me.id} />}
             {chatStaff && <WaitingAlert meId={me.id} />}
             <PushToggle />
+            {/* หน้าเมนูมือถือเท่านั้น (จอใหญ่ไม่แสดง) · ยังไม่ได้ติดตั้งเท่านั้น */}
+            <div className="mnav-only"><InstallApp /></div>
             <ThemeQuickToggle />
             <div className="muted small">{me.displayName}</div>
             <SignOut />
