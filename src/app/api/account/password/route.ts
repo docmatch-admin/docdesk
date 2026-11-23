@@ -10,8 +10,10 @@ export async function POST(req: Request) {
   const sb = await supabaseServer();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const { data: staff } = await sb.from("staff").select("active").eq("id", user.id).maybeSingle();
+  const { data: staff } = await sb.from("staff").select("active, hr_employee_id").eq("id", user.id).maybeSingle();
   if (!staff?.active) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  // บัญชีที่ผูก HR ใช้รหัสเดียวกับ HR เปลี่ยนที่นี่จะไม่ตรงกัน
+  if (staff.hr_employee_id) return NextResponse.json({ error: "บัญชีนี้ใช้รหัสเดียวกับระบบ HR ให้เปลี่ยนรหัสที่ HR" }, { status: 409 });
 
   const { password } = (await req.json().catch(() => ({}))) as { password?: unknown };
   if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH || password.length > 72) {

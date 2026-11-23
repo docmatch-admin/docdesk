@@ -106,6 +106,7 @@ test("ชื่อผู้ใช้หรือชื่อไม่ถูก�
 
 // ---- รีเซ็ตและปิดบัญชี ----
 test("รีเซ็ตรหัส: ได้รหัสใหม่ ต้องเปลี่ยนรหัส และตัด session เดิม", async () => {
+  row(AGENT.id).hr_employee_id = null;
   const j = await (await patch({ id: AGENT.id, reset_password: true })).json();
   assert.equal(j.password.length, 10);
   assert.equal(row(AGENT.id).must_change_password, true);
@@ -159,6 +160,7 @@ test("agent จัดการบัญชีไม่ได้", async () => {
 // ---- บังคับเปลี่ยนรหัส ----
 test("ยังไม่เปลี่ยนรหัส: API อื่นถูกปฏิเสธ แต่รู้สถานะของตัวเอง", async () => {
   row(AGENT.id).must_change_password = true;
+  row(AGENT.id).hr_employee_id = null;
   state.currentUser = AGENT;
   const r = await requireStaff();
   assert.equal(r.error.status, 403);
@@ -168,6 +170,7 @@ test("ยังไม่เปลี่ยนรหัส: API อื่นถ�
 
 test("เปลี่ยนรหัสสำเร็จ: ปลดล็อกและใช้ API ได้", async () => {
   row(AGENT.id).must_change_password = true;
+  row(AGENT.id).hr_employee_id = null;
   state.currentUser = AGENT;
   assert.equal((await passwordApi.POST(json("POST", { password: "newpass12" }))).status, 200);
   assert.equal(row(AGENT.id).must_change_password, false);
@@ -178,6 +181,7 @@ test("เปลี่ยนรหัสสำเร็จ: ปลดล็อก
 for (const [name, password] of [["7 ตัว", "1234567"], ["ยาวเกิน", "x".repeat(73)], ["ไม่ใช่ข้อความ", 12345678]]) {
   test(`รหัสใหม่ไม่ผ่าน: ${name}`, async () => {
     row(AGENT.id).must_change_password = true;
+    row(AGENT.id).hr_employee_id = null;
     state.currentUser = AGENT;
     assert.equal((await passwordApi.POST(json("POST", { password }))).status, 400);
     assert.equal(row(AGENT.id).must_change_password, true);
@@ -187,6 +191,7 @@ for (const [name, password] of [["7 ตัว", "1234567"], ["ยาวเกิ
 
 test("รหัสใหม่ซ้ำรหัสเดิม: ยังต้องเปลี่ยนรหัส", async () => {
   row(AGENT.id).must_change_password = true;
+  row(AGENT.id).hr_employee_id = null;
   state.currentUser = AGENT;
   state.updateUserError = { code: "same_password" };
   const res = await passwordApi.POST(json("POST", { password: "samepass1" }));
@@ -351,7 +356,7 @@ test("HR: นำเข้าสร้างบัญชี agent ให้คน
   ]);
   assert.deepEqual([r.created, r.paired, r.skipped.length], [1, 0, 1]);
   const s = state.tables.staff.find((x) => x.hr_employee_id === "hr-9");
-  assert.deepEqual([s.role, s.username, s.must_change_password, s.display_name], ["agent", "emp009", true, "ใจ"]);
+  assert.deepEqual([s.role, s.username, s.must_change_password, s.display_name], ["agent", "emp009", false, "ใจ"]);
   assert.ok(state.authUsers.some((u) => u.email === "emp009@staff.docdesk.local"));
   assert.equal(state.tables.staff.some((x) => x.hr_employee_id === "hr-8"), false);
 });
@@ -383,4 +388,21 @@ test("HR: ไม่จับคู่อัตโนมัติกับบั�
   const r = await importHrEmployees([emp({ id: "hr-x", employee_code: "EMP001" })]);
   assert.deepEqual([r.created, r.paired, r.skipped.length], [0, 0, 1]);
   assert.equal(state.tables.staff.find((x) => x.id === "u-adm").hr_employee_id, undefined);
+});
+
+test("บัญชีที่ผูก HR: ไม่ต้องเปลี่ยนรหัส ไม่มีปุ่มรีเซ็ต เปลี่ยนรหัสใน DocDesk ไม่ได้", () => {
+  const pw = readFileSync("src/app/api/account/password/route.ts", "utf8");
+  assert.match(pw, /if \(staff\.hr_employee_id\) return/);
+  const api = readFileSync("src/app/api/staff/route.ts", "utf8");
+  assert.match(api, /reset_password && target\.hr_employee_id/);
+  assert.match(api, /if \(b\.hr_employee_id\) fields\.must_change_password = false/);
+  const ui = readFileSync("src/app/(staff)/staff/staff-client.tsx", "utf8");
+  assert.match(ui, /!isMe && !r\.hr_employee_id &&/);
+});
+
+test("บัญชีผูก HR: รีเซ็ตใน DocDesk ไม่ได้ และเปลี่ยนรหัสเองไม่ได้", async () => {
+  assert.equal((await patch({ id: AGENT.id, reset_password: true })).status, 400);
+  state.currentUser = AGENT;
+  assert.equal((await passwordApi.POST(json("POST", { password: "newpass12" }))).status, 409);
+  assert.equal(state.passwordChanges.length, 0);
 });

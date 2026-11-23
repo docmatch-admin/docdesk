@@ -104,8 +104,8 @@ export interface HrImportResult { created: number; paired: number; skipped: stri
 
 /**
  * สร้างบัญชีให้พนักงาน HR ที่ยังไม่มีบัญชี (ข้ามคนที่ลาออกแล้ว) ชื่อผู้ใช้ = รหัสพนักงานตัวพิมพ์เล็ก
- * สิทธิ์เป็น agent เสมอ ไม่ให้ admin อัตโนมัติ รหัสผ่านสุ่มที่ไม่มีใครเห็น พนักงานเข้าได้เมื่อ HR ส่ง hash มา
- * หรือ admin กดรีเซ็ตรหัส ถ้ามีบัญชีที่ชื่อผู้ใช้ตรงกับรหัสพนักงานเป๊ะและยังไม่จับคู่ จะจับคู่ให้
+ * สิทธิ์เป็น agent เสมอ ไม่ให้ admin อัตโนมัติ รหัสผ่านสุ่มที่ไม่มีใครเห็น ไม่บังคับเปลี่ยนรหัส
+ * พนักงานเข้าได้เมื่อ HR ส่ง hash มา (รหัสเดียวกับ HR) ถ้ามีบัญชีที่ชื่อผู้ใช้ตรงกับรหัสพนักงานเป๊ะและยังไม่จับคู่ จะจับคู่ให้
  * ที่สร้างผิดคนลบได้จากหน้าพนักงาน
  */
 export async function importHrEmployees(employees: HrEmployee[]): Promise<HrImportResult> {
@@ -132,7 +132,7 @@ export async function importHrEmployees(employees: HrEmployee[]): Promise<HrImpo
         result.skipped.push(`${label}: ชื่อผู้ใช้นี้จับคู่กับพนักงานคนอื่นแล้ว`);
         continue;
       }
-      const { error } = await db.from("staff").update({ hr_employee_id: e.id }).eq("id", existing.id);
+      const { error } = await db.from("staff").update({ hr_employee_id: e.id, must_change_password: false }).eq("id", existing.id);
       if (error) { result.skipped.push(`${label}: จับคู่ไม่สำเร็จ`); continue; }
       existing.hr_employee_id = e.id;
       result.paired++;
@@ -144,7 +144,7 @@ export async function importHrEmployees(employees: HrEmployee[]): Promise<HrImpo
     if (createError || !created.user) { result.skipped.push(`${label}: สร้างบัญชีไม่สำเร็จ`); continue; }
     const { error: insertError } = await db.from("staff").insert({
       id: created.user.id, display_name: hrDisplayName(e) ?? hrFullName(e) ?? username, role: "agent",
-      username, must_change_password: true, hr_employee_id: e.id,
+      username, must_change_password: false, hr_employee_id: e.id,
     });
     if (insertError) {
       await db.auth.admin.deleteUser(created.user.id);
