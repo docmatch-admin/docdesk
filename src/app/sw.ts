@@ -48,17 +48,27 @@ const serwist = new Serwist({
 
 serwist.addEventListeners();
 
+// ต้อง showNotification ทุกครั้งที่ได้ push (userVisibleOnly) — ไม่งั้น iPhone/Chrome ถอนสิทธิ์แจ้งเตือน
+// ข้อความมาจาก server แล้ว (ชื่อแชท + "มีข้อความใหม่" + ช่องทาง ไม่มีข้อมูลคนไข้)
 self.addEventListener("push", (event) => {
-  const data = event.data ? event.data.json() : {};
-  event.waitUntil(self.registration.showNotification(data.title || "DocDesk", {
-    body: data.body || "",
-    tag: data.tag || "docdesk-booking",
-    // @ts-expect-error renotify ยังไม่อยู่ใน lib ของ TypeScript แต่ Chrome/Android รองรับ
-    renotify: true,
-    icon: "/icons/icon-192.png",
-    badge: "/icons/badge-96.png",
-    data: { url: data.url || "/inbox" },
-  }));
+  let data: { title?: string; body?: string; url?: string; tag?: string; badge?: number } = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data?.text() ?? "" }; }
+  const nav = self.navigator as WorkerNavigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+  const badge = typeof data.badge === "number"
+    ? (data.badge > 0 ? nav.setAppBadge?.(data.badge) : nav.clearAppBadge?.())?.catch(() => {})
+    : undefined;
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(data.title || "DocDesk", {
+      body: data.body || "มีข้อความใหม่",
+      tag: data.tag || "docdesk",
+      // @ts-expect-error renotify ยังไม่อยู่ใน lib ของ TypeScript แต่ Chrome/Android รองรับ (แชทเดิมมีข้อความใหม่ก็สั่นอีกครั้ง)
+      renotify: true,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/badge-96.png",
+      data: { url: data.url || "/inbox" },
+    }),
+    badge,
+  ]));
 });
 
 // กดแจ้งเตือน: ใช้หน้าต่าง DocDesk ที่เปิดอยู่แล้ว (แอปที่ติดตั้ง) ถ้ามี ไม่เปิดหน้าต่างซ้อน
@@ -75,4 +85,9 @@ self.addEventListener("notificationclick", (event) => {
     }
     await self.clients.openWindow(url);
   })());
+});
+
+// ลบ cache ของ service worker ตัวเดิม (/sw.js ก่อนใช้ Serwist)
+self.addEventListener("activate", (event) => {
+  event.waitUntil(caches.delete("docdesk-shell-v1"));
 });

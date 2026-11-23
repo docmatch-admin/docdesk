@@ -101,6 +101,7 @@ export async function saveConfirmedBooking(
     if (wasRecorded) {
       await db.rpc("set_conversation_tag", { p_conversation: conversationId, p_tag: "นัดแล้ว", p_action: "remove", p_by: "rule" });
     }
+    await pushPendingBookingsNow(now);
     return;
   }
   const { error } = await db.from("bookings").insert({
@@ -112,6 +113,12 @@ export async function saveConfirmedBooking(
     confirmed_message_id: messageId,
   });
   if (error) throw error;
+  await pushPendingBookingsNow(now);
+}
+
+/** นัดที่ AI รับไว้รอยืนยัน: แจ้งทันที (ไม่รอ cron นาทีถัดไป) ใช้กฎเดียวกับ cron จึงไม่แจ้งซ้ำ · พลาดไม่ทำให้การบันทึกนัดล้ม */
+async function pushPendingBookingsNow(now: number) {
+  await pushPendingBookings(now).catch((e) => console.error("booking push failed", e));
 }
 
 /** ลบชื่อและเบอร์ของนัดออกก่อนเก็บลง reply_examples */
@@ -140,7 +147,7 @@ export function shouldPushBooking(lastPushAt: string | null, hours: BusinessHour
   return now - Date.parse(lastPushAt) >= PUSH_REPEAT_MS && isWithinBusinessHours(hours, new Date(now));
 }
 
-type PushSender = (sub: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: string) => Promise<void>;
+export type PushSender = (sub: { endpoint: string; keys: { p256dh: string; auth: string } }, payload: string) => Promise<void>;
 
 async function defaultSender(): Promise<PushSender | null> {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
@@ -148,21 +155,33 @@ async function defaultSender(): Promise<PushSender | null> {
   if (!publicKey || !privateKey) return null;
   const { default: webpush } = await import("web-push");
   webpush.setVapidDetails("https://docdesk-tau.vercel.app", publicKey, privateKey);
-  return async (sub, payload) => { await webpush.sendNotification(sub, payload); };
+  // urgency high: iPhone/Android ส่งทันทีแม้เครื่องประหยัดแบต · TTL 1 ชม. (เครื่องปิดนานกว่านี้ไม่ต้องเด้งย้อนหลัง)
+  return async (sub, payload) => { await webpush.sendNotification(sub, payload, { TTL: 3600, urgency: "high" }); };
 }
 
-/** staffIds = null ส่งทุกเครื่อง คืนจำนวนที่ส่งสำเร็จ */
-export async function sendPushToStaff(staffIds: string[] | null, message: { title: string; body: string; url: string }, sender?: PushSender): Promise<number> {
+export interface PushOptions {
+  /** แจ้งเตือนเรื่องเดียวกันแทนที่อันเดิม */
+  tag?: string;
+  /** ตัวเลขบนไอคอนแอปของแต่ละคน */
+  badgeFor?: (staffId: string) => number | undefined;
+  /** ส่งเฉพาะเครื่องนี้ (ปุ่มทดสอบ) */
+  endpoint?: string;
+}
+
+/** staffIds = null ส่งทุกเครื่อง คืนจำนวนที่ส่งสำเร็จ · เครื่องที่ยกเลิกแล้ว (404/410) ลบทิ้ง */
+export async function sendPushToStaff(staffIds: string[] | null, message: { title: string; body: string; url: string }, sender?: PushSender, opts: PushOptions = {}): Promise<number> {
+  if (staffIds && !staffIds.length) return 0;
   const db = supabaseAdmin();
   const send = sender ?? (await defaultSender());
   if (!send) return 0;
   const [{ data: subs }, muted] = await Promise.all([db.from("push_subscriptions").select("endpoint, staff_id, p256dh, auth"), pushDisabledStaff()]);
-  // ผู้ใช้ที่ปิดแจ้งเตือนในหมวด "การแสดงผล" ไม่ได้รับทุกเครื่อง
+  // ผู้ใช้ที่ปิดแจ้งเตือนในหมวด "การแสดงผล" ไม่ได้รับทุกเครื่อง (ยกเว้นกดทดสอบเอง)
   const rows = ((subs ?? []) as { endpoint: string; staff_id: string; p256dh: string; auth: string }[])
-    .filter((s) => (!staffIds || staffIds.includes(s.staff_id)) && !muted.has(s.staff_id));
-  const payload = JSON.stringify(message);
+    .filter((s) => (!staffIds || staffIds.includes(s.staff_id)) && (opts.endpoint ? s.endpoint === opts.endpoint : !muted.has(s.staff_id)));
   let sent = 0;
-  for (const s of rows) {
+  await Promise.all(rows.map(async (s) => {
+    const badge = opts.badgeFor?.(s.staff_id);
+    const payload = JSON.stringify({ ...message, ...(opts.tag ? { tag: opts.tag } : {}), ...(badge !== undefined ? { badge } : {}) });
     try {
       await send({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload);
       sent++;
@@ -172,7 +191,7 @@ export async function sendPushToStaff(staffIds: string[] | null, message: { titl
       if (status === 404 || status === 410) await db.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
       else console.error("push failed", status);
     }
-  }
+  }));
   return sent;
 }
 

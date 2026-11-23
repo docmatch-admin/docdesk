@@ -11,6 +11,7 @@ import { claimReplyTokenWithAge } from "./channels/reply-token";
 import { getSetting, isWithinBusinessHours, resolveAiMode, type BusinessHours } from "./mode";
 import { platformMayWriteDisplayName } from "./patient-name";
 import { scrubPII } from "./pii";
+import { notifyNewMessage } from "./push-store";
 import { matchSensitive, SENSITIVE_ACK_TEXT } from "./sensitive-rules";
 import { loadSensitiveKeywords, markConversationSensitive, notifySensitiveChat } from "./sensitive-store";
 import { markConversationReadWith } from "./read-receipts";
@@ -184,6 +185,10 @@ export async function storeIncoming(input: IncomingInput) {
   }
 
   await applySensitiveRules(conv.id as string, [input.text, th ?? ""].join("\n"), !!conv.sensitive, !!conv.waiting_since);
+
+  // แจ้งเตือน push เฉพาะเมื่อแชทรอคนตอบ (ไม่แจ้งคำขอบคุณหลังปิดเคส ข้อความจบการคุย หรือตอบรับเฉยๆ)
+  // หลังกฎแชทลับ: แชทที่เพิ่งติดลับไม่ส่งชื่อ (notifySensitiveChat แจ้งข้อความกลางแล้ว)
+  if (!stayClosed && !closeNow && !ackOnly) await notifyNewMessage(conv.id as string);
 
   if (isCustomerText(input.text)) {
     // เกินเพดาน AI ไม่ได้ตรวจภาษาของข้อความนี้ language เป็นค่าเดิมของรายชื่อ จึงไม่นำมานับ

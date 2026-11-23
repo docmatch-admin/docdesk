@@ -2054,3 +2054,11 @@ html { scrollbar-gutter: stable; }
 .sk-tabbar { align-items: center; justify-content: space-around; gap: 8px; }
 .sk-pill { width: 64px; height: 28px; border-radius: 14px; }
 @media (max-width: 899px) { .app-shell .sk-empty { display: none; } }
+
+/* ---------- แจ้งเตือน push: ปุ่มตามสถานะ (ตั้งค่า + เมนูซ้าย) ---------- */
+.push-control { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.push-control > span:has(> svg) { display: inline-flex; align-items: center; gap: 6px; }
+.push-on { color: var(--success-ink); font-weight: 600; }
+.push-faded { opacity: .55; }
+.push-settings { flex-wrap: wrap; justify-content: flex-end; }
+.btn.small:has(> svg) { display: inline-flex; align-items: center; gap: 6px; }

@@ -167,7 +167,7 @@ test("ติดตั้งแอป: hook ดัก beforeinstallprompt ระ�
   assert.match(ui, /กรุณาเปิดลิงก์นี้ใน Safari/);
   assert.match(ui, /เพิ่มไปยังหน้าจอโฮม/);
   const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
-  assert.match(staff, /<InstallBanner \/>/);
+  assert.match(staff, /<StaffBanners \/>/, "แบนเนอร์ติดตั้ง/แจ้งเตือน");
   // อยู่นอก .nav-extra เพื่อให้เห็นแม้ย่อเมนู
   assert.match(staff, /<\/div>\s*\{\/\*[^}]*\*\/\}\s*<InstallApp \/>\s*<NavToggle \/>/);
 });

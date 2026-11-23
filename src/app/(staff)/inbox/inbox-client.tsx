@@ -10,6 +10,7 @@ import { staffInitial } from "@/lib/assignment";
 import { isWaitingForReply, nextOpenChat, queueOf, queueSections, waitBadge, type InboxFilter, type InboxSection } from "@/lib/case-flow";
 import type { InboxListResult, QueueRow } from "@/lib/inbox-list";
 import { SENSITIVE_TAG } from "@/lib/sensitive-rules";
+import { BADGE_EVENT, PRESENCE_BEAT_MS } from "@/lib/push-rules";
 import { DEFAULT_TAG_COLOR, type Tag } from "@/lib/tags";
 import { formatFileSize, isPdfName, MAX_FILE_BYTES } from "@/lib/files";
 import { MAX_UPLOAD_BYTES, uploadStaffImage } from "@/lib/upload-client";
@@ -372,8 +373,28 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   // server ล้าง unread_count + "AI ตอบแล้ว รอตรวจ" ให้ในครั้งเดียว · หน้าจอแก้ทันที ไม่รอ realtime
   const markRead = useCallback((convId: string) => {
     patchLocal(convId, { unread_count: 0, ai_review_at: null });
-    fetch(`/api/conversations/${convId}/read`, { method: "POST" }).catch(() => {});
+    fetch(`/api/conversations/${convId}/read`, { method: "POST" })
+      .then(() => window.dispatchEvent(new Event(BADGE_EVENT))) // ตัวเลขบนไอคอนแอปลดตาม
+      .catch(() => {});
   }, [patchLocal]);
+
+  // บอก server ว่ากำลังเปิดแชทไหน (หน้าจอเปิดอยู่) → ไม่ส่ง push ของแชทนี้ให้เราซ้ำ · ทุก 30 วิ หมดอายุเองถ้าปิดแอป
+  useEffect(() => {
+    const send = (id: string | null) => {
+      const body = JSON.stringify({ conversationId: id });
+      if (!id && navigator.sendBeacon) { navigator.sendBeacon("/api/push/presence", new Blob([body], { type: "application/json" })); return; }
+      fetch("/api/push/presence", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true }).catch(() => {});
+    };
+    const beat = () => send(selectedId && document.visibilityState === "visible" ? selectedId : null);
+    if (selectedId) beat();
+    const t = selectedId ? setInterval(beat, PRESENCE_BEAT_MS) : null;
+    document.addEventListener("visibilitychange", beat);
+    return () => {
+      if (t) clearInterval(t);
+      document.removeEventListener("visibilitychange", beat);
+      if (selectedId) send(null);
+    };
+  }, [selectedId]);
 
   // สร้างคำแนะนำเมื่อเจ้าหน้าที่ดูแชทอยู่ server จะไม่เรียก LLM ซ้ำถ้ามีของข้อความล่าสุดแล้ว
   const ensureSuggestion = useCallback(async (convId: string, quiet = false) => {

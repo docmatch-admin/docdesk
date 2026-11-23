@@ -1,10 +1,9 @@
 "use client";
 
-import { SW_SCOPE, SW_URL } from "@/lib/sw-url";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DEFAULT_PREFERENCES, FONT_LABEL, THEME_LABEL, type FontSize, type Preferences, type ThemeChoice } from "@/lib/theme";
 import { usePreferencesOptional } from "../preferences";
-import { setDevicePush } from "../push-toggle";
+import { PushSettingsControl } from "../push-control";
 import { SetGroup, SetLine, Switch } from "./settings-save";
 
 const THEMES: ThemeChoice[] = ["system", "light", "dark"];
@@ -24,21 +23,6 @@ export function DisplaySettings({ initial }: { initial?: Preferences } = {}) {
     if (!ctx) return setLocal((p) => ({ ...p, ...patch }));
     setErr((await ctx.update(patch)) ?? "");
   };
-
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const [device, setDevice] = useState<"unsupported" | "on" | "off">("unsupported");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (!publicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
-    navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE }).then((reg) => reg.pushManager.getSubscription())
-      .then((sub) => setDevice(sub ? "on" : "off")).catch(() => setDevice("unsupported"));
-  }, [publicKey]);
-
-  async function toggleDevice() {
-    if (!publicKey) return;
-    setBusy(true);
-    try { setDevice((await setDevicePush(device !== "on", publicKey)) ? "on" : "off"); } finally { setBusy(false); }
-  }
 
   return (
     <>
@@ -69,13 +53,8 @@ export function DisplaySettings({ initial }: { initial?: Preferences } = {}) {
         <SetLine label="แจ้งเตือน (push)" desc="ปิด = ไม่ส่งแจ้งเตือนไปทุกเครื่องของคุณ">
           <Switch checked={prefs.push_enabled} onChange={(v) => update({ push_enabled: v })} label={prefs.push_enabled ? "เปิด" : "ปิด"} />
         </SetLine>
-        <SetLine label="แจ้งเตือนเครื่องนี้" desc={device === "unsupported" ? "เบราว์เซอร์นี้ไม่รองรับ (iPhone ต้องเพิ่มลงหน้าจอหลักก่อน)" : "สมัครรับแจ้งเตือนบนเครื่อง/เบราว์เซอร์ที่ใช้อยู่"}>
-          {device === "unsupported" ? <span className="muted">ไม่รองรับ</span> : (
-            <span className="inline-field">
-              <span>{device === "on" ? "สมัครแล้ว" : "ยังไม่สมัคร"}</span>
-              <button type="button" className="btn ghost small" disabled={busy} onClick={toggleDevice}>{device === "on" ? "ยกเลิกเครื่องนี้" : "สมัครเครื่องนี้"}</button>
-            </span>
-          )}
+        <SetLine label="แจ้งเตือนเครื่องนี้" desc="ข้อความใหม่จากลูกค้า · แชทที่มอบหมายให้คุณ · นัดที่ AI รับไว้รอยืนยัน (ไม่มีข้อมูลคนไข้ในแจ้งเตือน)">
+          <span className="inline-field push-settings"><PushSettingsControl /></span>
         </SetLine>
         {err && <p className="error small" role="alert">{err}</p>}
       </SetGroup>

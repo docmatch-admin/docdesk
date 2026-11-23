@@ -11,7 +11,8 @@ import { QuotaBanner } from "./quota-banner";
 import { Icon } from "./icons";
 import { NavToggle } from "./nav-toggle";
 import { MobileNav } from "./mobile-nav";
-import { InstallApp, InstallBanner } from "./install-app";
+import { InstallApp } from "./install-app";
+import { PushKeeper, StaffBanners } from "./push-control";
 import { PreferencesProvider, ThemeQuickToggle } from "./preferences";
 import { loadPreferences } from "@/lib/preferences-store";
 import { canOpenSettings } from "@/lib/settings-access";
@@ -52,7 +53,9 @@ export default async function StaffLayout({ children }: { children: React.ReactN
     <div className="staff-root">
       <HealthBanner />
       <QuotaBanner />
-      <InstallBanner />
+      {/* ติดตั้งแอปก่อน แล้วค่อยชวนเปิดแจ้งเตือน · PushKeeper: สมัครใหม่ถ้า subscription หาย + ตัวเลขบนไอคอนแอป */}
+      <StaffBanners />
+      <PushKeeper />
       <div className="shell">
       <nav className="nav">
         <div className="brand"><span className="nav-label">Doc<span>Desk</span></span><span className="brand-short" aria-hidden="true">D</span></div>

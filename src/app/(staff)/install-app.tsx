@@ -10,21 +10,27 @@ import { Icon } from "./icons";
 
 type Sheet = "ios-steps" | "open-external" | "manual" | null;
 
-/** กดติดตั้ง: Android/คอม เปิดหน้าต่างติดตั้งของเบราว์เซอร์ · iPhone/iPad และแอปอื่น (LINE ฯลฯ) เปิดแผ่นวิธีทำ */
-function useInstall() {
+/** เปิดแผ่นวิธีติดตั้งจากที่อื่น (เช่น ปุ่มแจ้งเตือนบน iPhone ที่ยังไม่ติดตั้ง) */
+export function useInstallFlow() {
   const pwa = usePwaInstall();
   const [sheet, setSheet] = useState<Sheet>(null);
+  const sheetEl = sheet && <InstallSheet kind={sheet} platform={pwa.platform} onClose={() => setSheet(null)} />;
+  return { pwa, openSheet: setSheet, sheetEl };
+}
+
+/** กดติดตั้ง: Android/คอม เปิดหน้าต่างติดตั้งของเบราว์เซอร์ · iPhone/iPad และแอปอื่น (LINE ฯลฯ) เปิดแผ่นวิธีทำ */
+function useInstall() {
+  const { pwa, openSheet, sheetEl } = useInstallFlow();
   const action = installAction(pwa);
   async function install() {
     if (action === "installed") return;
     if (action === "prompt") {
       // ผู้ใช้กดยกเลิก หรือเบราว์เซอร์ไม่ให้เปิดซ้ำ → บอกวิธีติดตั้งจากเมนูเบราว์เซอร์แทน
-      if ((await pwa.promptInstall()) === "unavailable") setSheet("manual");
+      if ((await pwa.promptInstall()) === "unavailable") openSheet("manual");
       return;
     }
-    setSheet(action);
+    openSheet(action);
   }
-  const sheetEl = sheet && <InstallSheet kind={sheet} platform={pwa.platform} onClose={() => setSheet(null)} />;
   return { pwa, install, sheetEl };
 }
 
@@ -48,8 +54,8 @@ export function InstallApp() {
   );
 }
 
-/** แบนเนอร์ด้านบนหลังล็อกอิน จนกว่าจะติดตั้ง · "ไว้ทีหลัง" ซ่อน 7 วัน */
-export function InstallBanner() {
+/** แบนเนอร์ด้านบนหลังล็อกอิน จนกว่าจะติดตั้ง · "ไว้ทีหลัง" ซ่อน 7 วัน (แสดงผ่าน StaffBanners ใน push-control) */
+export function useInstallBanner() {
   const { pwa, install, sheetEl } = useInstall();
   const [snoozed, setSnoozed] = useState(true);
   useEffect(() => {
@@ -62,21 +68,17 @@ export function InstallBanner() {
   }
 
   const show = pwa.ready && showInstallBanner({ ...pwa, snoozed });
-  return (
-    <>
-      {show && (
-        <div className="install-banner" role="region" aria-label="ติดตั้งแอป">
-          <span className="install-banner-icon" aria-hidden="true"><Icon name="download" size={18} /></span>
-          <span className="install-banner-text">ติดตั้ง DocDesk ไว้บนหน้าจอ เปิดใช้ได้ทันที</span>
-          <span className="install-banner-actions">
-            <button type="button" className="btn primary small" onClick={install}>ติดตั้ง</button>
-            <button type="button" className="btn ghost small" onClick={later}>ไว้ทีหลัง</button>
-          </span>
-        </div>
-      )}
-      {sheetEl}
-    </>
+  const element = show && (
+    <div className="install-banner" role="region" aria-label="ติดตั้งแอป">
+      <span className="install-banner-icon" aria-hidden="true"><Icon name="download" size={18} /></span>
+      <span className="install-banner-text">ติดตั้ง DocDesk ไว้บนหน้าจอ เปิดใช้ได้ทันที</span>
+      <span className="install-banner-actions">
+        <button type="button" className="btn primary small" onClick={install}>ติดตั้ง</button>
+        <button type="button" className="btn ghost small" onClick={later}>ไว้ทีหลัง</button>
+      </span>
+    </div>
   );
+  return { show, element, sheetEl };
 }
 
 /* ---------- แผ่นวิธีติดตั้ง (เลื่อนขึ้นจากด้านล่าง) ---------- */

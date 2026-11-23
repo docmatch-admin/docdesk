@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { assignError } from "@/lib/assignment";
 import { denySensitiveChat, requireStaff } from "@/lib/auth";
+import { notifyAssigned } from "@/lib/push-store";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -34,5 +35,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     console.error(rpcError);
     return NextResponse.json({ error: "บันทึกไม่สำเร็จ" }, { status: 500 });
   }
+  await notifyAssigned(id, to, user.id);
   return NextResponse.json({ assigned_to: to });
 }
