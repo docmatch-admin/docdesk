@@ -192,3 +192,9 @@ test("CSS: แผงขวา 276px ตัวอักษร 13px หัวแ�
   assert.match(css, /\.chat \{ flex: 1; min-width: 0; display: flex; flex-direction: column; background: var\(--card\); \}/);
   assert.match(css, /@media \(max-width: 1279px\) \{\s*\.chat-area \{ flex-direction: column;/);
 });
+
+test("collapsing the left menu gives its freed width to the customer-info panel, keeping the chat at least 420px", () => {
+  const css = readFileSync("src/app/globals.css", "utf8");
+  assert.match(css, /html\[data-nav="collapsed"\] \.team-panel \{ width: max\(320px, min\(476px, calc\(100vw - 828px\)\)\); \}/);
+  assert.match(css, /\.team-panel \{ transition: width \.15s ease; \}/);
+});

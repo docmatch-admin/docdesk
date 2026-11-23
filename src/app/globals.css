@@ -1538,7 +1538,6 @@ html[data-font="large"] .settings-page { --fs-page-title: 22px; --fs-card-title:
 .install-banner .btn.ghost { color: var(--blue-ink); border-color: transparent; }
 .install-btn { width: 100%; min-height: 36px; }
 /* "ติดตั้ง DocDesk" ในเมนู: เฉพาะหน้าเมนูมือถือ (html[data-mnav-open]) */
-.nav .mnav-only { display: none; }
 .install-btn.installed, .install-btn.installed:hover { opacity: .55; cursor: default; background: transparent; }
 html[data-nav="collapsed"] .nav-foot > .install-app .install-btn { justify-content: center; padding: 4px 0; }
 .install-sheet-wrap { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-end; justify-content: center; }
@@ -2232,6 +2231,9 @@ html { scrollbar-gutter: stable; }
 
 @media (min-width: 900px) {
   .team-panel { width: 320px; padding: 0 16px; gap: 20px; font-size: 13px; }
+  /* เมนูซ้ายพับ (224→68px): ยกพื้นที่ที่ได้คืนให้แผงข้อมูลลูกค้า แต่ให้ช่องแชทกว้างอย่างน้อย 420px */
+  .team-panel { transition: width .15s ease; }
+  html[data-nav="collapsed"] .team-panel { width: max(320px, min(476px, calc(100vw - 828px))); }
   .team-panel > .side-block { padding: 0; border-bottom: 0; gap: 8px; }
   .team-panel > .tp-info { gap: 10px; }
   .cust-header { height: 56px; margin: 0 -16px 6px; padding: 0 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; background: var(--card); }

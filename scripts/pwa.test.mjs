@@ -80,9 +80,8 @@ test("layout: ลงทะเบียน SW ทุกหน้า · meta iPhon
   const staff = readFileSync("src/app/(staff)/layout.tsx", "utf8");
   assert.match(staff, /<MobileNav chatStaff=\{chatStaff\} calls=\{calls\} labUnmatched=\{labUnmatched\} \/>/);
   assert.doesNotMatch(staff, /<\/div>\s*(\{\/\*[^}]*\*\/\}\s*)?<InstallApp \/>\s*<NavToggle \/>/, "ไม่มีปุ่มติดตั้งถาวรในเมนูซ้าย (ใช้แบนเนอร์ด้านบน)");
-  assert.match(staff, /<div className="mnav-only"><InstallApp \/><\/div>/, "ติดตั้ง DocDesk ในหน้าเมนูมือถือ");
-  assert.match(css, /\.nav \.mnav-only \{ display: none; \}/, "จอใหญ่ไม่แสดง");
-  assert.match(css, /html\[data-mnav-open\] \.nav \.mnav-only \{ display: block; \}/, "แสดงในหน้าเมนูมือถือ");
+  const menuPage = readFileSync("src/app/(staff)/menu/page.tsx", "utf8");
+  assert.match(menuPage, /<InstallApp \/>/, "ติดตั้ง DocDesk ในหน้าเมนูมือถือ (/menu)");
   const inst = readFileSync("src/app/(staff)/install-app.tsx", "utf8");
   assert.match(inst, /if \(!pwa\.ready \|\| pwa\.isInstalled\) return null;/, "แสดงเฉพาะตอนยังไม่ได้ติดตั้ง");
   const disp = readFileSync("src/app/(staff)/settings/display-settings.tsx", "utf8");
