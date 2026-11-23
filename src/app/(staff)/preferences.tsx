@@ -71,11 +71,11 @@ export function usePreferencesOptional(): PrefsCtx | null {
 export function ThemeQuickToggle() {
   const { prefs, update, systemDark } = usePreferences();
   const dark = effectiveTheme(prefs.theme, systemDark) === "dark";
-  const label = dark ? "เปลี่ยนเป็นธีมสว่าง" : "เปลี่ยนเป็นธีมมืด";
+  const label = dark ? "เปลี่ยนเป็นโหมดสว่าง" : "เปลี่ยนเป็นโหมดมืด";
   return (
     <button type="button" className="btn ghost small nav-quick" onClick={() => update({ theme: dark ? "light" : "dark" })} aria-label={label} title={label}>
       <Icon name={dark ? "sun" : "moon"} size={16} />
-      <span className="nav-label">{dark ? "ธีมสว่าง" : "ธีมมืด"}</span>
+      <span className="nav-label">{dark ? "โหมดสว่าง" : "โหมดมืด"}</span>
     </button>
   );
 }

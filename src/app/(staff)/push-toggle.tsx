@@ -37,7 +37,7 @@ export function PushToggle({ row }: { row?: boolean } = {}) {
   const faded = push.state === "ios-install-first" || push.state === "denied";
   const label = push.state === "ios-install-first" ? "แจ้งเตือน: ต้องติดตั้งลงหน้าจอก่อน"
     : push.state === "denied" ? "แจ้งเตือน: ถูกปิดที่เครื่อง"
-    : on ? "แจ้งเตือนเครื่องนี้: เปิด" : "แจ้งเตือนเครื่องนี้: ปิด";
+    : on ? "แจ้งเตือน: เปิด" : "แจ้งเตือน: ปิด";
   if (row) {
     const hint = push.state === "ios-install-first" ? "ต้องติดตั้งลงหน้าจอก่อน" : push.state === "denied" ? "ถูกปิดที่เครื่อง" : null;
     return (
@@ -56,7 +56,7 @@ export function PushToggle({ row }: { row?: boolean } = {}) {
     <>
       <button className={`btn ghost small nav-quick${faded ? " push-faded" : ""}`} disabled={busy} aria-pressed={on} onClick={toggle}
         title={push.state === "denied" ? deniedHelp(push.platform) : "ใช้ค่าเดียวกับ ตั้งค่า → การแสดงผล"}>
-        <span aria-hidden="true">📲</span>
+        <Icon name={on ? "bell" : "bellOff"} size={16} />
         <span>{label}</span>
       </button>
       {sheetEl}

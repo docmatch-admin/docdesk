@@ -133,7 +133,9 @@ test("หัวแชท: แถวเดียว มีผู้ดูแล�
   assert.match(header, /AssigneeControl/);
   assert.match(header, /<Icon name="check" \/> เสร็จแล้ว/);
   assert.match(header, /aria-label="แก้ชื่อลูกค้า"/);
-  for (const gone of ["TagPicker", "TagChip", "AI_MODE_LABEL", "setSensitive", "reopenCase", "splitImported", "เหลือ"]) {
+  // แท็กในหัวแชทเป็นแบบอ่านอย่างเดียว (ตามแบบมือถือ) เพิ่ม/ลบแท็กทำที่กล่องข้อมูลลูกค้า
+  assert.doesNotMatch(header, /onRemove/);
+  for (const gone of ["TagPicker", "AI_MODE_LABEL", "setSensitive", "reopenCase", "splitImported", "เหลือ"]) {
     assert.ok(!header.includes(gone), `ยังมี ${gone} ในหัวแชท`);
   }
 });

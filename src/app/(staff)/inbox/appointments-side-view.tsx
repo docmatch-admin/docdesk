@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DELIVERY_LABEL, deliveryState, STATUS_LABEL, thaiShortDate, timeShort, type Appointment, type DeliveryState } from "@/lib/appointment-rules";
+import { bangkokToday, DELIVERY_LABEL, deliveryState, STATUS_LABEL, thaiShortDate, timeShort, type Appointment, type DeliveryState } from "@/lib/appointment-rules";
 import { fullHn } from "@/lib/appointment-slip";
 import { Icon } from "../icons";
 import type { LinkedAccountRow } from "../appointments/linked-accounts";
@@ -34,9 +34,12 @@ export interface SideViewProps {
   onDetach: (a: LinkedAccountRow, hn: string) => void;
   onOpen: (id: string) => void;
   onEdit: (id: string) => void;
-  printHref: (id: string) => string;
+  /** เปิดรายละเอียดนัดที่หน้ายกเลิก (เลือกเหตุผลก่อนยกเลิกจริง) */
+  onCancel: (id: string) => void;
   /** ฟอร์มผูก HN / ทำนัด (แทรกใต้หัว) */
   children?: React.ReactNode;
+  /** ท้ายส่วนนัด (ผลแล็บล่าสุด) */
+  footer?: React.ReactNode;
 }
 
 const STATE_CLASS: Partial<Record<DeliveryState, string>> = {
@@ -67,21 +70,55 @@ function ConfirmDialog({ ask, onClose }: { ask: Ask; onClose: () => void }) {
   );
 }
 
+const DOW = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+const MON = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+const dayDiff = (date: string) => Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${bangkokToday()}T00:00:00Z`)) / 86_400_000);
+const inDays = (n: number) => (n === 0 ? "วันนี้" : n === 1 ? "พรุ่งนี้" : n > 1 ? `อีก ${n} วัน` : `${-n} วันที่แล้ว`);
+const sentAt = (iso: string) => {
+  const d = new Date(iso);
+  const day = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: "Asia/Bangkok" }).format(d);
+  const t = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Bangkok" }).format(d);
+  return `${day} ${t}`;
+};
+
+/** การ์ดนัด (ตามแบบ): กล่องวันที่ซ้าย · เหตุผลตัวหนา · เวลา · แพทย์ · อีกกี่วัน · สถานะ · ปุ่มเลื่อน/ยกเลิก กดการ์ด = ดูรายละเอียด (พิมพ์ใบนัดอยู่ในนั้น) */
 function Card({ a, past, props }: { a: Appointment; past?: boolean; props: SideViewProps }) {
   const st = stateOf(a);
-  return (
-    <div className={`appt-side-card ${past ? "past" : ""}`}>
-      <div className="appt-side-when">{thaiShortDate(a.appoint_date)} · {timeShort(a)} น.</div>
-      <div className="appt-side-meta">
-        <span className="appt-side-purpose">{a.purpose_text || "ไม่ระบุเหตุผล"}</span>
-        <span className={`appt-side-state ${st.cls}`}>{st.label}</span>
-        {past && <button type="button" className="link-btn appt-side-past-open" onClick={() => props.onOpen(a.id)}>ดู</button>}
+  if (past) {
+    return (
+      <div className="appt-side-card past">
+        <div className="appt-side-when">{thaiShortDate(a.appoint_date)} · {timeShort(a)} น.</div>
+        <div className="appt-side-meta">
+          <span className="appt-side-purpose">{a.purpose_text || "ไม่ระบุเหตุผล"}</span>
+          <span className={`appt-side-state ${st.cls}`}>{st.label}</span>
+          <button type="button" className="link-btn appt-side-past-open" onClick={() => props.onOpen(a.id)}>ดู</button>
+        </div>
       </div>
-      {!past && (
-        <div className="appt-side-actions">
-          <button type="button" className="btn ghost small appt-side-detail" onClick={() => props.onOpen(a.id)}>รายละเอียด</button>
-          <a className="icon-btn" href={props.printHref(a.id)} title="พิมพ์ใบนัด" aria-label="พิมพ์ใบนัด"><Icon name="printer" /></a>
-          <button type="button" className="icon-btn" title="แก้ไขนัด" aria-label="แก้ไขนัด" onClick={() => props.onEdit(a.id)}><Icon name="pencil" /></button>
+    );
+  }
+  const d = new Date(`${a.appoint_date}T12:00:00+07:00`);
+  const live = a.status !== "cancelled" && a.status !== "attended" && a.status !== "no_show";
+  return (
+    <div className="appt-card" role="button" tabIndex={0} aria-label={`ดูรายละเอียดนัด ${a.purpose_text ?? ""}`}
+      onClick={() => props.onOpen(a.id)} onKeyDown={(e) => { if (e.key === "Enter") props.onOpen(a.id); }}>
+      <div className="appt-card-top">
+        <div className="appt-date" aria-hidden="true">
+          <span>{DOW[d.getUTCDay()]}</span><b>{Number(a.appoint_date.slice(8, 10))}</b><span>{MON[Number(a.appoint_date.slice(5, 7)) - 1]}</span>
+        </div>
+        <div className="appt-card-main">
+          <span className="appt-card-title">{a.purpose_text || "ไม่ระบุเหตุผล"}</span>
+          <span className="appt-card-time">{timeShort(a)} น.{a.provider ? ` · ${a.provider}` : ""}</span>
+          <span className="appt-card-in">{inDays(dayDiff(a.appoint_date))}</span>
+        </div>
+      </div>
+      <div className="appt-card-chips">
+        <span className={`appt-side-state ${st.cls}`}>{st.cls === "confirmed" ? "ยืนยันแล้ว ✓" : st.label}</span>
+        {a.reminder_sent_at && <span className="appt-card-chip">เตือนทาง LINE {sentAt(a.reminder_sent_at)}</span>}
+      </div>
+      {live && (
+        <div className="appt-card-actions" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className="appt-card-btn" onClick={() => props.onEdit(a.id)}>เลื่อนนัด</button>
+          <button type="button" className="appt-card-btn danger" onClick={() => props.onCancel(a.id)}>ยกเลิกนัด</button>
         </div>
       )}
     </div>
@@ -174,9 +211,7 @@ export function AppointmentsSideView(props: SideViewProps) {
     <section className="side-block appt-side">
       <div className="appt-side-head">
         <h3 className="appt-side-title">นัดครั้งต่อไป</h3>
-        <button type="button" className="icon-btn appt-side-add" title="ทำนัดใหม่" aria-label="ทำนัดใหม่" aria-expanded={props.creating || picking} onClick={create}>
-          <Icon name="plus" />
-        </button>
+        <button type="button" className="link-btn appt-side-add" aria-expanded={props.creating || picking} onClick={create}>+ ทำนัดใหม่</button>
       </div>
       {picking && (
         <div className="appt-side-pick" role="menu" aria-label="ทำนัดให้">
@@ -206,6 +241,7 @@ export function AppointmentsSideView(props: SideViewProps) {
       {linked.length === 1 && isAdmin && props.onLinkHn && (
         <button type="button" className="link-btn appt-side-more" onClick={props.onLinkHn}>+ ผูก HN เพิ่ม (ญาติ/คนที่ดูแล)</button>
       )}
+      {props.footer}
       {ask && <ConfirmDialog ask={ask} onClose={() => setAsk(null)} />}
     </section>
   );
