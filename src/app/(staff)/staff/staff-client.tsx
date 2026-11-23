@@ -168,7 +168,7 @@ export function StaffClient({ meId, embedded = false }: { meId: string; embedded
               }} />
               <span className="muted small grow">
                 {login}{isMe ? " (คุณ)" : ""}
-                {r.must_change_password && <span className="chip staff-pending">รอเปลี่ยนรหัส</span>}
+                {r.hr_employee_id ? <span className="chip">รหัสจาก HR</span> : r.must_change_password && <span className="chip staff-pending">รอเปลี่ยนรหัส</span>}
                 {r.full_name && <><br />{r.full_name}{r.position ? ` · ${r.position}` : ""}</>}
               </span>
               <select value={r.role} aria-label={`สิทธิ์ของ ${login}`} onChange={(e) => patch(r, { role: e.target.value })}>
@@ -186,7 +186,7 @@ export function StaffClient({ meId, embedded = false }: { meId: string; embedded
                   {hrOptions.map((o) => <option key={o.id} value={o.id}>{o.employee_code ? `${o.employee_code} ` : ""}{o.name}</option>)}
                 </select>
               )}
-              {!isMe && (
+              {!isMe && !r.hr_employee_id && (
                 <button className="btn ghost small" onClick={twoStep(`reset:${r.id}`, () => patch(r, { reset_password: true }))}>
                   {confirming === `reset:${r.id}` ? "ยืนยันรีเซ็ต?" : "รีเซ็ตรหัส"}
                 </button>

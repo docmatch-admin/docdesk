@@ -70,10 +70,11 @@ export async function PATCH(req: Request) {
   if (!b.id) return NextResponse.json({ error: "ไม่มี id" }, { status: 400 });
 
   const db = supabaseAdmin();
-  const { data: all } = await db.from("staff").select("id, role, active");
-  const staff = (all ?? []) as StaffRow[];
+  const { data: all } = await db.from("staff").select("id, role, active, hr_employee_id");
+  const staff = (all ?? []) as (StaffRow & { hr_employee_id: string | null })[];
   const target = staff.find((s) => s.id === b.id);
   if (!target) return NextResponse.json({ error: "ไม่พบบัญชี" }, { status: 404 });
+  if (b.reset_password && target.hr_employee_id) return NextResponse.json({ error: "บัญชีนี้ใช้รหัสเดียวกับระบบ HR ให้รีเซ็ตที่ HR" }, { status: 400 });
 
   const patch: StaffPatch = {};
   if (b.role !== undefined) patch.role = b.role;
@@ -88,6 +89,8 @@ export async function PATCH(req: Request) {
   if (patch.role !== undefined) fields.role = patch.role;
   if (patch.display_name !== undefined) fields.display_name = patch.display_name;
   if (b.hr_employee_id !== undefined) fields.hr_employee_id = b.hr_employee_id || null;
+  // จับคู่ HR แล้วไม่ต้องรอเปลี่ยนรหัส รหัสมาจาก HR
+  if (b.hr_employee_id) fields.must_change_password = false;
   if (typeof b.can_view_sensitive === "boolean") fields.can_view_sensitive = b.can_view_sensitive;
   // ลดจาก admin ต้องไม่เหลือสิทธิ์แชทลับติดมา
   if (patch.role !== undefined && patch.role !== "admin" && target.role === "admin" && b.can_view_sensitive === undefined) fields.can_view_sensitive = false;
