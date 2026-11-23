@@ -851,3 +851,160 @@ test("หน้า LIFF: บัญชีอังกฤษได้ lang=en + �
   const enKeys = src.slice(src.indexOf("  en: {"), src.indexOf("/** ภาษาเริ่มต้น")).match(/^\s{4}(\w+):|, (\w+):/gm).length;
   assert.equal(enKeys, thKeys, "ข้อความอังกฤษครบทุกคำ");
 });
+
+// ---------------------------------------------------------------------------
+// หน้าผลแล็บเร็วขึ้น: แบ่งหน้า 30 · ตัวกรองแท็บใน SQL · ข้อมูลเสริมรวดเดียวเฉพาะหน้านี้ · การ์ดสรุปนับอย่างเดียว
+// ---------------------------------------------------------------------------
+const labRow = (i, extra = {}) => ({
+  id: `lab-${String(i).padStart(3, "0")}`, bml_id: `p${i}`, ln: `LN${i}`, patient_id: null, patient_name: `คนไข้ ${i}`, location_hn: null,
+  order_datetime: new Date(Date.parse("2026-11-01T03:00:00Z") + i * 60_000).toISOString(), created_at: "2026-11-01T03:00:00Z",
+  match_status: "matched", notify_status: "sent", first_viewed_at: null, version_number: 1, pdf_path: `lab-results/p${i}/v1.pdf`, view_count: 0, ...extra,
+});
+
+test("แท็บกรองใน SQL ให้ผลตรงกับ inLabTab ทุกสถานะ (ไม่ขึ้นกับจำนวนรายการ)", async () => {
+  const combos = [];
+  let i = 0;
+  for (const match_status of ["matched", "unmatched", "manual"]) {
+    for (const notify_status of ["pending", "sent", "unreachable", "failed", "skipped"]) {
+      for (const first_viewed_at of [null, "2026-11-02T00:00:00Z"]) combos.push(labRow(++i, { match_status, notify_status, first_viewed_at }));
+    }
+  }
+  state.tables.lab_results = combos;
+  for (const t of rules.LAB_TABS) {
+    const want = combos.filter((r) => rules.inLabTab(r, t.key)).map((r) => r.id).sort();
+    const got = [];
+    for (let page = 1; ; page++) {
+      const p = await store.listLabResults({ tab: t.key, page });
+      got.push(...p.rows.map((r) => r.id));
+      assert.equal(p.total, want.length, `${t.key}: total`);
+      if (page >= rules.lastLabPage(p.total)) break;
+    }
+    assert.deepEqual(got.sort(), want, `แท็บ ${t.key}`);
+  }
+  assert.deepEqual(rules.labTabFilters("all"), []);
+  assert.deepEqual(rules.labTabFilters("unviewed"), [{ col: "notify_status", eq: "sent" }, { col: "first_viewed_at", isNull: true }]);
+});
+
+test("แบ่งหน้า 30 รายการ: หน้าแรก · หน้าสุดท้าย · ขอเกินหน้าสุดท้าย = หน้าสุดท้าย · ไม่มีรายการ · ลำดับคงที่เมื่อเวลาเท่ากัน", async () => {
+  state.tables.lab_results = Array.from({ length: 65 }, (_, k) => labRow(k + 1));
+  const p1 = await store.listLabResults({ page: 1 });
+  assert.equal(p1.rows.length, 30);
+  assert.equal(p1.total, 65);
+  assert.equal(p1.pageSize, 30);
+  assert.equal(p1.rows[0].id, "lab-065", "ล่าสุดก่อน");
+  const p3 = await store.listLabResults({ page: 3 });
+  assert.deepEqual([p3.page, p3.rows.length, p3.rows.at(-1).id], [3, 5, "lab-001"]);
+  const beyond = await store.listLabResults({ page: 9 });
+  assert.deepEqual([beyond.page, beyond.rows.length], [3, 5], "ขอเกิน = หน้าสุดท้าย ไม่ใช่หน้าว่าง");
+  for (const bad of [0, -2, Number.NaN, 1.7]) assert.equal((await store.listLabResults({ page: bad })).page, 1);
+  const all = [];
+  for (const page of [1, 2, 3]) all.push(...(await store.listLabResults({ page })).rows.map((r) => r.id));
+  assert.equal(new Set(all).size, 65, "ไม่มีแถวซ้ำ/หายระหว่างหน้า");
+  // เวลาสั่งตรวจเท่ากันทั้งหมด: id ต่อท้ายทำให้ลำดับคงที่
+  state.tables.lab_results = Array.from({ length: 40 }, (_, k) => labRow(k + 1, { order_datetime: "2026-11-01T03:00:00.000Z" }));
+  const a = [...(await store.listLabResults({ page: 1 })).rows, ...(await store.listLabResults({ page: 2 })).rows].map((r) => r.id);
+  assert.equal(new Set(a).size, 40);
+  state.tables.lab_results = [];
+  assert.deepEqual(await store.listLabResults({ page: 4 }), { rows: [], total: 0, page: 4, pageSize: 30 }, "ไม่มีรายการ");
+  assert.equal(rules.lastLabPage(0), 1);
+  assert.equal(rules.lastLabPage(60), 2);
+  assert.equal(rules.lastLabPage(61), 3);
+});
+
+test("แผงขวาของแชท: ไม่แบ่งหน้า แต่ไม่เกิน 50 รายการ", async () => {
+  state.tables.lab_results = Array.from({ length: 55 }, (_, k) => labRow(k + 1, { patient_id: "000004714" }));
+  const p = await store.listLabResults({ conversationId: "conv1" });
+  assert.equal(p.rows.length, 50);
+  assert.equal(p.total, 55);
+});
+
+test("lineReadyHns รวดเดียวทุก HN: ผูก LINE ส่งได้ = true · บล็อก / เก็บถาวร / FB / ไม่ผูก = false", async () => {
+  state.tables.contacts.push(
+    { id: "c-block", channel_id: "line", external_id: "Ublock", language: "th", line_unfollowed_at: "2026-11-01T00:00:00Z" },
+    { id: "c-arch", channel_id: "line", external_id: "Uarch", language: "th" },
+  );
+  state.tables.conversations.push(
+    { id: "conv-block", contact_id: "c-block", channel_id: "line", status: "open", tags: [], archived: false },
+    { id: "conv-arch", contact_id: "c-arch", channel_id: "line", status: "open", tags: [], archived: true },
+  );
+  state.tables.patient_links.push(
+    { conversation_id: "conv-block", hn: "000000111", role: "patient", linked_at: nextTime() },
+    { conversation_id: "conv-arch", hn: "222", role: "patient", linked_at: nextTime() },
+    // HN เดียวกัน ผูกได้หลายแชท: แชทหนึ่งส่งได้ = ส่งได้
+    { conversation_id: "conv1", hn: "333", role: "relative", linked_at: nextTime() },
+    { conversation_id: "conv-block", hn: "000000333", role: "patient", linked_at: nextTime() },
+  );
+  const ready = await store.lineReadyHns(["000004714", "000000111", "000000222", "000000777", "000000333", "000000999", null, "000004714"]);
+  assert.deepEqual(ready, { "000004714": true, "000000111": false, "000000222": false, "000000777": false, "000000333": true, "000000999": false });
+  const src = readFileSync("src/lib/lab-results-store.ts", "utf8");
+  const fn = src.slice(src.indexOf("export async function lineReadyHns"), src.indexOf("export async function labSyncStatus"));
+  assert.doesNotMatch(fn, /for \(const hn of|lineTargetsOf\(/, "ไม่วนถามทีละ HN");
+  assert.deepEqual(await store.lineReadyHns([]), {});
+});
+
+test("hearingRequestsByHn รวดเดียว: คำขอล่าสุดของแต่ละ HN จากทุกแชทที่ผูก · ไม่วนทีละ HN", async () => {
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  state.tables.bookings = [
+    { id: "b-old", conversation_id: "conv1", service: rules.HEARING_SERVICE, status: "ai_confirmed", date: tomorrow, time: "09:00:00", created_at: "2026-11-01T01:00:00Z" },
+    { id: "b-new", conversation_id: "conv1", service: rules.HEARING_SERVICE, status: "ai_confirmed", date: tomorrow, time: "10:30:00", created_at: "2026-11-02T01:00:00Z" },
+    { id: "b-other", conversation_id: "conv1", service: "ตรวจเลือด", status: "ai_confirmed", date: tomorrow, time: "11:00:00", created_at: "2026-11-03T01:00:00Z" },
+  ];
+  const out = await store.hearingRequestsByHn(["000004714", "000000777", null]);
+  assert.deepEqual(Object.keys(out), ["000004714"]);
+  assert.equal(out["000004714"].id, "b-new");
+  assert.equal(out["000004714"].time, "10:30");
+  assert.match(out["000004714"].when, /10:30 น\./);
+  const src = readFileSync("src/lib/lab-results-store.ts", "utf8");
+  const fn = src.slice(src.indexOf("export async function hearingRequestsByHn"), src.indexOf("/** ผลนี้ + แชท LINE"));
+  assert.doesNotMatch(fn, /for \(const hn of \[|pendingHearingRequest\(/);
+});
+
+test("การ์ดสรุปนับด้วย count อย่างเดียว ไม่ดึงแถว · ผลเก่า (skipped) ไม่นับเป็นผลใหม่วันนี้", async () => {
+  const today = new Date().toISOString();
+  state.tables.lab_results = [
+    labRow(1, { created_at: today }), labRow(2, { created_at: today, notify_status: "skipped" }), labRow(3, { created_at: "2026-01-01T00:00:00Z", match_status: "unmatched", notify_status: "pending" }),
+    labRow(4, { created_at: "2026-01-01T00:00:00Z", first_viewed_at: "2026-01-02T00:00:00Z" }),
+  ];
+  assert.deepEqual(await store.labResultSummary(), { today: 1, unmatched: 1, unviewed: 1 }, "unviewed = แจ้งแล้วและยังไม่เปิด (แถว 1 เท่านั้น)");
+  const src = readFileSync("src/lib/lab-results-store.ts", "utf8");
+  const fn = src.slice(src.indexOf("export async function labResultSummary"), src.indexOf("/** badge เมนูซ้าย"));
+  assert.match(fn, /head: true/);
+  assert.equal((fn.match(/count: "exact"/g) ?? []).length, 1);
+});
+
+test("API รายการ: ?page= · คืน total/page/pageSize · ข้อมูลเสริมเฉพาะแถวในหน้า · Server-Timing", async () => {
+  state.tables.lab_results = Array.from({ length: 31 }, (_, k) => labRow(k + 1));
+  const get = async (qs) => listRoute.GET(new Request(`https://app.test/api/lab-results?${qs}`));
+  const res = await get("page=2");
+  assert.equal(res.status, 200);
+  const j = await res.json();
+  assert.deepEqual([j.page, j.pageSize, j.total, j.results.length], [2, 30, 31, 1]);
+  assert.match(res.headers.get("server-timing") ?? "", /list;dur=[\d.]+.*extra;dur=/);
+  const route = readFileSync("src/app/api/lab-results/route.ts", "utf8");
+  assert.match(route, /const results = list\.rows;/, "ข้อมูลเสริมจากแถวของหน้านี้เท่านั้น");
+});
+
+test("หน้าเว็บ: ตัวแบ่งหน้าใต้ตาราง (จาง ไม่ซ่อน) · เปลี่ยนตัวกรองกลับหน้า 1 · ค้นหา debounce 300 ms · ยกเลิกคำขอเก่า · แถวเดิมยังอยู่ระหว่างโหลด", () => {
+  const ui = readFileSync("src/app/(staff)/lab-results/lab-results-client.tsx", "utf8");
+  assert.match(ui, /‹ ก่อนหน้า/);
+  assert.match(ui, /หน้า \{page\} \/ \{last\} \(ทั้งหมด \{total\} รายการ\)/);
+  assert.match(ui, /ถัดไป ›/);
+  assert.match(ui, /disabled=\{page <= 1 \|\| loading\}/);
+  assert.match(ui, /disabled=\{page >= last \|\| loading\}/);
+  assert.doesNotMatch(ui, /\{(total|page) > 1 && <LabPager/, "ตัวแบ่งหน้าแสดงเสมอ");
+  assert.match(ui, /useEffect\(\(\) => \{ setPage\(1\); \}, \[tab, qDebounced, from, to, onlyId\]\);/);
+  assert.match(ui, /setTimeout\(\(\) => setQDebounced\(q\), 300\)/);
+  assert.match(ui, /abortRef\.current\?\.abort\(\);\s*const ctrl = new AbortController\(\);/);
+  assert.match(ui, /signal: ctrl\.signal/);
+  assert.doesNotMatch(ui, /setRows\(\[\]\)/, "ไม่ล้างแถวก่อนโหลด (ไม่กระพริบว่าง)");
+  const css = readFileSync("src/app/globals.css", "utf8");
+  assert.match(css, /\.lab-pager \{ position: sticky; bottom: 0;/);
+  assert.match(css, /\.lab-pager \.btn:disabled \{ opacity: \.45;/);
+});
+
+test("migration 067: index ของแท็บที่กรองใน SQL", () => {
+  const sql = readFileSync("supabase/migrations/067_lab_results_paging.sql", "utf8");
+  assert.match(sql, /lab_results \(order_datetime desc\) where match_status = 'unmatched'/);
+  assert.match(sql, /where notify_status = 'sent' and first_viewed_at is null/);
+  assert.match(sql, /lab_results \(notify_status, order_datetime desc\)/);
+});

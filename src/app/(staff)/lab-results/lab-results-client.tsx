@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../icons";
 import { LabDrawer } from "./lab-drawer";
-import { LAB_TABS, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
+import { LAB_TABS, lastLabPage, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
 
 interface SyncInfo { last_ok_at: string | null; last_run_at: string | null; last_error: string | null }
 interface GroupInfo { group_id?: string | null; candidate_id?: string | null; candidate_at?: string | null }
@@ -43,9 +43,26 @@ export function notifyText(n: unknown): string {
   return `ส่งไม่สำเร็จ${v.error ? `: ${v.error}` : ""}`;
 }
 
+/** ตัวแบ่งหน้าใต้ตาราง: อยู่ที่เดิมเสมอ ปุ่มที่กดไม่ได้จางลง (ไม่ซ่อน) */
+export function LabPager({ page, total, loading, onPage }: { page: number; total: number; loading: boolean; onPage: (p: number) => void }) {
+  const last = lastLabPage(total);
+  return (
+    <nav className="lab-pager" aria-label="แบ่งหน้าผลแล็บ">
+      <button type="button" className="btn ghost small" disabled={page <= 1 || loading} onClick={() => onPage(page - 1)}>‹ ก่อนหน้า</button>
+      <span className="lab-pager-info" aria-live="polite">หน้า {page} / {last} (ทั้งหมด {total} รายการ)</span>
+      <button type="button" className="btn ghost small" disabled={page >= last || loading} onClick={() => onPage(page + 1)}>ถัดไป ›</button>
+    </nav>
+  );
+}
+
 export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: boolean; initialId: string | null; initialTab: string | null }) {
   const [tab, setTab] = useState<LabTab>(parseLabTab(initialTab));
   const [q, setQ] = useState("");
+  // ค้นหา: พิมพ์หยุด 300 ms ค่อยยิง
+  const [qDebounced, setQDebounced] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [summary, setSummary] = useState<LabSummary | null>(null);
@@ -64,26 +81,41 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
 
   const flash = (t: string) => { setToast(t); setTimeout(() => setToast(null), 3500); };
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    const p = new URLSearchParams({ tab, q, from, to });
-    if (onlyId) p.set("id", onlyId);
-    const res = await fetch(`/api/lab-results?${p}`).catch(() => null);
-    const j = res?.ok ? await res.json() : null;
-    setRows(j?.results ?? []);
-    setSync(j?.sync ?? null);
-    setSummary(j?.summary ?? null);
-    setGroup(j?.group ?? null);
-    setAppts(j?.appointments ?? {});
-    setLineReady(j?.lineReady ?? {});
-    setRequests(j?.requests ?? {});
-    setLoading(false);
-  }, [tab, q, from, to, onlyId]);
-
   useEffect(() => {
-    const t = setTimeout(load, 250);
+    const t = setTimeout(() => setQDebounced(q), 300);
     return () => clearTimeout(t);
-  }, [load]);
+  }, [q]);
+  // เปลี่ยนแท็บ / ค้นหา / วันที่ = กลับหน้า 1
+  useEffect(() => { setPage(1); }, [tab, qDebounced, from, to, onlyId]);
+
+  const load = useCallback(async () => {
+    // ยกเลิกคำขอเก่าที่ยังไม่เสร็จ · แถวเดิมยังแสดงระหว่างโหลด (ไม่กระพริบว่าง)
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setLoading(true);
+    const p = new URLSearchParams({ tab, q: qDebounced, from, to, page: String(page) });
+    if (onlyId) p.set("id", onlyId);
+    const res = await fetch(`/api/lab-results?${p}`, { signal: ctrl.signal }).catch(() => null);
+    if (ctrl.signal.aborted) return;
+    const j = res?.ok ? await res.json().catch(() => null) : null;
+    if (ctrl.signal.aborted) return;
+    if (j) {
+      setRows(j.results ?? []);
+      setTotal(j.total ?? (j.results ?? []).length);
+      if (typeof j.page === "number" && j.page !== page) setPage(j.page);
+      setSync(j.sync ?? null);
+      setSummary(j.summary ?? null);
+      setGroup(j.group ?? null);
+      setAppts(j.appointments ?? {});
+      setLineReady(j.lineReady ?? {});
+      setRequests(j.requests ?? {});
+    }
+    setLoading(false);
+  }, [tab, qDebounced, from, to, onlyId, page]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   async function patch(id: string, body: Record<string, unknown>, okText: (j: Record<string, unknown>) => string) {
     setBusy(id);
@@ -161,6 +193,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
               );
             })}
           </section>
+          <LabPager page={page} total={total} loading={loading} onPage={setPage} />
         </div>
       </div>
       <div className="lab-head">
@@ -202,7 +235,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
       </div>
       {onlyId && <p className="small">แสดงรายการจากลิงก์ · <button type="button" className="link-btn" onClick={() => setOnlyId(null)}>ดูทั้งหมด</button></p>}
 
-      <section className="card">
+      <section className={`card lab-list ${loading && rows.length ? "lab-loading" : ""}`} aria-busy={loading}>
         {loading && !rows.length && <div className="muted small">กำลังโหลด…</div>}
         {!loading && !rows.length && <div className="muted small">ไม่มีรายการ</div>}
         {rows.length > 0 && (
@@ -254,6 +287,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
           </div>
         )}
       </section>
+      <LabPager page={page} total={total} loading={loading} onPage={setPage} />
 
       {isAdmin && group && (
         <section className="card lab-group">

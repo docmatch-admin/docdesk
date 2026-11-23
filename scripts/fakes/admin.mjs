@@ -128,7 +128,7 @@ function refreshBookingPending() {
 
 function query(name) {
   const filters = [];
-  let op = "select", payload = null, conflict = null, sort = null, max = Infinity, skip = 0, ignoreDup = false;
+  let op = "select", payload = null, conflict = null, sort = null, max = Infinity, skip = 0, ignoreDup = false, head = false, total = 0;
   const sorts = [];
   const rows = () => {
     const table = (state.tables[name] ??= []);
@@ -141,6 +141,8 @@ function query(name) {
       };
       out = [...out].sort((a, b) => { for (const o of sorts) { const c = cmp(a[o.key], b[o.key]) * o.dir; if (c) return c; } return 0; });
     } else if (sort) out = [...out].sort((a, b) => (Date.parse(a[sort.key]) - Date.parse(b[sort.key])) * sort.dir);
+    // count: "exact" ของ PostgREST = จำนวนทั้งหมดก่อน range/limit
+    total = out.length;
     return out.slice(skip, skip + max);
   };
   const run = () => {
@@ -188,7 +190,7 @@ function query(name) {
     return hit.map((r) => withRelations(name, r));
   };
   const b = {
-    select() { return b; },
+    select(_cols, o) { if (o?.head) head = true; return b; },
     insert(p) { op = "insert"; payload = p; return b; },
     upsert(p, o) { op = "upsert"; payload = p; conflict = o?.onConflict; ignoreDup = !!o?.ignoreDuplicates; return b; },
     update(p) { op = "update"; payload = p; return b; },
@@ -230,7 +232,7 @@ function query(name) {
     range(a, z) { skip = a; max = z - a + 1; return b; },
     async single() { return { data: run()[0] ?? null, error: null }; },
     async maybeSingle() { return { data: run()[0] ?? null, error: null }; },
-    then(resolve) { const data = run(); return resolve({ data, error: null, count: data.length }); },
+    then(resolve) { const data = run(); return resolve({ data: head ? null : data, error: null, count: op === "select" ? total : data.length }); },
   };
   return b;
 }

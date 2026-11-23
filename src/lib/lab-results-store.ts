@@ -9,7 +9,7 @@ import {
   bmlTime, isUpdateNotice, labBeforeStart, LAB_BUCKET, LAB_COLUMNS, LAB_SENDER_NAME, LAB_SIGNED_URL_SECONDS, LAB_SYNC_LOOKBACK_DAYS, LAB_SYNC_MAX_PAGES,
   LAB_SYNC_STATE_KEY, LAB_TEAM_GROUP_KEY, labHn, labBookUrl, labMineUrl, labViewUrl, HEARING_SERVICE, type HearingRequest, inLabTab, bangkokDateRange, labSummary, patientNoticeFlex, staffTimelineText,
   resultHearingAppointment, shouldAutoNotify, syncAction, syncDue, teamNoticeText, versionOf,
-  apptWhen, apptWhenFor, type LabAppointment, type LabResult, type LabSummary, type LabSyncState, type LabTab,
+  apptWhen, apptWhenFor, clampLabPage, CONVERSATION_LAB_LIMIT, LAB_PAGE_SIZE, labTabFilters, type LabAppointment, type LabResult, type LabSummary, type LabSyncState, type LabTab,
 } from "./lab-results-rules";
 import { loadAppointmentSettings, logAppointmentEvent, recipientIds } from "./appointment-store";
 import { selfBookingAllowed, selfBookingDays, thaiDate, thaiTime, thaiWeekday } from "./booking-rules";
@@ -527,28 +527,54 @@ export async function staffPdfUrl(id: string): Promise<string> {
   return signedPdfUrl(r.pdf_path);
 }
 
-const LIST_LIMIT = 300;
 const searchTerm = (q: string) => q.replace(/[,()%*\\:"']/g, " ").trim().slice(0, 60);
 
-export async function listLabResults(opts: { tab?: LabTab; q?: string; id?: string | null; conversationId?: string | null; from?: string | null; to?: string | null } = {}): Promise<LabResult[]> {
-  let qy = supabaseAdmin().from("lab_results").select(LAB_COLUMNS);
-  if (opts.id) qy = qy.eq("id", opts.id);
-  const range = bangkokDateRange(opts.from, opts.to);
-  if (range.gte) qy = qy.gte("order_datetime", range.gte);
-  if (range.lt) qy = qy.lt("order_datetime", range.lt);
+export interface LabPage { rows: LabResult[]; total: number; page: number; pageSize: number }
+export interface LabListOptions { tab?: LabTab; q?: string; id?: string | null; conversationId?: string | null; from?: string | null; to?: string | null; page?: number }
+
+/**
+ * รายการผลแล็บทีละหน้า (30 รายการ) · ตัวกรองแท็บ/ค้นหา/วันที่อยู่ใน SQL ทั้งหมด แล้วค่อยแบ่งหน้า (count: exact)
+ * แผงขวาของแชท (conversationId): ไม่แบ่งหน้า ไม่เกิน 50 รายการ
+ */
+export async function listLabResults(opts: LabListOptions = {}): Promise<LabPage> {
+  let hns: string[] | null = null;
   if (opts.conversationId) {
-    const hns = [...new Set((await linksOfConversation(opts.conversationId)).map((l) => normalizeHn(l.hn)).filter((h): h is string => !!h))];
-    if (!hns.length) return [];
-    qy = qy.in("patient_id", hns);
+    hns = [...new Set((await linksOfConversation(opts.conversationId)).map((l) => normalizeHn(l.hn)).filter((h): h is string => !!h))];
+    if (!hns.length) return { rows: [], total: 0, page: 1, pageSize: CONVERSATION_LAB_LIMIT };
   }
-  const q = searchTerm(opts.q ?? "");
-  if (q) {
-    const hn = normalizeHn(q);
-    qy = qy.or(`patient_name.ilike.%${q}%,ln.ilike.%${q}%,location_hn.ilike.%${q}%${hn ? `,patient_id.eq.${hn}` : ""}`);
+  const build = () => {
+    let qy = supabaseAdmin().from("lab_results").select(LAB_COLUMNS, { count: "exact" });
+    if (opts.id) qy = qy.eq("id", opts.id);
+    const range = bangkokDateRange(opts.from, opts.to);
+    if (range.gte) qy = qy.gte("order_datetime", range.gte);
+    if (range.lt) qy = qy.lt("order_datetime", range.lt);
+    if (hns) qy = qy.in("patient_id", hns);
+    for (const f of labTabFilters(opts.tab)) qy = "isNull" in f ? qy.is(f.col, null) : qy.eq(f.col, f.eq);
+    const q = searchTerm(opts.q ?? "");
+    if (q) {
+      const hn = normalizeHn(q);
+      qy = qy.or(`patient_name.ilike.%${q}%,ln.ilike.%${q}%,location_hn.ilike.%${q}%${hn ? `,patient_id.eq.${hn}` : ""}`);
+    }
+    // id ต่อท้ายให้ลำดับคงที่ระหว่างหน้า (ผลที่เวลาสั่งตรวจเท่ากัน)
+    return qy.order("order_datetime", { ascending: false }).order("id", { ascending: false });
+  };
+  if (hns) {
+    const { data, count } = await build().limit(CONVERSATION_LAB_LIMIT);
+    const rows = (data ?? []) as unknown as LabResult[];
+    return { rows, total: count ?? rows.length, page: 1, pageSize: CONVERSATION_LAB_LIMIT };
   }
-  const { data } = await qy.order("order_datetime", { ascending: false }).limit(LIST_LIMIT);
-  const rows = (data ?? []) as unknown as LabResult[];
-  return opts.tab ? rows.filter((r) => inLabTab(r, opts.tab!)) : rows;
+  const fetchPage = async (page: number) => {
+    const { data, count } = await build().range((page - 1) * LAB_PAGE_SIZE, page * LAB_PAGE_SIZE - 1);
+    return { rows: (data ?? []) as unknown as LabResult[], total: count ?? 0 };
+  };
+  let page = clampLabPage(opts.page);
+  let got = await fetchPage(page);
+  // ขอหน้าเกินหน้าสุดท้าย (เช่นรายการลดลงระหว่างดู): ส่งหน้าสุดท้ายแทนหน้าว่าง
+  if (!got.rows.length && got.total > 0 && page > 1) {
+    page = clampLabPage(page, got.total);
+    got = await fetchPage(page);
+  }
+  return { rows: got.rows, total: got.total, page, pageSize: LAB_PAGE_SIZE };
 }
 
 /** จับคู่คนไข้เอง (hn = null ยกเลิกการจับคู่) แล้วแจ้งคนไข้ทันทีถ้ายังไม่เคยแจ้งฉบับนี้ */
@@ -580,12 +606,38 @@ export async function staffNotifyLabResult(id: string, now = Date.now()) {
   return { notify: await notifyLabResult(id, { now }) };
 }
 
-/** หน้าผลแล็บ: HN ไหนตอนนี้มี LINE ที่ส่งได้แล้ว (คนไข้ผูกทีหลัง → ขึ้น "ผูก LINE แล้ว · รอส่ง" ให้เจ้าหน้าที่กดส่ง) */
-export async function lineReadyHns(hns: (string | null)[]): Promise<Record<string, boolean>> {
-  const out: Record<string, boolean> = {};
-  for (const hn of [...new Set(hns.filter((h): h is string => !!h))].slice(0, 100)) {
-    out[hn] = (await lineTargetsOf(hn).catch(() => ({ targets: [] as LineTarget[] }))).targets.length > 0;
+/** HN ที่ขอ → แชทที่ผูก (query เดียวทุก HN) · key = HN ตามที่ส่งมา */
+async function linkedConversationsByHn(ids: string[]): Promise<Map<string, string[]>> {
+  const out = new Map(ids.map((h) => [h, [] as string[]]));
+  if (!ids.length) return out;
+  const { data } = await supabaseAdmin().from("patient_links").select("conversation_id, hn").in("hn", [...new Set(ids.flatMap(hnVariants))]);
+  const byBare = new Map(ids.map((h) => [normalizeHn(h) ?? h, h]));
+  for (const l of (data ?? []) as { conversation_id: string; hn: string }[]) {
+    const key = byBare.get(normalizeHn(l.hn) ?? l.hn);
+    if (key && !out.get(key)!.includes(l.conversation_id)) out.get(key)!.push(l.conversation_id);
   }
+  return out;
+}
+
+/**
+ * หน้าผลแล็บ: HN ไหนตอนนี้มี LINE ที่ส่งได้แล้ว (คนไข้ผูกทีหลัง → ขึ้น "ผูก LINE แล้ว · รอส่ง" ให้เจ้าหน้าที่กดส่ง)
+ * 2 query รวดเดียวทุก HN (กติกาเดียวกับ lineTargetsOf: แชท LINE ที่มีผู้ติดต่อ ไม่บล็อก/เลิกติดตาม และไม่ถูกเก็บถาวร)
+ */
+export async function lineReadyHns(hns: (string | null)[]): Promise<Record<string, boolean>> {
+  const ids = [...new Set(hns.filter((h): h is string => !!h))];
+  const out: Record<string, boolean> = Object.fromEntries(ids.map((h) => [h, false]));
+  if (!ids.length) return out;
+  const byHn = await linkedConversationsByHn(ids);
+  const convIds = [...new Set([...byHn.values()].flat())];
+  if (!convIds.length) return out;
+  const { data } = await supabaseAdmin().from("conversations")
+    .select("id, archived, contacts(external_id, line_unfollowed_at), channels(type)").in("id", convIds);
+  const ready = new Set(((data ?? []) as { id: string; archived?: boolean | null; contacts: unknown; channels: unknown }[]).filter((c) => {
+    const contact = (Array.isArray(c.contacts) ? c.contacts[0] : c.contacts) as { external_id?: string; line_unfollowed_at?: string | null } | null;
+    const channel = (Array.isArray(c.channels) ? c.channels[0] : c.channels) as { type?: string } | null;
+    return channel?.type === "line" && !!contact?.external_id && !contact.line_unfollowed_at && !c.archived;
+  }).map((c) => c.id));
+  for (const [hn, convs] of byHn) out[hn] = convs.some((c) => ready.has(c));
   return out;
 }
 
@@ -597,18 +649,14 @@ export async function labSyncStatus() {
 export async function labResultSummary(now = Date.now()): Promise<LabSummary> {
   const todayStart = new Date(Date.parse(`${bangkokToday(now)}T00:00:00+07:00`)).toISOString();
   const db = supabaseAdmin();
-  const cols = "created_at, notify_status, match_status, first_viewed_at";
-  const [{ data: today }, { data: unmatched }, { data: sent }] = await Promise.all([
-    db.from("lab_results").select(cols).gte("created_at", todayStart),
-    db.from("lab_results").select(cols).eq("match_status", "unmatched"),
-    db.from("lab_results").select(cols).eq("notify_status", "sent").is("first_viewed_at", null),
+  // นับอย่างเดียว ไม่ดึงแถว (กติกาเดียวกับ labSummary)
+  const head = { count: "exact" as const, head: true };
+  const [today, unmatched, unviewed] = await Promise.all([
+    db.from("lab_results").select("id", head).gte("created_at", todayStart).neq("notify_status", "skipped"),
+    db.from("lab_results").select("id", head).eq("match_status", "unmatched"),
+    db.from("lab_results").select("id", head).eq("notify_status", "sent").is("first_viewed_at", null),
   ]);
-  type Row = Pick<LabResult, "created_at" | "notify_status" | "match_status" | "first_viewed_at">;
-  return {
-    today: labSummary((today ?? []) as Row[], todayStart).today,
-    unmatched: (unmatched ?? []).length,
-    unviewed: labSummary((sent ?? []) as Row[], todayStart).unviewed,
-  };
+  return { today: today.count ?? 0, unmatched: unmatched.count ?? 0, unviewed: unviewed.count ?? 0 };
 }
 
 /** badge เมนูซ้าย: ผลที่รอจับคู่ */
@@ -636,12 +684,23 @@ async function pendingHearingRequest(hn: string, now = Date.now()): Promise<Hear
   return row ? { id: row.id, conversation_id: row.conversation_id, date: row.date, time: String(row.time).slice(0, 5) } : null;
 }
 
-/** หน้าเจ้าหน้าที่: คำขอนัดฟังผลที่รอยืนยันของแต่ละ HN */
+/** หน้าเจ้าหน้าที่: คำขอนัดฟังผลที่รอยืนยันของแต่ละ HN (2 query รวดเดียวทุก HN · กติกาเดียวกับ pendingHearingRequest) */
 export async function hearingRequestsByHn(hns: (string | null)[], now = Date.now()): Promise<Record<string, HearingRequest & { when: string }>> {
+  const ids = [...new Set(hns.filter((h): h is string => !!h))];
   const out: Record<string, HearingRequest & { when: string }> = {};
-  for (const hn of [...new Set(hns.filter((h): h is string => !!h))].slice(0, 100)) {
-    const q = await pendingHearingRequest(hn, now).catch(() => null);
-    if (q) out[hn] = { ...q, when: whenText(q.date, q.time) };
+  if (!ids.length) return out;
+  const byHn = await linkedConversationsByHn(ids);
+  const convIds = [...new Set([...byHn.values()].flat())];
+  if (!convIds.length) return out;
+  const { data } = await supabaseAdmin().from("bookings").select('id, conversation_id, "date", "time", created_at')
+    .in("conversation_id", convIds).eq("service", HEARING_SERVICE).eq("status", "ai_confirmed").gte("date", bangkokToday(now)).order("created_at", { ascending: false });
+  const rows = (data ?? []) as { id: string; conversation_id: string; date: string; time: string }[];
+  for (const [hn, convs] of byHn) {
+    const row = rows.find((b) => convs.includes(b.conversation_id));
+    if (row) {
+      const time = String(row.time).slice(0, 5);
+      out[hn] = { id: row.id, conversation_id: row.conversation_id, date: row.date, time, when: whenText(row.date, time) };
+    }
   }
   return out;
 }

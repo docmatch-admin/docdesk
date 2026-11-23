@@ -42,7 +42,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     part("tags", async () => rows(await db.from("tag_events").select("tag, action, by, created_at").eq("conversation_id", id).eq("action", "add").order("created_at")), null),
     part("archive", () => findArchiveCandidates(id, canViewSensitive), null),
     part("appointments", () => conversationAppointments(id), null),
-    part("labs", () => listLabResults({ conversationId: id }), null),
+    part("labs", async () => (await listLabResults({ conversationId: id })).rows, null),
   ]);
   let tagSources: Record<string, string> | null = null;
   if (tagEvents) {

@@ -297,6 +297,29 @@ export const LAB_TABS: { key: LabTab; label: string }[] = [
 ];
 export const parseLabTab = (v: string | null | undefined): LabTab => (LAB_TABS.some((t) => t.key === v) ? (v as LabTab) : "all");
 
+/** เงื่อนไขแท็บสำหรับ query ฐานข้อมูล (ตรงกับ inLabTab ทุกข้อ) · กรองใน SQL ก่อนแบ่งหน้า แท็บจึงถูกเสมอไม่ว่ามีกี่รายการ */
+export type LabTabFilter = { col: "match_status" | "notify_status"; eq: string } | { col: "first_viewed_at"; isNull: true };
+export function labTabFilters(tab: LabTab | null | undefined): LabTabFilter[] {
+  if (tab === "unmatched") return [{ col: "match_status", eq: "unmatched" }];
+  if (tab === "failed") return [{ col: "notify_status", eq: "failed" }];
+  if (tab === "nolink") return [{ col: "notify_status", eq: "unreachable" }];
+  if (tab === "unviewed") return [{ col: "notify_status", eq: "sent" }, { col: "first_viewed_at", isNull: true }];
+  return [];
+}
+
+/** หน้าผลแล็บ: 30 รายการต่อหน้า */
+export const LAB_PAGE_SIZE = 30;
+/** แผงขวาของแชท: ผลของคนไข้ในแชทนี้ ไม่แบ่งหน้า แต่ไม่เกิน 50 */
+export const CONVERSATION_LAB_LIMIT = 50;
+/** หน้าสุดท้าย (อย่างน้อย 1) */
+export const lastLabPage = (total: number, size = LAB_PAGE_SIZE) => Math.max(1, Math.ceil(total / size));
+/** หน้าที่ขอ → หน้าที่ใช้ได้ (1-based, ไม่เกินหน้าสุดท้ายเมื่อรู้จำนวนแล้ว) */
+export const clampLabPage = (page: unknown, total?: number) => {
+  const n = Math.floor(Number(page));
+  const p = Number.isFinite(n) && n >= 1 ? n : 1;
+  return total === undefined ? p : Math.min(p, lastLabPage(total));
+};
+
 export function inLabTab(r: LabResult, tab: LabTab): boolean {
   if (tab === "unmatched") return r.match_status === "unmatched";
   if (tab === "failed") return r.notify_status === "failed";
