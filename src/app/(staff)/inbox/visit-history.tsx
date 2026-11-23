@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { thaiShortDate } from "@/lib/appointment-rules";
-import type { VisitHistory } from "@/lib/visit-history";
+import type { VisitDrug, VisitHistory } from "@/lib/visit-history";
 
 /** โหลดประวัติการมาตรวจของคนไข้หลักของแชท (โหลดใหม่เมื่อเปลี่ยนแชท/ผูก HN ใหม่) */
 export function useVisitHistory(conversationId: string | null, hn: string | null | undefined) {
@@ -24,6 +24,27 @@ export function latestFacts(h: VisitHistory | null) {
   return { rights: v.find((x) => x.rights)?.rights ?? null, age: v.find((x) => x.age != null)?.age ?? null };
 }
 
+/** "ชื่อยา × จำนวน หน่วย" (ไม่มีจำนวน = ชื่อยาอย่างเดียว) */
+export const drugLabel = (d: VisitDrug) => (d.qty != null ? `${d.name} × ${Number.isInteger(d.qty) ? d.qty : d.qty.toFixed(1)}${d.unit ? ` ${d.unit}` : ""}` : d.name);
+const DRUGS_SHOWN = 3;
+
+/** ยาที่ได้ครั้งนั้น: 3 รายการแรก + "+ อีก N รายการ" กดขยาย · ชื่อยาบรรทัดเดียว */
+function VisitDrugs({ drugs }: { drugs: VisitDrug[] }) {
+  const [open, setOpen] = useState(false);
+  if (!drugs.length) return null;
+  const shown = open ? drugs : drugs.slice(0, DRUGS_SHOWN);
+  return (
+    <ul className="visit-drugs" aria-label="ยาที่ได้">
+      {shown.map((d, i) => <li key={`${d.name}-${i}`} className="one" title={drugLabel(d)}>{drugLabel(d)}</li>)}
+      {drugs.length > DRUGS_SHOWN && (
+        <li><button type="button" className="link-btn small" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? "ย่อ" : `+ อีก ${drugs.length - DRUGS_SHOWN} รายการ`}
+        </button></li>
+      )}
+    </ul>
+  );
+}
+
 /** "ประวัติที่คลินิก · มา N ครั้ง": ครั้งล่าสุด 1 ครั้ง กด "ดูทั้งหมด" ขยาย · ไม่มีประวัติ = ไม่แสดงกล่อง */
 export function VisitHistoryBlock({ history, blurred }: { history: VisitHistory | null; blurred: boolean }) {
   const [all, setAll] = useState(false);
@@ -42,7 +63,8 @@ export function VisitHistoryBlock({ history, blurred }: { history: VisitHistory 
         {shown.map((v) => (
           <li key={v.vn}>
             <div className="visit-row"><b>{thaiShortDate(v.date)}</b>{v.doctor && <span className="muted">{v.doctor}</span>}</div>
-            {v.diagnosis && <div className="one">{v.diagnosis}</div>}
+            {v.diagnosis && <div className="visit-dx one" title={v.diagnosis}>{v.diagnosis}</div>}
+            <VisitDrugs drugs={v.drugs ?? []} />
           </li>
         ))}
       </ul>

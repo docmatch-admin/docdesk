@@ -4,6 +4,8 @@
 // ovst_list ยืนยันกับระบบจริงแล้ว ค้นคนไข้รายคนใช้ list_patient (HN 9 หลัก หรือเบอร์) ค้นด้วยชื่อไม่ได้
 // จึงอ่านแบบยืดหยุ่น (หา array แรกในคำตอบ และลองชื่อ field หลายแบบ) ตรวจกับข้อมูลจริงก่อนใช้งาน
 
+import { drugsFromSummary, formatDiagnosis, summaryRows, type DrugRow } from "./his-records.ts";
+
 const BASE = "https://iservice.ehp.co.th";
 const TOKEN_TTL_MS = 20 * 60_000;
 
@@ -41,6 +43,23 @@ export async function iserviceGet(path: string, params: Record<string, string>):
     const res = await fetch(`${BASE}${path}?${qs}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       signal: AbortSignal.timeout(20_000),
+    });
+    if (res.status === 401 && attempt === 0) { cached = null; continue; }
+    if (!res.ok) throw new Error(`iService ${path} ${res.status}`);
+    return res.json();
+  }
+  throw new Error(`iService ${path}: login ไม่สำเร็จ`);
+}
+
+/** POST JSON พร้อม token (เช่น /api/report/v1/summary_drug ที่ระบบจัดซื้อยาใช้) ใส่ cis_code ให้เอง · 401 = login ใหม่หนึ่งครั้ง */
+export async function iservicePost(path: string, body: Record<string, unknown>): Promise<unknown> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const token = cached && Date.now() - cached.at < TOKEN_TTL_MS && attempt === 0 ? cached.token : await login();
+    const res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ cis_code: cisCode(), ...body }),
+      signal: AbortSignal.timeout(30_000),
     });
     if (res.status === 401 && attempt === 0) { cached = null; continue; }
     if (!res.ok) throw new Error(`iService ${path} ${res.status}`);
@@ -167,7 +186,8 @@ export function toVisit(r: Record<string, unknown>): Visit {
     phone: pick(r, ["mobile_phone_number", "phone", "mobile", "tel"]),
     // ประวัติในกล่องข้อมูลลูกค้า (ไม่ส่งให้ AI)
     rights: pick(r, ["ptt_name", "pttype_name"]),
-    diagnosis: pick(r, ["dx_name", "pdx_name", "diag_name"]),
+    // ovst_list: pdx = รหัส ICD-10 · dx_name = ชื่อโรค (ตรวจกับข้อมูลจริง) → "K30 Functional dyspepsia" / รหัสอย่างเดียว
+    diagnosis: formatDiagnosis(pick(r, ["pdx", "icd10", "pdx_code"]), pick(r, ["dx_name", "pdx_name", "diag_name"])),
     age: Number.isFinite(Number(pick(r, ["age_y"]))) && pick(r, ["age_y"]) !== "" ? Number(pick(r, ["age_y"])) : null,
   };
 }
@@ -176,8 +196,18 @@ export const bangkokToday = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 
 export async function visitsOn(date: string): Promise<Visit[]> {
-  const json = await iserviceGet("/api/ovst/v1/ovst_list", { date_start: date, date_end: date });
-  return rowsOf(json).map(toVisit).filter((v) => v.hn).map((v) => ({ ...v, date: v.date || date }));
+  return visitsBetween(date, date);
+}
+
+/** visit ช่วงวันที่ (ovst_list รับ date_start/date_end) */
+export async function visitsBetween(from: string, to: string): Promise<Visit[]> {
+  const json = await iserviceGet("/api/ovst/v1/ovst_list", { date_start: from, date_end: to });
+  return rowsOf(json).map(toVisit).filter((v) => v.hn).map((v) => ({ ...v, date: v.date || from }));
+}
+
+/** ยาที่จ่ายต่อ VN ช่วงวันที่ (summary_drug: POST แบบเดียวกับระบบจัดซื้อยา sync-drug-usage) */
+export async function drugsBetween(from: string, to: string): Promise<DrugRow[]> {
+  return drugsFromSummary(summaryRows(await iservicePost("/api/report/v1/summary_drug", { date_start: from, date_end: to })));
 }
 
 /** iService ช้าเกินกำหนด ถือว่าล่ม ใช้ cache แทน */
