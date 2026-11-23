@@ -25,6 +25,7 @@ test("กรองแพทย์: active=true เสมอ · active=null เ�
     { name: "Dr. A", last_seen_at: daysAgo(PROVIDER_RECENT_DAYS), active: null },
     { name: "  ", last_seen_at: daysAgo(1), active: true },
     { name: "นพ. จ", last_seen_at: null, active: null },
+    { name: "ไม่ระบุ", last_seen_at: daysAgo(1), active: true },
   ], NOW);
   // เรียงตามชื่อแบบภาษาไทย (localeCompare "th"): ชื่อไทยก่อน ชื่ออังกฤษตามหลัง
   assert.deepEqual(out.map((p) => p.name), ["นพ. ข", "พญ. ก", "Dr. A"]);
