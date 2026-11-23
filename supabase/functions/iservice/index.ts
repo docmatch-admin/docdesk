@@ -2,8 +2,9 @@
 // เรียกด้วย session ของเจ้าหน้าที่ (supabase.functions.invoke) ตรวจสิทธิ์ด้วย is_appointment_staff()
 // deploy: supabase functions deploy iservice --no-verify-jwt (ตรวจสิทธิ์เอง: session เจ้าหน้าที่ผ่าน is_appointment_staff() หรือ service role ของ server)
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { bangkokToday, classifySearch, diagnose, listPatient, padHn, visitsOn, withTimeout, type Patient } from "../_shared/iservice.ts";
-import { cachedVisits, pruneVisits, saveVisits } from "../_shared/his-cache.ts";
+import { bangkokToday, classifySearch, diagnose, drugsBetween, listPatient, padHn, visitsBetween, visitsOn, withTimeout, type Patient } from "../_shared/iservice.ts";
+import { cachedVisits, fillMissingDiagnosis, pruneVisits, saveDrugs, saveVisits, VISIT_RETENTION_DAYS } from "../_shared/his-cache.ts";
+import { dateChunks } from "../_shared/his-records.ts";
 import { nameSearchTerms } from "../_shared/patient-name.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
@@ -103,8 +104,11 @@ Deno.serve(async (req) => {
     try {
       const visits = await withTimeout(visitsOn(today), 30_000);
       await saveVisits(admin, visits);
+      // ยาที่ได้ของวันนี้ในรอบเดียวกัน (ประวัติในกล่องข้อมูลลูกค้า) · พลาดไม่ทำให้ visit ล้ม
+      const drugs = await withTimeout(drugsBetween(today, today), 30_000).then((d) => saveDrugs(admin, d))
+        .catch((e) => { console.error("drug refresh failed", e instanceof Error ? e.message : e); return null; });
       await pruneVisits(admin, today);
-      return json({ date: today, cached: visits.length });
+      return json({ date: today, cached: visits.length, drugs });
     } catch (e) {
       console.error("visit refresh failed", e instanceof Error ? e.message : e);
       return json({ error: "ดึง visit ไม่สำเร็จ" }, 502);
@@ -122,7 +126,7 @@ Deno.serve(async (req) => {
     if (allowed !== true) return json({ error: "forbidden" }, 403);
   }
 
-  const b = await req.json().catch(() => ({})) as { action?: string; q?: string; hn?: string; simulate_down?: boolean };
+  const b = await req.json().catch(() => ({})) as { action?: string; q?: string; hn?: string; simulate_down?: boolean; from?: string; to?: string };
   // ทดสอบกรณี iService ล่ม (เฉพาะ server ของ DocDesk)
   const live = <T>(p: () => Promise<T>): Promise<T> =>
     isServer && b.simulate_down ? Promise.reject(new Error("simulated iService down")) : withTimeout(p(), LIVE_TIMEOUT_MS);
@@ -131,6 +135,26 @@ Deno.serve(async (req) => {
     if (b.action === "diagnose") {
       if (!isServer) return json({ error: "forbidden" }, 403);
       return json(await diagnose(bangkokToday(), (b.q ?? "").trim().slice(0, 30)));
+    }
+    // เติมย้อนหลัง (server เท่านั้น): การวินิจฉัยของ visit ที่อยู่ใน cache (ไม่เขียนทับ) + ยาที่ได้ ทีละไม่เกิน 31 วัน
+    if (b.action === "backfill") {
+      if (!isServer) return json({ error: "forbidden" }, 403);
+      const today = bangkokToday();
+      const floor = new Date(Date.parse(`${today}T12:00:00Z`) - VISIT_RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10);
+      const ok = (d: unknown): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
+      if (!ok(b.from) || !ok(b.to) || b.from > b.to) return json({ error: "from/to = YYYY-MM-DD" }, 400);
+      const from = b.from < floor ? floor : b.from;
+      const to = b.to > today ? today : b.to;
+      // ครั้งละก้อนเดียว (≤ 31 วัน) ให้อยู่ในเวลาของ edge function · next = วันเริ่มของก้อนถัดไป
+      const chunks = dateChunks(from, to, 31);
+      const result = { from, to: chunks[0]?.to ?? to, next: chunks[1]?.from ?? null, visits: 0, diagnosisFilled: 0, drugs: 0 };
+      for (const c of chunks.slice(0, 1)) {
+        const visits = await visitsBetween(c.from, c.to);
+        result.visits += visits.length;
+        result.diagnosisFilled += await fillMissingDiagnosis(admin, visits);
+        result.drugs += await saveDrugs(admin, await drugsBetween(c.from, c.to));
+      }
+      return json(result);
     }
     // ล่าสุดก่อน
     const sortVisits = <T extends { time: string; seq: number }>(v: T[]) => v.sort((a, z) => z.time.localeCompare(a.time) || z.seq - a.seq);

@@ -2104,6 +2104,12 @@ html { scrollbar-gutter: stable; }
 .visit-list li { padding: 8px 12px; font-size: 13px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .visit-list li + li { border-top: 1px solid var(--line); }
 .visit-row { display: flex; justify-content: space-between; gap: 8px; }
+/* โรคที่มา (ตัวหนา) · ยาที่ได้ (รายการสั้น ชื่อยาบรรทัดเดียวตัดด้วย …) */
+.visit-dx { font-weight: 600; }
+.visit-drugs { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 1px; color: var(--muted-strong); font-size: 12.5px; min-width: 0; }
+.visit-drugs li { min-width: 0; }
+.visit-drugs li.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.visit-drugs .link-btn { padding: 0; }
 
 /* ---------- หน้ามือถือตามแบบ: หัว 52px · พื้นเทา · การ์ดขาวมุม 14px ---------- */
 .m-page { display: none; }
