@@ -168,7 +168,7 @@ test("ป้ายโควตาในหน้าแชท: ≤1 นาที�
   assert.equal(lineQuotaHint(null, at(1_000), NOW), "push", "token ถูกใช้ไปแล้ว");
   assert.equal(lineQuotaHint("T1", null, NOW), "push");
   const src = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
-  assert.match(src, /quotaHint === "push" && \(\s*<span className="quota-hint push"[^>]*>📊 จะนับโควตา/);
+  assert.doesNotMatch(src, /quota-hint|จะนับโควตา/, "ไม่แสดงป้ายโควตาในหน้าแชทแล้ว (ดูยอดรวมได้ที่สรุปเดือนนี้)");
 });
 
 test("สรุปเดือนนี้: push แยกประเภท (นับต่อข้อความ) reply ฟรี fallback และส่งไม่สำเร็จ", () => {
