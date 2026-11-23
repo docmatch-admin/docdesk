@@ -79,3 +79,29 @@ export function ThemeQuickToggle() {
     </button>
   );
 }
+
+/** แถวสวิตช์ในหน้าเมนูมือถือ */
+export function ThemeSwitchRow() {
+  const { prefs, update, systemDark } = usePreferences();
+  const dark = effectiveTheme(prefs.theme, systemDark) === "dark";
+  return (
+    <button type="button" role="switch" aria-checked={dark} className="m-row m-switch-row" onClick={() => update({ theme: dark ? "light" : "dark" })}>
+      <Icon name="moon" size={22} />
+      <span className="m-row-label">โหมดมืด</span>
+      <span className="m-switch" aria-hidden="true" />
+    </button>
+  );
+}
+
+/** เสียงเตือนแชทรอตอบ (ค่าเดียวกับเมนูซ้าย ใช้ทุกเครื่อง) ตัวเล่นเสียงอยู่ในเมนูซ้ายตัวเดียว */
+export function SoundSwitchRow() {
+  const { prefs, update } = usePreferences();
+  const on = !prefs.sound_muted;
+  return (
+    <button type="button" role="switch" aria-checked={on} className="m-row m-switch-row" onClick={() => update({ sound_muted: on })}>
+      <Icon name={on ? "bell" : "bellOff"} size={22} />
+      <span className="m-row-label">เสียงเตือน</span>
+      <span className="m-switch" aria-hidden="true" />
+    </button>
+  );
+}

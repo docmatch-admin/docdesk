@@ -868,8 +868,11 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
       <aside className="conv-list">
         <div className="m-inbox-head" aria-hidden="true">Doc<span>Desk</span></div>
         <div className="inbox-search">
-          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ ข้อความ หรือแท็ก…" aria-label="ค้นหาแชท" />
+          <label className="search-box">
+            <Icon name="search" size={16} />
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="ค้นหาชื่อ ข้อความ หรือแท็ก…" aria-label="ค้นหาแชท" />
+          </label>
         </div>
         {/* ขอบเขตแชท 3 ช่อง อยู่ที่เดิมเสมอ · ช่วง รอตอบ / งานค้าง / ล่าสุด ดูจากหัวข้อในรายการ (ไม่ซ้ำกัน) */}
         <div className="q-filters" role="group" aria-label="ขอบเขตแชท">

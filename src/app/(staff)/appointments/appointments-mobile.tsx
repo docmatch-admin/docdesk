@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  addDays, bangkokToday, deliveryState, DELIVERY_LABEL, STATUS_LABEL, thaiMediumDate, thaiShortDate, timeShort,
+  addDays, bangkokToday, deliveryState, DELIVERY_LABEL, STATUS_LABEL, thaiMediumDate, thaiShortDate,
   type Appointment,
 } from "@/lib/appointment-rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
@@ -79,24 +79,16 @@ export function AppointmentsMobile({ counts, onCreate, onOpen, onCalled }: {
   const arrived = list.filter((r) => r.status === "attended").length;
   const active = list.filter((r) => r.status !== "no_show").length;
 
-  // กลุ่มตามช่วงเวลา (นัดแบบระบุเวลาแสดงเวลาที่แถวเอง)
-  const groups: { label: string; rows: Row[] }[] = [];
-  for (const r of list) {
-    const label = r.time_mode === "slot" ? timeShort(r) : "ระบุเวลา";
-    const g = groups.find((x) => x.label === label);
-    if (g) g.rows.push(r); else groups.push({ label, rows: [r] });
-  }
-
   return (
-    <div className="appt-m">
-      <div className="appt-m-head">
+    <div className="appt-m m-page">
+      <header className="m-page-head appt-m-head">
         <h1>นัดหมาย</h1>
         <button type="button" className="appt-m-icon" aria-label={searching ? "ปิดค้นหา" : "ค้นหานัด"} aria-pressed={searching}
           onClick={() => { setSearching(!searching); setQ(""); }}>
           <Icon name={searching ? "x" : "search"} size={20} />
         </button>
-        <button type="button" className="appt-m-add" aria-label="ทำนัดใหม่" onClick={onCreate}><Icon name="plus" size={22} /></button>
-      </div>
+        <button type="button" className="appt-m-add" aria-label="ทำนัดใหม่" onClick={onCreate}><Icon name="plus" size={20} /></button>
+      </header>
 
       {queue ? (
         <>
@@ -105,9 +97,11 @@ export function AppointmentsMobile({ counts, onCreate, onOpen, onCalled }: {
             <b>{queue === "call" ? "ต้องโทร" : "ขอเลื่อน"}{queueRows ? ` · ${queueRows.length}` : ""}</b>
           </div>
           <div className="appt-m-list">
-            {queueRows === null && <div className="appt-m-empty">กำลังโหลด…</div>}
-            {queueRows && !queueRows.length && <div className="appt-m-empty">ไม่มีนัดในรายการนี้แล้ว</div>}
-            {queueRows?.map((r) => <MRow key={r.id} r={r} showDate onOpen={onOpen} onCalled={onCalled} />)}
+            <section className="m-card appt-m-card">
+              {queueRows === null && <div className="appt-m-empty">กำลังโหลด…</div>}
+              {queueRows && !queueRows.length && <div className="appt-m-empty">ไม่มีนัดในรายการนี้แล้ว</div>}
+              {queueRows?.map((r) => <MRow key={r.id} r={r} showDate onOpen={onOpen} onCalled={onCalled} />)}
+            </section>
           </div>
         </>
       ) : searching ? (
@@ -117,8 +111,11 @@ export function AppointmentsMobile({ counts, onCreate, onOpen, onCalled }: {
             <input autoFocus type="search" aria-label="ค้นหานัด" placeholder="ชื่อ / HN / เบอร์" value={q} onChange={(e) => setQ(e.target.value)} />
           </label>
           <div className="appt-m-list">
-            {found && !found.length && <div className="appt-m-empty">ไม่พบนัด</div>}
-            {found?.map((r) => <MRow key={r.id} r={r} showDate onOpen={onOpen} onCalled={onCalled} />)}
+            <section className="m-card appt-m-card">
+              {!found && <div className="appt-m-empty">พิมพ์ชื่อ HN หรือเบอร์</div>}
+              {found && !found.length && <div className="appt-m-empty">ไม่พบนัด</div>}
+              {found?.map((r) => <MRow key={r.id} r={r} showDate onOpen={onOpen} onCalled={onCalled} />)}
+            </section>
           </div>
         </>
       ) : (
@@ -126,37 +123,34 @@ export function AppointmentsMobile({ counts, onCreate, onOpen, onCalled }: {
           <div className="appt-m-days" role="tablist" aria-label="เลือกวัน">
             {days.map((d) => {
               const n = (byDay.get(d) ?? []).filter((r) => r.status !== "cancelled").length;
+              const label = d === today ? "วันนี้" : d === addDays(today, 1) ? "พรุ่งนี้" : `${dow(d)} ${Number(d.slice(8, 10))}`;
               return (
                 <button key={d} type="button" role="tab" aria-selected={d === day} className={d === day ? "on" : ""} onClick={() => setDay(d)}
                   aria-label={`${thaiMediumDate(d)} ${n} นัด`}>
-                  <span className="d-dow">{d === today ? "วันนี้" : dow(d)}</span>
-                  <span className="d-num">{Number(d.slice(8, 10))}</span>
-                  <span className="d-count">{n ? `${n} นัด` : "–"}</span>
+                  {label}{n > 0 && (d === today || d === addDays(today, 1) ? ` ${n}` : ` · ${n}`)}
                 </button>
               );
             })}
           </div>
 
-          <div className="appt-m-sum">
-            <button type="button" className="sum call" onClick={() => setQueue("call")} aria-label={`ดูรายการต้องโทร ${counts.mustCall} นัด`}><span>ต้องโทร</span><b>{counts.mustCall}</b></button>
-            <button type="button" className="sum warn" onClick={() => setQueue("reschedule")} aria-label={`ดูรายการขอเลื่อน ${counts.reschedule} นัด`}><span>ขอเลื่อน</span><b>{counts.reschedule}</b></button>
-            <div className="sum ok"><span>มาแล้ว</span><b>{arrived}/{active}</b></div>
-          </div>
-
           <div className="appt-m-list">
-            {rows === null && <div className="appt-m-empty">กำลังโหลด…</div>}
-            {rows && !list.length && (
-              <div className="appt-m-empty">
-                ไม่มีนัด{day === today ? "วันนี้" : `วัน${thaiShortDate(day)}`}
-                <button type="button" className="btn outline small" onClick={onCreate}>+ ทำนัดใหม่</button>
-              </div>
-            )}
-            {groups.map((g) => (
-              <section key={g.label}>
-                <h2 className="appt-m-slot">{g.label}</h2>
-                {g.rows.map((r) => <MRow key={r.id} r={r} onOpen={onOpen} onCalled={onCalled} />)}
-              </section>
-            ))}
+            <section className="m-card appt-m-card">
+              {rows === null && <div className="appt-m-empty">กำลังโหลด…</div>}
+              {rows && !list.length && (
+                <div className="appt-m-empty">
+                  ไม่มีนัด{day === today ? "วันนี้" : `วัน${thaiShortDate(day)}`}
+                  <button type="button" className="btn outline small" onClick={onCreate}>+ ทำนัดใหม่</button>
+                </div>
+              )}
+              {list.map((r) => <MRow key={r.id} r={r} onOpen={onOpen} onCalled={onCalled} />)}
+              {active > 0 && <div className="appt-m-note">มาแล้ว {arrived}/{active}</div>}
+              {counts.mustCall > 0 && (
+                <div className="appt-m-note">ต้องโทร {counts.mustCall} นัด — <button type="button" className="link-btn" onClick={() => setQueue("call")}>ดูรายการ</button></div>
+              )}
+              {counts.reschedule > 0 && (
+                <div className="appt-m-note">ขอเลื่อนนัด {counts.reschedule} นัด — <button type="button" className="link-btn" onClick={() => setQueue("reschedule")}>ดูรายการ</button></div>
+              )}
+            </section>
           </div>
         </>
       )}
@@ -175,14 +169,15 @@ function MRow({ r, showDate, onOpen, onCalled }: { r: Row; showDate?: boolean; o
   const tone = r.status === "attended" ? "done" : state === "confirmed" ? "ok" : state === "reschedule" ? "warn" : state === "failed" || state === "no_chat" ? "bad" : "";
   const sub = [
     showDate ? thaiShortDate(r.appoint_date) : null,
-    r.time_mode === "exact" || showDate ? timeShort(r) : null,
     r.purpose_text,
+    r.provider,
     r.series_id && r.series_total ? `${r.series_label ?? "นัด"} ${r.series_seq}/${r.series_total}` : null,
     r.hn ? `HN ${shortHn(r.hn)}` : null,
   ].filter(Boolean).join(" · ");
 
   return (
     <div className={`appt-m-row ${r.status === "attended" || r.status === "cancelled" ? (r.status === "attended" ? "arrived" : "faded done") : ""}`}>
+      <span className="appt-m-time">{r.time_start.slice(0, 5)}</span>
       <button type="button" className="appt-m-main" onClick={() => onOpen(r.id)} aria-label={`ดูรายละเอียดนัด ${r.patient_name}`}>
         <span className="appt-m-name">{r.status === "attended" && <span className="appt-done-mark" aria-hidden="true">✓ </span>}{r.patient_name}</span>
         <span className="appt-m-sub">{sub}</span>
