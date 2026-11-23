@@ -133,7 +133,7 @@ const pick = (r: Record<string, unknown>, keys: string[]): string => {
   return "";
 };
 
-export interface Visit { hn: string; name: string; doctor: string; time: string; phone: string; seq: number; vn: string; date: string }
+export interface Visit { hn: string; name: string; doctor: string; time: string; phone: string; seq: number; vn: string; date: string; rights?: string; diagnosis?: string; age?: number | null }
 export interface Patient { hn: string; name: string; phone: string }
 
 /**
@@ -165,6 +165,10 @@ export function toVisit(r: Record<string, unknown>): Visit {
     vn: pick(r, ["vn"]),
     date: pick(r, ["vstdate"]).slice(0, 10),
     phone: pick(r, ["mobile_phone_number", "phone", "mobile", "tel"]),
+    // ประวัติในกล่องข้อมูลลูกค้า (ไม่ส่งให้ AI)
+    rights: pick(r, ["ptt_name", "pttype_name"]),
+    diagnosis: pick(r, ["dx_name", "pdx_name", "diag_name"]),
+    age: Number.isFinite(Number(pick(r, ["age_y"]))) && pick(r, ["age_y"]) !== "" ? Number(pick(r, ["age_y"])) : null,
   };
 }
 

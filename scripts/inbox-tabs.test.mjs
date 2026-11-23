@@ -658,7 +658,10 @@ test("กล่องข้อมูลลูกค้า: แสดงเฉพ
   const card = readFileSync("src/app/(staff)/inbox/customer-card.tsx", "utf8");
   assert.match(card, /\{hn && /, "ไม่ผูก HN = ไม่มีบรรทัด HN");
   assert.match(card, /\{phone && /, "ไม่มีเบอร์ = ไม่มีบรรทัดเบอร์");
-  assert.doesNotMatch(card, /แพ้ยา|สิทธิ|ประวัติที่คลินิก/, "ข้อมูล HIS ที่ยังดึงไม่ได้ ไม่โชว์");
+  assert.doesNotMatch(card, /แพ้ยา/, "แพ้ยายังดึงจาก HIS ไม่ได้ ไม่โชว์");
+  assert.match(card, /\{hn && facts\?\.rights && /, "สิทธิแสดงเมื่อมีจากการมาตรวจเท่านั้น");
+  const vh = readFileSync("src/app/(staff)/inbox/visit-history.tsx", "utf8");
+  assert.match(vh, /if \(!history \|\| !history\.visits\.length\) return null;/, "ไม่มีประวัติ = ไม่แสดงกล่อง");
   const inbox = readFileSync("src/app/(staff)/inbox/inbox-client.tsx", "utf8");
   assert.match(inbox, /<h2 className="cust-title">ข้อมูลลูกค้า<\/h2>\s*<CustomerCard /, "ข้อมูลลูกค้าอยู่บนสุดของแผงขวา");
   const mc = readFileSync("src/app/(staff)/inbox/mobile-chat.tsx", "utf8");

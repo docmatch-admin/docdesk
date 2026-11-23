@@ -11,9 +11,11 @@ import type { ApptSummary } from "./mobile-chat";
  * แสดงเฉพาะข้อมูลที่มีจริง (ยังไม่ผูก HN = ไม่มีบรรทัด HN/เบอร์) ไม่เดา ไม่โชว์ช่องว่าง
  * ข้อมูลคนไข้เห็นเฉพาะเจ้าหน้าที่ ไม่ส่งให้ AI
  */
-export function CustomerCard({ conversation: c, patient, blurred }: {
+export function CustomerCard({ conversation: c, patient, facts, blurred }: {
   conversation: Conversation;
   patient: ApptSummary["patient"];
+  /** จากการมาตรวจครั้งล่าสุดใน iService (ไม่มี = ไม่แสดง) */
+  facts?: { rights: string | null; age: number | null };
   blurred: boolean;
 }) {
   const ct = c.contacts;
@@ -30,11 +32,12 @@ export function CustomerCard({ conversation: c, patient, blurred }: {
           ? <img className="avatar cust-avatar" src={ct.avatar_url} alt="" />
           : <span className="avatar cust-avatar" aria-hidden="true">{name.trim().charAt(0) || "?"}</span>}
         <div className="cust-name">
-          <b className="one" title={name}>{name}</b>
-          {hn && <span className="muted small">HN {hn}{relative && " · ญาติ/คนดูแล"}</span>}
+          <b className={name.length > 18 ? "long" : undefined} title={name}>{name}</b>
+          {hn && <span className="muted small">HN {hn}{facts?.age != null && ` · ${facts.age} ปี`}{relative && " · ญาติ/คนดูแล"}</span>}
         </div>
       </div>
       <dl className="cust-grid">
+        {hn && facts?.rights && (<><dt>สิทธิ</dt><dd><span className="rights-chip">{facts.rights}</span></dd></>)}
         {phone && (<><dt>เบอร์โทร</dt><dd><a href={`tel:${phone}`}><Icon name="phone" size={14} /> {formatPhone(phone)}</a></dd></>)}
         <dt>ช่องทาง</dt>
         <dd className="cust-channel">

@@ -2,12 +2,17 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import type { Visit } from "./iservice.ts";
 
-export const VISIT_RETENTION_DAYS = 90;
+/** เก็บ 1 ปี: ใช้เป็นประวัติการมาตรวจในกล่องข้อมูลลูกค้าด้วย */
+export const VISIT_RETENTION_DAYS = 365;
 
 export async function saveVisits(db: SupabaseClient, visits: Visit[]) {
   const rows = visits.filter((v) => v.vn && v.hn).map((v) => ({
     vn: v.vn, hn: v.hn.trim(), patient_name: v.name || null, visit_date: v.date, visit_time: v.time || null,
     doctor_name: v.doctor.replace(/\s+/g, " ").trim() || null, fetched_at: new Date().toISOString(),
+    // ค่าว่าง = ไม่เขียนทับของเดิม
+    ...(v.rights ? { rights: v.rights.trim() } : {}),
+    ...(v.diagnosis ? { diagnosis: v.diagnosis.trim() } : {}),
+    ...(v.age != null ? { age_y: v.age } : {}),
   }));
   if (!rows.length) return;
   const { error } = await db.from("his_visit_cache").upsert(rows, { onConflict: "vn" });
@@ -33,7 +38,7 @@ export async function cachedVisits(db: SupabaseClient, date: string): Promise<{ 
   };
 }
 
-/** ลบ visit เก่ากว่า 90 วัน */
+/** ลบ visit เก่ากว่า VISIT_RETENTION_DAYS */
 export async function pruneVisits(db: SupabaseClient, today: string) {
   const cutoff = new Date(Date.parse(`${today}T12:00:00Z`) - VISIT_RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10);
   await db.from("his_visit_cache").delete().lt("visit_date", cutoff);

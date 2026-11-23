@@ -28,6 +28,7 @@ import { CloseCasePopup } from "./close-case-popup";
 import { TagPicker } from "./tag-picker";
 import { TeamPanel } from "./team-panel";
 import { CustomerCard } from "./customer-card";
+import { latestFacts, useVisitHistory, VisitHistoryBlock } from "./visit-history";
 import { WebBookingCard } from "./web-booking-card";
 import { MobileChatTabs, NextAppointmentStrip, useMobileTyping, type ApptSummary, type MobileTab } from "./mobile-chat";
 import {
@@ -118,6 +119,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
   // มือถือ: ห้องแชทแบ่งเป็นแท็บ แชท · นัด · งาน · คอมเมนต์ · ข้อมูลคนไข้ (จอใหญ่แสดงทุกส่วนพร้อมกันเหมือนเดิม)
   const [mtab, setMtab] = useState<MobileTab>("chat");
   const [apptSummary, setApptSummary] = useState<ApptSummary | null>(null);
+  const visitHistory = useVisitHistory(selectedId, apptSummary?.patient?.hn);
   const [noteCount, setNoteCount] = useState(0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [suggestion, setSuggestion] = useState<SuggestionResult | null>(null);
@@ -1232,7 +1234,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
         <aside className="team-panel" aria-label="ข้อมูลลูกค้า">
           <section className="side-block tp-info">
             <h2 className="cust-title">ข้อมูลลูกค้า</h2>
-            <CustomerCard conversation={selected} patient={apptSummary?.patient ?? null} blurred={blurred} />
+            <CustomerCard conversation={selected} patient={apptSummary?.patient ?? null} facts={latestFacts(visitHistory)} blurred={blurred} />
             {!selected.archived && (
               <div className="m-only m-assignee">
                 <AssigneeControl me={me} assignedTo={selected.assigned_to} onChange={assign}
@@ -1282,6 +1284,7 @@ export function InboxClient({ me }: { me: { id: string; role: "admin" | "agent";
               <AppointmentsBlock onSummary={setApptSummary} conversationId={selected.id} contactName={selected.contacts?.patient_full_name || selected.contacts?.display_name || null} blurred={blurred} isAdmin={isAdmin}
                 onMessage={flash} onChanged={() => { loadBookings(selected.id); scheduleWork(); }} />
               <LabResultsBlock conversationId={selected.id} blurred={blurred} />
+              <VisitHistoryBlock history={visitHistory} blurred={blurred} />
               <TeamPanel onNoteCount={setNoteCount} conversationId={selected.id} sensitive={!!selected.sensitive} closed={selected.status === "closed"}
                 staff={staffList} onChanged={scheduleWork} onError={flash} />
             </>
