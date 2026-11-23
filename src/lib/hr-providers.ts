@@ -4,6 +4,9 @@
 export const PROVIDER_RECENT_DAYS = 180;
 const DAY_MS = 86_400_000;
 
+/** ชื่อที่ไม่ใช่แพทย์จริง (iService ใส่มาเมื่อไม่ได้ระบุแพทย์) */
+const NOT_A_NAME = new Set(["ไม่ระบุ", "ไม่ทราบ", "-", "unknown", "n/a"]);
+
 export interface ProviderRow { name: string | null; last_seen_at: string | null; active: boolean | null }
 export interface HrProvider { name: string; last_seen_at: string }
 
@@ -17,7 +20,7 @@ export function hrProviderList(rows: ProviderRow[], now = Date.now()): HrProvide
   for (const r of rows) {
     const name = r.name?.trim();
     const seen = r.last_seen_at ? Date.parse(r.last_seen_at) : Number.NaN;
-    if (!name || r.active === false) continue;
+    if (!name || NOT_A_NAME.has(name.toLowerCase()) || r.active === false) continue;
     if (r.active !== true && !(Number.isFinite(seen) && seen >= since)) continue;
     out.push({ name, last_seen_at: Number.isFinite(seen) ? new Date(seen).toISOString() : new Date(0).toISOString() });
   }
