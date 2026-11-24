@@ -2097,6 +2097,7 @@ html { scrollbar-gutter: stable; }
 .ch-tag.facebook { background: var(--ch-facebook); color: var(--on-accent); }
 .ch-tag.instagram { background: var(--ch-instagram); color: var(--on-accent); }
 @media (max-width: 899px) { .cust-title { display: none; } }
+.rights-chip.one-line { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: fit-content; }
 .rights-chip { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--blue-soft); color: var(--blue-ink); }
 .visit-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .visit-head h3 { margin: 0; font-size: 13px; color: var(--muted-strong); }
@@ -2366,7 +2367,7 @@ html { scrollbar-gutter: stable; }
 .lab-pager { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 12px; margin-top: 8px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 -2px 10px var(--shadow); }
 .lab-pager .btn:disabled { opacity: .45; cursor: default; }
 .lab-pager-info { font-size: 13px; color: var(--muted-strong); white-space: nowrap; }
-.lab-list.lab-loading { opacity: .6; transition: opacity .15s; }
+.lab-results-list.lab-loading { opacity: .6; transition: opacity .15s; }
 @media (max-width: 899px) {
   .lab-pager { bottom: calc(68px + env(safe-area-inset-bottom)); gap: 8px; }
   .lab-pager-info { font-size: 12px; }

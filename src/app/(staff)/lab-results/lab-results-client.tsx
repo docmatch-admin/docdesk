@@ -235,7 +235,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
       </div>
       {onlyId && <p className="small">แสดงรายการจากลิงก์ · <button type="button" className="link-btn" onClick={() => setOnlyId(null)}>ดูทั้งหมด</button></p>}
 
-      <section className={`card lab-list ${loading && rows.length ? "lab-loading" : ""}`} aria-busy={loading}>
+      <section className={`card lab-results-list ${loading && rows.length ? "lab-loading" : ""}`} aria-busy={loading}>
         {loading && !rows.length && <div className="muted small">กำลังโหลด…</div>}
         {!loading && !rows.length && <div className="muted small">ไม่มีรายการ</div>}
         {rows.length > 0 && (

@@ -51,7 +51,7 @@ export function CustomerCard({ conversation: c, patient, facts, blurred, tags, l
       {(tags || lockSwitch) && <div className="cust-tagrow d-only"><div className="cust-tags">{tags}</div>{lockSwitch}</div>}
 
       <dl className="cust-grid d-only">
-        {rights && (<><dt>สิทธิ</dt><dd><span className="rights-chip">{rights}</span></dd></>)}
+        {rights && (<><dt>สิทธิ</dt><dd className="one"><span className="rights-chip one-line" title={rights}>{rights}</span></dd></>)}
         {contact && (<><dt>ผู้ติดต่อ</dt><dd className="one">{contact}</dd></>)}
         {phone && (<><dt>เบอร์โทร</dt><dd><a href={`tel:${phone}`}>{formatPhone(phone)}</a></dd></>)}
         <dt>ช่องทาง</dt>

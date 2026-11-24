@@ -308,7 +308,7 @@ export function labTabFilters(tab: LabTab | null | undefined): LabTabFilter[] {
 }
 
 /** หน้าผลแล็บ: 30 รายการต่อหน้า */
-export const LAB_PAGE_SIZE = 30;
+export const LAB_PAGE_SIZE = 15;
 /** แผงขวาของแชท: ผลของคนไข้ในแชทนี้ ไม่แบ่งหน้า แต่ไม่เกิน 50 */
 export const CONVERSATION_LAB_LIMIT = 50;
 /** หน้าสุดท้าย (อย่างน้อย 1) */
