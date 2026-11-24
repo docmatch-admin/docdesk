@@ -296,6 +296,15 @@ const client = {
     if (fn === "set_conversation_tag") return { data: setTag(args), error: null };
     if (fn === "set_assignee" || fn === "assign_if_unassigned") return { data: setAssignee(fn, args), error: null };
     if (fn === "revoke_staff_sessions") { state.revoked.push(args.p_user); return { error: null }; }
+    // เหมือน migration 069: ตรวจรูปแบบ bcrypt แล้วเขียน encrypted_password · คืน found
+    if (fn === "set_staff_password_hash") {
+      if (!/^\$2[aby]\$(0[4-9]|[12][0-9]|3[01])\$[./A-Za-z0-9]{53}$/.test(args.p_hash ?? "")) return { data: false, error: null };
+      const u = (state.authUsers ?? []).find((x) => x.id === args.p_user);
+      if (!u) return { data: false, error: null };
+      u.encrypted_password = args.p_hash;
+      state.passwordHashSets = [...(state.passwordHashSets ?? []), args.p_user];
+      return { data: true, error: null };
+    }
     if (fn === "retention_delete_tasks" || fn === "retention_delete_appointments") return { data: retentionDelete(fn, args.p_limit), error: null };
     if (fn === "touch_providers") {
       // เหมือนฟังก์ชันในฐานข้อมูล: ยุบช่องว่าง รวมชื่อซ้ำ (ไม่สนตัวพิมพ์) เก็บเวลาล่าสุด

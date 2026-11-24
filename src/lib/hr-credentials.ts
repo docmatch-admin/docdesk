@@ -36,8 +36,10 @@ export async function applyHrCredential(push: HrCredentialPush): Promise<Credent
   if (!account) return "unmatched";
   if (!(account as { active: boolean }).active) return "inactive";
   const id = (account as { id: string }).id;
-  const { error } = await db.auth.admin.updateUserById(id, { password_hash: push.password_hash });
-  if (error) return "failed";
+  // ห้ามใช้ auth.admin.updateUserById({ password_hash }): Supabase รับ password_hash เฉพาะตอน createUser
+  // ตอน update จะเพิกเฉยเงียบ ๆ (ตอบ ok แต่รหัสไม่เปลี่ยน) → เขียน encrypted_password ผ่านฟังก์ชันในฐานข้อมูล (migration 069)
+  const { data: set, error } = await db.rpc("set_staff_password_hash", { p_user: id, p_hash: push.password_hash });
+  if (error || set !== true) return "failed";
   // รหัสนี้เป็นรหัสจริงของพนักงานจาก HR ไม่ใช่รหัสชั่วคราว
   const { error: flagError } = await db.from("staff").update({ must_change_password: false }).eq("id", id);
   if (flagError) return "failed";
