@@ -62,7 +62,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
   const [qDebounced, setQDebounced] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  // ลำดับหน้าชื่อนับต่อกันทุกหน้า (หน้า 2 เริ่มที่ 15) · ใช้หน้าที่ server ตอบจริง ระหว่างโหลดหน้าถัดไปเลขไม่เปลี่ยนก่อนแถว
+  // ลำดับหน้าชื่อนับต่อกันทุกหน้า (หน้า 2 เริ่มที่ 13) · ใช้หน้าที่ server ตอบจริง ระหว่างโหลดหน้าถัดไปเลขไม่เปลี่ยนก่อนแถว
   const [offset, setOffset] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const [from, setFrom] = useState("");
