@@ -1908,6 +1908,9 @@ button.lab-card { cursor: pointer; }
 .lab-sync.ok { background: var(--success-soft); color: var(--success-ink); }
 .lab-sync.bad { background: var(--danger-soft); color: var(--danger-ink); font-weight: 600; }
 .lab-who b { font-size: 15px; }
+/* ลำดับหน้าชื่อ (นับต่อกันทุกหน้า) */
+.lab-no { color: var(--muted); font-variant-numeric: tabular-nums; }
+.lab-table th.lab-no-col, .lab-table td.lab-no-col { width: 1%; white-space: nowrap; text-align: right; padding-right: 4px; }
 .lab-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
 .lab-viewed { color: var(--success-ink); }
 .lab-table th.lab-act, .lab-table td.lab-act { text-align: right; }

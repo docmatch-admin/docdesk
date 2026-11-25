@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../icons";
 import { LabDrawer } from "./lab-drawer";
-import { LAB_TABS, lastLabPage, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
+import { LAB_PAGE_SIZE, LAB_TABS, lastLabPage, NOTIFY_LABEL, parseLabTab, type LabResult, type LabSummary, type LabTab } from "@/lib/lab-results-rules";
 
 interface SyncInfo { last_ok_at: string | null; last_run_at: string | null; last_error: string | null }
 interface GroupInfo { group_id?: string | null; candidate_id?: string | null; candidate_at?: string | null }
@@ -62,6 +62,8 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
   const [qDebounced, setQDebounced] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  // ลำดับหน้าชื่อนับต่อกันทุกหน้า (หน้า 2 เริ่มที่ 15) · ใช้หน้าที่ server ตอบจริง ระหว่างโหลดหน้าถัดไปเลขไม่เปลี่ยนก่อนแถว
+  const [offset, setOffset] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -103,6 +105,7 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
     if (j) {
       setRows(j.results ?? []);
       setTotal(j.total ?? (j.results ?? []).length);
+      setOffset(((typeof j.page === "number" ? j.page : page) - 1) * (typeof j.pageSize === "number" ? j.pageSize : LAB_PAGE_SIZE));
       if (typeof j.page === "number" && j.page !== page) setPage(j.page);
       setSync(j.sync ?? null);
       setSummary(j.summary ?? null);
@@ -170,13 +173,13 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
             {loading && !rows.length && <div className="muted small">กำลังโหลด…</div>}
             {!loading && !rows.length && <div className="muted small">ไม่มีรายการ</div>}
             {onlyId && <p className="small">แสดงรายการจากลิงก์ · <button type="button" className="link-btn" onClick={() => setOnlyId(null)}>ดูทั้งหมด</button></p>}
-            {rows.map((r) => {
+            {rows.map((r, i) => {
               const unmatched = r.match_status === "unmatched";
               const chip = r.notify_status === "unreachable" && r.patient_id && lineReady[r.patient_id] ? "lab-chip wait" : NOTIFY_CLASS[r.notify_status];
               return (
                 <div key={r.id} className={`lab-m-item ${unmatched ? "unmatched" : ""}`} onClick={() => setSelected(r.id)}>
                   <div className="lab-m-top">
-                    <span className="lab-m-name">{r.patient_name || "–"}<span className="muted"> · {r.patient_id ? `HN ${hnOf(r)}` : "ไม่พบ HN"}</span></span>
+                    <span className="lab-m-name"><span className="lab-no">{offset + i + 1}.</span> {r.patient_name || "–"}<span className="muted"> · {r.patient_id ? `HN ${hnOf(r)}` : "ไม่พบ HN"}</span></span>
                     <span className="lab-m-date">{shortTh(r.order_datetime)}</span>
                   </div>
                   <div className="lab-m-meta">
@@ -242,14 +245,15 @@ export function LabResultsClient({ isAdmin, initialId, initialTab }: { isAdmin: 
           <div className="report-table-wrap">
             <table className="report-table lab-table">
               <thead>
-                <tr><th scope="col">คนไข้</th><th scope="col">สั่งตรวจ</th><th scope="col">แจ้งคนไข้</th><th scope="col">คนไข้เปิดดู</th><th scope="col">นัดฟังผล</th><th scope="col" className="lab-pdf-col"><span className="sr-only">ไฟล์ผล</span></th></tr>
+                <tr><th scope="col" className="lab-no-col">#</th><th scope="col">คนไข้</th><th scope="col">สั่งตรวจ</th><th scope="col">แจ้งคนไข้</th><th scope="col">คนไข้เปิดดู</th><th scope="col">นัดฟังผล</th><th scope="col" className="lab-pdf-col"><span className="sr-only">ไฟล์ผล</span></th></tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {rows.map((r, i) => {
                   const unmatched = r.match_status === "unmatched";
                   const cls = ["lab-click", unmatched ? "lab-row-unmatched" : "", selected === r.id ? "on" : ""].filter(Boolean).join(" ");
                   return (
                     <tr key={r.id} className={cls} onClick={() => setSelected(r.id)}>
+                      <td className="lab-no-col lab-no">{offset + i + 1}</td>
                       <td className="lab-who">
                         <button type="button" className="lab-open" onClick={(e) => { e.stopPropagation(); setSelected(r.id); }}>{r.patient_name || "–"}</button>
                         <span className="muted small">{r.patient_id ? ` · HN ${hnOf(r)}` : ""}</span>

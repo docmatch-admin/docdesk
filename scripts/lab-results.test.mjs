@@ -885,17 +885,17 @@ test("แท็บกรองใน SQL ให้ผลตรงกับ inLab
   assert.deepEqual(rules.labTabFilters("unviewed"), [{ col: "notify_status", eq: "sent" }, { col: "first_viewed_at", isNull: true }]);
 });
 
-test("แบ่งหน้า 15 รายการ: หน้าแรก · หน้าสุดท้าย · ขอเกินหน้าสุดท้าย = หน้าสุดท้าย · ไม่มีรายการ · ลำดับคงที่เมื่อเวลาเท่ากัน", async () => {
+test("แบ่งหน้า 14 รายการ: หน้าแรก · หน้าสุดท้าย · ขอเกินหน้าสุดท้าย = หน้าสุดท้าย · ไม่มีรายการ · ลำดับคงที่เมื่อเวลาเท่ากัน", async () => {
   state.tables.lab_results = Array.from({ length: 65 }, (_, k) => labRow(k + 1));
   const p1 = await store.listLabResults({ page: 1 });
-  assert.equal(p1.rows.length, 15);
+  assert.equal(p1.rows.length, 14);
   assert.equal(p1.total, 65);
-  assert.equal(p1.pageSize, 15);
+  assert.equal(p1.pageSize, 14);
   assert.equal(p1.rows[0].id, "lab-065", "ล่าสุดก่อน");
   const p5 = await store.listLabResults({ page: 5 });
-  assert.deepEqual([p5.page, p5.rows.length, p5.rows.at(-1).id], [5, 5, "lab-001"]);
+  assert.deepEqual([p5.page, p5.rows.length, p5.rows.at(-1).id], [5, 9, "lab-001"], "65 = 14×4 + 9");
   const beyond = await store.listLabResults({ page: 9 });
-  assert.deepEqual([beyond.page, beyond.rows.length], [5, 5], "ขอเกิน = หน้าสุดท้าย ไม่ใช่หน้าว่าง");
+  assert.deepEqual([beyond.page, beyond.rows.length], [5, 9], "ขอเกิน = หน้าสุดท้าย ไม่ใช่หน้าว่าง");
   for (const bad of [0, -2, Number.NaN, 1.7]) assert.equal((await store.listLabResults({ page: bad })).page, 1);
   const all = [];
   for (const page of [1, 2, 3, 4, 5]) all.push(...(await store.listLabResults({ page })).rows.map((r) => r.id));
@@ -905,13 +905,13 @@ test("แบ่งหน้า 15 รายการ: หน้าแรก · �
   const a = [...(await store.listLabResults({ page: 1 })).rows, ...(await store.listLabResults({ page: 2 })).rows, ...(await store.listLabResults({ page: 3 })).rows].map((r) => r.id);
   assert.equal(new Set(a).size, 40);
   state.tables.lab_results = [];
-  assert.deepEqual(await store.listLabResults({ page: 4 }), { rows: [], total: 0, page: 1, pageSize: 15 }, "ไม่มีรายการ = หน้า 1 จาก 1");
+  assert.deepEqual(await store.listLabResults({ page: 4 }), { rows: [], total: 0, page: 1, pageSize: 14 }, "ไม่มีรายการ = หน้า 1 จาก 1");
   // เจอบน production: 14 รายการ ขอหน้า 2 → PostgREST ตอบ range ไม่ได้ (ไม่มี count) ต้องได้หน้าสุดท้ายพร้อมจำนวนจริง
   state.tables.lab_results = Array.from({ length: 14 }, (_, k) => labRow(k + 1));
   assert.deepEqual((({ page, total, rows }) => [page, total, rows.length])(await store.listLabResults({ page: 2 })), [1, 14, 14]);
   assert.equal(rules.lastLabPage(0), 1);
-  assert.equal(rules.lastLabPage(30), 2);
-  assert.equal(rules.lastLabPage(31), 3);
+  assert.equal(rules.lastLabPage(28), 2);
+  assert.equal(rules.lastLabPage(29), 3);
 });
 
 test("แผงขวาของแชท: ไม่แบ่งหน้า แต่ไม่เกิน 50 รายการ", async () => {
@@ -976,12 +976,12 @@ test("การ์ดสรุปนับด้วย count อย่างเ�
 });
 
 test("API รายการ: ?page= · คืน total/page/pageSize · ข้อมูลเสริมเฉพาะแถวในหน้า · Server-Timing", async () => {
-  state.tables.lab_results = Array.from({ length: 16 }, (_, k) => labRow(k + 1));
+  state.tables.lab_results = Array.from({ length: 15 }, (_, k) => labRow(k + 1));
   const get = async (qs) => listRoute.GET(new Request(`https://app.test/api/lab-results?${qs}`));
   const res = await get("page=2");
   assert.equal(res.status, 200);
   const j = await res.json();
-  assert.deepEqual([j.page, j.pageSize, j.total, j.results.length], [2, 15, 16, 1]);
+  assert.deepEqual([j.page, j.pageSize, j.total, j.results.length], [2, 14, 15, 1]);
   assert.match(res.headers.get("server-timing") ?? "", /list;dur=[\d.]+.*extra;dur=/);
   const route = readFileSync("src/app/api/lab-results/route.ts", "utf8");
   assert.match(route, /const results = list\.rows;/, "ข้อมูลเสริมจากแถวของหน้านี้เท่านั้น");
@@ -1010,4 +1010,13 @@ test("migration 067: index ของแท็บที่กรองใน SQL"
   assert.match(sql, /lab_results \(order_datetime desc\) where match_status = 'unmatched'/);
   assert.match(sql, /where notify_status = 'sent' and first_viewed_at is null/);
   assert.match(sql, /lab_results \(notify_status, order_datetime desc\)/);
+});
+
+test("ลำดับหน้าชื่อในหน้าผลแล็บ: นับต่อกันทุกหน้า (หน้า 2 เริ่มที่ 15) ทั้งตารางและมือถือ", () => {
+  const ui = readFileSync("src/app/(staff)/lab-results/lab-results-client.tsx", "utf8");
+  assert.match(ui, /setOffset\(\(\(typeof j\.page === "number" \? j\.page : page\) - 1\) \* \(typeof j\.pageSize === "number" \? j\.pageSize : LAB_PAGE_SIZE\)\)/);
+  assert.match(ui, /<th scope="col" className="lab-no-col">#<\/th><th scope="col">คนไข้<\/th>/, "คอลัมน์ลำดับอยู่หน้าคนไข้");
+  assert.match(ui, /<td className="lab-no-col lab-no">\{offset \+ i \+ 1\}<\/td>\s*<td className="lab-who">/);
+  assert.match(ui, /<span className="lab-no">\{offset \+ i \+ 1\}\.<\/span> \{r\.patient_name/, "มือถือ: เลขหน้าชื่อ");
+  assert.equal(rules.LAB_PAGE_SIZE, 14);
 });
